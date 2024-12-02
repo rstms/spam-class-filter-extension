@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "version": "1.0",
+  "author": "Reliance Systems",
+  "name": "Spam Class Control",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "filterctl@rstms.net"
+    }
+  },
+  "action": {
+    "default_title": "Spam Filter Classes"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+  "background": {
+    "page": "background.html"
+  },
+  "permissions": [
+      "menus",
+      "accountsRead",
+      "compose",
+      "compose.save",
+      "compose.send",
+      "messagesDelete",
+      "messagesImport",
+      "messagesMove",
+      "messagesRead",
+      "addressBooks",
+      "storage",
+      "theme",
+      "tabs",
+      "activeTab",
+      "scripting"
+  ]
+}

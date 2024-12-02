@@ -1,0 +1,53 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+    <title>Spam Filter Classes</title>
+    <script type="module" src="editor.js"></script>
+    <style>
+	body {
+	    padding: 20px;
+	}
+	<link rel="stylesheet" href="style.css"></link>
+    </style>
+</head>
+
+<body>
+
+    <div class="hidden-vars">
+	<span id="account-id"></span>
+    </div>
+
+    <div class="account-container">
+        <label for="account-title">Account:</label>
+	<span id="account-title"></span>
+    </div>
+
+    <p>
+
+    <div class="classes-container">
+	<table id="level-table">
+	    <thead>
+		<tr>
+		    <th>Name</th> <th>Threshold</th>
+		</tr> 
+	    </thead> 
+	    <tbody id="level-table-body">
+	    <!-- Rows will be dynamically generated here -->
+	    </tbody>
+	</table>
+	<div class="button-container">
+	    <button id="add-row-button">Add Level</button>
+	</div>
+    </div>
+
+    <p>
+
+    <div class="button-container">
+	<button id="apply-button" class="browser-style">Apply</button>
+	<button id="cancel-button">Cancel</button>
+	<button id="ok-button">Ok</button>
+    </div>
+
+</body>
