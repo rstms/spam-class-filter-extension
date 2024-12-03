@@ -2,10 +2,11 @@
   "manifest_version": 3,
   "version": "1.0",
   "author": "Reliance Systems",
-  "name": "Spam Class Control",
+  "name": "Spam Filter Class Control",
   "browser_specific_settings": {
     "gecko": {
-      "id": "filterctl@rstms.net"
+      "id": "spam-filter-class-extension@rstms.net",
+      "strict_min_version": "128.0"
     }
   },
   "action": {

@@ -1,75 +1,91 @@
-
-import { getConfig } from "./config.js"; 
+import * as config from "./config.js";
+import { domainPart } from "./common.js";
 
 function defaultAccountId(accounts) {
-    const keys = Object.keys(accounts).sort()
+    const keys = Object.keys(accounts).sort();
     return keys[0];
 }
 
-export function domainPart(text) {
-    return text.split('@')[1];
-}
-
-export async function getAccounts() {
-    var session = await browser.storage.session.get(["accounts"]);
-    if (session.accounts) {
-	return session.accounts;
-    }
-    var ret = {};
+export async function all() {
     try {
-	var accountList = await browser.accounts.list();
-	const config = await getConfig();
-	for (const account of accountList) {
-	    if (account.type === "imap" ) {
-		const domain = domainPart(account.identities[0].email)
-		if ( config.domain[domain] ) {
-		    ret[account.id] = account;
-		}
-	    }
-	}
-	try {
-	    await browser.storage.session.set({accounts: ret});
-	 } catch(error) { console.log("session.set failed:", error); }
-    } catch(error) { console.log("browser.accounts.list failed:", error); }
-    return ret;
-}
-
-export async function getAccount(accountId) {
-    const accounts = await getAccounts();
-    return accounts[accountId];
-}
-
-export async function getCurrentAccount() {
-    const accountId = await getCurrentAccountId;
-    const account = await getAccount(accountId);
-    return account
-}
-
-export async function setCurrentAccount(account = null) {
-    var accountId = null;
-    if ( account ) {
-	accountId = account.id;
+        var session = await browser.storage.session.get(["accounts"]);
+        if (session.accounts) {
+            return session.accounts;
+        }
+        var ret = {};
+        var accountList = await browser.accounts.list();
+        const domains = await config.get("domain");
+        for (const account of accountList) {
+            if (account.type === "imap") {
+                const domain = domainPart(account.identities[0].email);
+                if (domains[domain]) {
+                    ret[account.id] = account;
+                }
+            }
+        }
+        await browser.storage.session.set({ accounts: ret });
+        return ret;
+    } catch (e) {
+        console.error(e);
     }
-    accountId = await setCurrentAccountId(accountId);
-    account = await getAccount(accountId);
-    return account
 }
 
-export async function setCurrentAccountId(accountId = null) {
-    const accounts = await getAccounts();
-    if (!accounts[accountId]) {
-	accountId=defaultAccountId(accounts);
-	console.log("invalid accountID; setting currentAccountID to:", accountId);
+export async function get(accountId) {
+    try {
+        const accounts = await all();
+        return accounts[accountId];
+    } catch (e) {
+        console.error(e);
     }
-    await browser.storage.session.set({currentAccountId: accountId});
-    return accountId;
 }
 
-export async function getCurrentAccountId() {
-    const session = await browser.storage.session.get(["currentAccountId"]);
-    if (session.currentAccountId) {
-	return session.currentAccountId;
+export async function current() {
+    try {
+        const accountId = await currentId();
+        const account = await get(accountId);
+        return account;
+    } catch (e) {
+        console.error(e);
     }
-    const accounts = await getAccounts();
-    return defaultAccountId(accounts);
+}
+
+export async function setCurrent(account = null) {
+    try {
+        var accountId = null;
+        if (account) {
+            accountId = account.id;
+        }
+        accountId = await setCurrentId(accountId);
+        account = await get(accountId);
+        return account;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export async function setCurrentId(accountId = null) {
+    try {
+        const accounts = await all();
+        if (!accounts[accountId]) {
+            accountId = defaultAccountId(accounts);
+            console.log("invalid accountID; setting currentAccountID to:", accountId);
+        }
+        await browser.storage.session.set({ currentAccountId: accountId });
+        return accountId;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export async function currentId() {
+    try {
+        const session = await browser.storage.session.get(["currentAccountId"]);
+        if (session.currentAccountId) {
+            return session.currentAccountId;
+        }
+        const accounts = await all();
+        return defaultAccountId(accounts);
+    } catch (e) {
+        console.error(e);
+    }
 }

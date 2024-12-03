@@ -1,4 +1,3 @@
-
 async function onOptionsSave(event) {
     console.log("options saved clicked:", event);
     var useEmail = document.getElementById("options-use-email");
@@ -6,4 +5,3 @@ async function onOptionsSave(event) {
 }
 
 document.getElementById("options-save-button").addEventListener("click", onOptionsSave);
-

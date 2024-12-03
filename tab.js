@@ -1,5 +1,6 @@
-async function getSystemTheme() {
-    var systemTheme = {};
+/*
+function getSystemTheme() {
+    var theme = {};
 
     const tempDiv = document.createElement("div");
 
@@ -14,16 +15,35 @@ async function getSystemTheme() {
     tempDiv.appendChild(tempButton);
 
     // Retrieve font properties
-    //systemTheme.buttonStyle = window.getComputedStyle(tempButton);
+    const buttonStyle = window.getComputedStyle(tempButton);
+    theme.button = {};
+
+    theme.button.fontFamily = buttonStyle.fontFamily;
+    theme.button.fontSize = buttonStyle.fontSize;
+    theme.button.fontWeight = buttonStyle.fontWeight;
+    theme.button.color = buttonStyle.color;
+    theme.button.backgroundColor = buttonStyle.backgroundColor;
+    theme.button.margin = buttonStyle.margin;
+    theme.button.padding = buttonStyle.padding;
+    theme.button.border = buttonStyle.border;
+    theme.button.borderRadius = buttonStyle.borderRadius;
 
     // Get computed styles
-    systemTheme.divStyle = window.getComputedStyle(tempDiv);
+    const style = window.getComputedStyle(tempDiv);
+    theme.div = {};
+    theme.div.fontFamily = style.fontFamily;
+    theme.div.fontSize = style.fontSize;
+    theme.div.fontWeight = style.fontWeight;
+    //theme.div.color = style.color;
 
     // Remove the temporary element from the DOM
-    await document.body.removeChild(tempDiv);
+    document.body.removeChild(tempDiv);
 
-    return systemTheme;
+    return theme;
 }
+
+//getSystemTheme();
+*/
 
 var port = null;
 
@@ -31,25 +51,21 @@ async function handlePortMessage(message, sender) {
     try {
         switch (message.id) {
             case "ping":
-                await sender.postMessage({ id: "pong", src: "content" });
+                await sender.postMessage({ id: "pong", src: "tab" });
                 break;
             case "getSystemTheme":
-                var theme;
                 try {
-                    theme = await browser.theme.getCurrent();
-                    //theme = await getSystemTheme();
+                    //var theme = await getSystemTheme();
+                    var theme = { disabled: true };
                     sender.postMessage({
                         id: "getSystemThemeResponse",
                         systemTheme: theme,
                         responseId: message.requestId,
                     });
                 } catch (e) {
-                    //var consoleText = JSON.stringify(window.console, null, 2);
                     sender.postMessage({
-                        id: "getSystemThemeResponse",
-                        systemTheme: {},
+                        id: "getSystemThemeError",
                         error: e,
-                        responseId: message.requestId,
                     });
                 }
                 break;
@@ -61,9 +77,9 @@ async function handlePortMessage(message, sender) {
 
 async function connectToBackground() {
     try {
-        port = await browser.runtime.connect({ name: "content" });
+        port = await browser.runtime.connect({ name: "tab" });
         port.onMessage.addListener(handlePortMessage);
-        //await port.postMessage({ id: "ping", source: "content" });
+        await port.postMessage({ id: "ping", source: "tab" });
     } catch (e) {
         console.error(e);
     }

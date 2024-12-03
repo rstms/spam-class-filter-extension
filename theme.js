@@ -1,7 +1,5 @@
-
 export async function getSystemTheme() {
-
-    console.log("getSystemTheme document:", document)
+    console.log("getSystemTheme document:", document);
 
     const tempDiv = document.createElement("div");
     var systemTheme = {};
