@@ -198,7 +198,7 @@ async function handleWindowRemoved(closedId) {
 
 async function initialize(mode) {
     try {
-        console.log("initialize[" + mode + "]", window, document);
+        console.log(mode, window);
         await showEditor();
         //executeContentScript();
         //const port = await ports.get("tab");
