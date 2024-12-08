@@ -1,65 +1,171 @@
 <!doctype html>
-<html lang="en" data-bs-theme="auto">
+<html data-bs-theme="dark" lang="en">
     <head>
-        <!--
-	<link rel="stylesheet" href="./style.css"></link>
-    -->
-        <script src="./assets/js/color-modes.js"></script>
         <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="description" content="" />
-        <meta name="author" content="Matt Krueger, Reliance Systems, Inc." />
-        <title>Spam Filter Class Editor</title>
-        <link rel="stylesheet" href="./assets/dist/css/bootstrap.min.css" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
+        <title>Spam Filter Classes</title>
+        <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css" />
+        <link rel="stylesheet" href="assets/css/styles.css" />
+        <script type="module" src="editor.js"></script>
     </head>
+
     <body>
         <div class="container-fluid">
-            <form>
-                <div class="row">
-                    <div class="col">
-                        <div class="mb-3">
-                            <label for="account-select" class="form-label form-label-sm">Selected Account</label>
-                            <select id="account-select" class="form-select form-select-sm" aria-label="Selected Account">
-                                <option selected>Open this select menu</option>
-                                <option value="1">One</option>
-                                <option value="2">Two</option>
-                                <option value="3">Three</option>
-                            </select>
+            <div class="row">
+                <div class="col">
+                    <div class="vstack gap-2">
+                        <div></div>
+                        <div>
+                            <a
+                                class="btn btn-primary btn-sm"
+                                data-bs-toggle="collapse"
+                                aria-expanded="false"
+                                aria-controls="collapse-1"
+                                href="#collapse-1"
+                                role="button"
+                                id="help-button"
+                                >Show Help</a
+                            >
+                            <div class="collapse" id="collapse-1">
+                                <div class="vstack gap-2">
+                                    <div></div>
+                                    <div class="hstack gap-2 border rounded-0">
+                                        <div></div>
+                                        <p id="help-text">help text<br /><br /></p>
+                                        <div></div>
+                                    </div>
+                                    <div class="bg-light-subtle border rounded-0"></div>
+                                </div>
+                            </div>
                         </div>
+                        <div></div>
+                        <div class="row gx-2">
+                            <div class="col-2">
+                                <div class="input-group">
+                                    <span class="d-md-flex flex-fill justify-content-end input-group-text">Account</span>
+                                </div>
+                            </div>
+                            <div class="col-10 d-flex">
+                                <select class="d-flex flex-fill" id="account-select">
+                                    <optgroup label="This is a group">
+                                        <option value="12" selected="">This is item 1</option>
+                                        <option value="13">This is item 2</option>
+                                        <option value="14">This is item 3</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row gx-2">
+                            <div class="col-2 text-end d-flex">
+                                <div class="input-group">
+                                    <span class="d-md-flex flex-fill justify-content-end input-group-text">Status</span>
+                                </div>
+                            </div>
+                            <div class="col-10 d-flex justify-content-md-start align-items-md-center">
+                                <div class="bg-body-secondary d-flex flex-fill align-self-stretch align-items-md-center">
+                                    <div class="hstack gap-2 d-flex flex-fill">
+                                        <div></div>
+                                        <input type="checkbox" id="status-changed-checkbox" disabled="" />
+                                        <div>
+                                            <span class="fs-6 fw-normal align-content-center" id="status-changed-span">Changed</span>
+                                        </div>
+                                        <div></div>
+                                        <div class="flex-fill" id="status-message-div">
+                                            <span class="fs-6 fw-normal align-content-center" id="status-message-span">Changed</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div></div>
+                        <div class="border rounded-0" id="level-table-div">
+                            <div class="table-responsive d-inline-flex" id="class-table">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th class="fw-normal">Class</th>
+                                            <th class="fw-normal">Threshold</th>
+                                            <th></th>
+                                            <th></th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="level-table-body">
+                                        <tr>
+                                            <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*" /></td>
+                                            <td>
+                                                <input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*" />
+                                            </td>
+                                            <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1" /></td>
+                                            <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                            <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                        </tr>
+                                        <tr>
+                                            <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*" /></td>
+                                            <td>
+                                                <input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*" />
+                                            </td>
+                                            <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1" /></td>
+                                            <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                            <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                        </tr>
+                                        <tr>
+                                            <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*" /></td>
+                                            <td>
+                                                <input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*" />
+                                            </td>
+                                            <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1" /></td>
+                                            <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                            <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                        </tr>
+                                        <tr>
+                                            <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*" /></td>
+                                            <td>
+                                                <input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*" />
+                                            </td>
+                                            <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1" /></td>
+                                            <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                            <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col">
+                                <div class="input-group flex-row-reverse justify-content-end">
+                                    <span class="input-group-text">Reset current account classes to default values.</span
+                                    ><button class="btn btn-primary" id="defaults-button" type="button">Set to Defaults</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col">
+                                <div class="input-group flex-row-reverse justify-content-end">
+                                    <span class="input-group-text">Read class data from all mail servers</span
+                                    ><button class="btn btn-primary" id="refresh-button" type="button">
+                                        Refresh from Servers&nbsp;
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div></div>
+                        <div class="row justify-content-end">
+                            <div class="col-auto flex-shrink-0">
+                                <button class="btn btn-primary" id="apply-button" type="button">Apply</button>
+                            </div>
+                            <div class="col-auto">
+                                <button class="btn btn-primary" id="cancel-button" type="button">Cancel</button>
+                            </div>
+                            <div class="col-auto">
+                                <button class="btn btn-primary" id="ok-button" type="button">&nbsp; Ok&nbsp;&nbsp;</button>
+                            </div>
+                        </div>
+                        <div></div>
                     </div>
                 </div>
-
-                <div class="row">
-                    <div class="col">
-                        <table id="level-table">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Threshold</th>
-                                </tr>
-                            </thead>
-                            <tbody id="level-table-body">
-                                <!-- Rows will be dynamically generated here -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="row">
-                    <div class="col">
-                        <button id="add-row-button" class="btn btn-default">Add Row</button>
-                    </div>
-                </div>
-                <div class="row justify-content-end">
-                    <div class="col justify-content-end">
-                        <button class="btn btn-outline-primary btn-sm" id="apply-button">Apply</button>
-                        <button class="btn btn-outline-primary btn-sm" id="cancel-button">Cancel</button>
-                        <button class="btn btn-outline-primary btn-sm" id="ok-button">Ok</button>
-                    </div>
-                </div>
-            </form>
+            </div>
         </div>
-        <script src="./assets/dist/js/bootstrap.bundle.min.js"></script>
-        <script type="module" src="./editor.js"></script>
+        <script src="assets/bootstrap/js/bootstrap.min.js"></script>
     </body>
 </html>

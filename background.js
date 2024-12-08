@@ -1,144 +1,89 @@
-import * as accounts from "./accounts.js";
-import { getClasses } from "./classes.js";
-import * as config from "./config.js";
-import { setThemeHook } from "./email.js";
+import { Classes } from "./classes.js";
+import { config } from "./config.js";
 import * as requests from "./request.js";
 import * as ports from "./ports.js";
+import { domainPart } from "./common.js";
 
 var editor = null;
 var systemTheme = null;
+var editorWindowSize = null;
+var editorWindowResolve = null;
 
-async function registerComposeContentScript() {
+var classes = new Classes();
+var accounts = null;
+var currentAccount = null;
+
+const EDITOR_WINDOW_LOAD_TIMEOUT = 5000;
+
+function defaultAccount() {
     try {
-        const scriptId = "spam_filter_class_compose_content";
-
-        if (!(await isRegisteredComposeScript(scriptId))) {
-            const scripts = [
-                {
-                    id: scriptId,
-                    js: ["content.js"],
-                },
-            ];
-
-            await messenger.scripting.compose.registerScripts(scripts);
-            const script = await isRegisteredComposeScript(scriptId);
-            if (!script) {
-                throw new Error("content script not registered");
-            }
-        }
-    } catch (error) {
-        console.error("registerScripts failed:", error);
-    }
-}
-
-async function isRegisteredComposeScript(scriptId) {
-    try {
-        const scripts = await messenger.scripting.compose.getRegisteredScripts();
-        for (var script of scripts) {
-            if (script.id === scriptId) {
-                return script;
-            }
-        }
-        return null;
+        const keys = Object.keys(accounts).sort();
+        return accounts[keys[0]];
     } catch (e) {
         console.error(e);
     }
 }
 
-async function executeContentScript() {
+export async function initializeAccounts() {
     try {
-        const tabs = await browser.tabs.query({ type: "mail" });
-        const tid = tabs[0].id;
-        const injection = {
-            target: { tabId: tid },
-            files: ["tab.js"],
-            injectImmediately: true,
-        };
-        const result = await browser.scripting.executeScript(injection);
-        console.log("execute result:", result);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function registerContentScript() {
-    try {
-        const scriptId = "spam_filter_class_content";
-
-        if (!(await isRegisteredScript(scriptId))) {
-            const scripts = [
-                {
-                    id: scriptId,
-                    js: ["tab.js"],
-                    matches: ["<all_urls>"],
-                },
-            ];
-
-            await browser.scripting.registerContentScripts(scripts);
-            const script = await isRegisteredScript(scriptId);
-            if (!script) {
-                throw new Error("content script not registered");
+        accounts = {};
+        const accountList = await browser.accounts.list();
+        const domains = await config.local.get("domain");
+        //console.log("accounts.GetAll domains:", domains);
+        for (const account of accountList) {
+            if (account.type === "imap") {
+                const domain = domainPart(account.identities[0].email);
+                //console.log("accounts.GetAll checking domain:", domain);
+                if (domains[domain]) {
+                    accounts[account.id] = account;
+                }
             }
         }
-    } catch (error) {
-        console.error("registerScripts failed:", error);
-    }
-}
-
-async function isRegisteredScript(scriptId) {
-    try {
-        const scripts = await browser.scripting.getRegisteredContentScripts();
-        for (var script of scripts) {
-            if (script.id === scriptId) {
-                return script;
-            }
-        }
-        return null;
+        currentAccount = defaultAccount();
     } catch (e) {
         console.error(e);
-    }
-}
-
-function handleStorageChange(changes, areaName) {
-    for (const [key, { newValue, oldValue }] of Object.entries(changes)) {
-        console.log("storage changed:", areaName, key, oldValue, newValue);
     }
 }
 
 async function createWindow(name) {
     try {
-        var defaults = {};
-        switch (name) {
-            case "editor":
-                defaults = {
-                    width: 500,
-                    height: 400,
-                };
-        }
-        const pos = await config.windowPosition.get(name, defaults);
-        var args = {
-            url: `./${name}.html`,
-            type: "popup",
-            allowScriptsToClose: true,
-            height: pos.height,
-            width: pos.width,
-        };
-        if (pos.top) {
-            args.top = pos.top;
-        }
-        if (pos.left) {
-            args.left = pos.left;
-        }
+        let args = await config.windowPosition.get(name);
+        args.url = `./${name}.html`;
+        args.type = "popup";
+        args.allowScriptsToClose = true;
         return await browser.windows.create(args);
     } catch (e) {
         console.error(e);
     }
 }
 
+function createEditorWindow() {
+    return new Promise((resolve, reject) => {
+        try {
+            var timer = setTimeout(() => {
+                reject(new Error("editor window timeout"));
+            }, EDITOR_WINDOW_LOAD_TIMEOUT);
+
+            editorWindowResolve = (size) => {
+                //console.log("editor window resolver:", size);
+                clearTimeout(timer);
+                editorWindowResolve = null;
+                resolve(size);
+            };
+
+            createWindow("editor").then((e) => {
+                editor = e;
+                //console.log("editor window created:", editor);
+            });
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
 async function showEditor() {
     try {
-        const accountId = await accounts.currentId();
-        await getClasses(accountId);
+        await loadClasses(true);
 
         if (editor) {
             console.log("sending selectAccount");
@@ -147,43 +92,36 @@ async function showEditor() {
             console.log("selectAccount result:", result);
             return;
         }
-
-        editor = await createWindow("editor");
+        //console.log("calling createEditorWindow...");
+        const size = await createEditorWindow();
+        //console.log("createEditorWindow returned:", size);
+        //console.log("editor:", editor);
+        await browser.windows.update(editor.id, size);
     } catch (e) {
         console.error(e);
     }
 }
 
 async function handleIconClicked() {
-    //var theme = await browser.theme.getCurrent();
-    //console.log("theme:", theme);
-    /*
-    try {
-        if (editor) {
-            const port = await ports.get("editor");
-            const response = await requests.sendMessage(port, { id: "howdy", responseKey: "text" });
-            console.log("howdy response:", response);
-        } else {
-            console.log("no editor");
-        }
-    } catch (e) {
-        console.error(e);
-    }
-    */
     await showEditor();
 }
 
 async function handleMenuClick(info, tab) {
     try {
-        if (info.menuItemId === "rstms-filterctl-menu") {
-            var accountId;
-            if (info.selectedAccount) {
-                accountId = info.selectedAccount.id;
-            } else {
-                accountId = info.selectedFolders[0].accountId;
-            }
-            await accounts.setCurrentId(accountId);
-            await showEditor();
+        switch (info.menuItemId) {
+            case "rstms-filterctl-context-menu":
+                var accountId;
+                if (info.selectedAccount) {
+                    accountId = info.selectedAccount.id;
+                } else {
+                    accountId = info.selectedFolders[0].accountId;
+                }
+                currentAccount = accounts[accountId];
+                await showEditor();
+                break;
+            case "rstms-filterctl-tools-menu":
+                await showEditor();
+                break;
         }
     } catch (e) {
         console.error(e);
@@ -197,47 +135,36 @@ async function handleWindowRemoved(closedId) {
 }
 
 async function initialize(mode) {
+    await initializeAccounts();
     try {
         console.log(mode, window);
-        await showEditor();
-        //executeContentScript();
-        //const port = await ports.get("tab");
-        //const response = await requests.sendMessage(port, { id: "getSystemTheme", responseKey: "systemTheme" });
-        //console.log("theme:", response);
-        //await config.set("systemTheme", response, config.SESSION);
-        //registerContentScript();
-        //registerComposeContentScript();
-        //setThemeHook(requestSystemTheme);
+        //await showEditor();
     } catch (e) {
         console.error(e);
     }
 }
 
 browser.menus.create({
-    id: "rstms-filterctl-menu",
+    id: "rstms-filterctl-context-menu",
     title: "Spam Class Thresholds",
     contexts: ["folder_pane"],
 });
 
+browser.menus.create({
+    id: "rstms-filterctl-tools-menu",
+    title: "Spam Class Thresholds",
+    contexts: ["tools_menu"],
+});
+
 async function handleStartup() {
+    await config.session.reset();
     await initialize("startup");
 }
 
 async function handleInstalled() {
+    await config.local.reset();
+    await config.session.reset();
     await initialize("installed");
-}
-
-async function requestSystemTheme() {
-    try {
-        console.log("requestSystemTheme called");
-        const port = await ports.get("content");
-        const theme = await requests.sendMessage(port, { id: "getSystemTheme", responseKey: "systemTheme" });
-        console.log("received theme:", theme);
-        await config.set("systemTheme", theme, config.SESSION);
-        await setThemeHook(null);
-    } catch (e) {
-        console.error(e);
-    }
 }
 
 async function handleMessage(message, sender) {
@@ -251,14 +178,54 @@ async function handleMessage(message, sender) {
                 case "getSystemTheme":
                     requests.respond(sender, message, { systemTheme: systemTheme });
                     break;
+                case "editorWindowLoaded":
+                    editorWindowResolve({ height: message.height, width: message.width });
                 case "resizeEditorWindow":
-                    await browser.windows.update(editor.id, { height: message.height, width: message.width });
+                    editorWindowSize = { height: message.height, width: message.width };
+                    if (editor) {
+                        await browser.windows.update(editor.id, editorWindowSize);
+                    }
+                    requests.respond(sender, message);
+                    break;
+                case "saveWindowPosition":
+                    await config.windowPosition.set(message.name, {
+                        left: message.left,
+                        top: message.top,
+                        height: message.height,
+                        width: message.width,
+                    });
+                case "getClasses":
+                    const levels = await classes.get(accounts[message.accountId]);
+                    requests.respond(sender, message, { levels: levels });
+                    break;
+                case "setClasses":
+                    var state = await classes.set(accounts[message.accountId], message.levels);
+                    requests.respond(sender, message, { state: state });
+                    break;
+                case "getAccounts":
+                    requests.respond(sender, message, { accounts: accounts });
+                    break;
+                case "getCurrentAccountId":
+                    requests.respond(sender, message, { accountId: currentAccount.id });
+                    break;
+                case "setDefaultLevels":
+                    await classes.setDefaultLevels(accounts[message.accountId]);
+                    requests.respond(sender, message);
+                    break;
+                case "refreshAll":
+                    await loadClasses(true);
                     requests.respond(sender, message);
                     break;
             }
         }
     } catch (e) {
         console.error(e);
+    }
+}
+
+async function loadClasses(force = false) {
+    for (const account of Object.values(accounts)) {
+        await classes.get(account, force);
     }
 }
 
@@ -285,9 +252,7 @@ async function handleConnect(port) {
 
 browser.runtime.onStartup.addListener(handleStartup);
 browser.runtime.onInstalled.addListener(handleInstalled);
-
 browser.menus.onClicked.addListener(handleMenuClick);
 browser.action.onClicked.addListener(handleIconClicked);
 browser.windows.onRemoved.addListener(handleWindowRemoved);
-browser.storage.onChanged.addListener(handleStorageChange);
 browser.runtime.onConnect.addListener(handleConnect);

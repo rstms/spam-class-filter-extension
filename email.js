@@ -1,4 +1,3 @@
-import * as accounts from "./accounts.js";
 import { domainPart } from "./common.js";
 
 var themeHook = null;
@@ -7,9 +6,8 @@ export function setThemeHook(func) {
     themeHook = func;
 }
 
-async function sendFilterControlMessage(accountId, subject) {
+async function sendFilterControlMessage(account, subject) {
     try {
-        const account = await accounts.get(accountId);
         const identity = account.identities[0];
         const domain = domainPart(identity.email);
         const msg = {
@@ -48,7 +46,7 @@ async function getMessageBody(message) {
     }
 }
 
-export function sendEmailRequest(accountId, command) {
+export function sendEmailRequest(account, command) {
     //console.log("sendEmailRequest:", account, command);
     return new Promise((resolve, reject) => {
         function removeListener() {
@@ -61,14 +59,14 @@ export function sendEmailRequest(accountId, command) {
 
         function handleNewMail(folder, messageList) {
             try {
-                console.log("handleNewMail[" + accountId + "] messages:", messageList.messages.length);
+                console.log("handleNewMail[" + account.id + "] messages:", messageList.messages.length);
                 for (const message of messageList.messages) {
-                    if (message.subject === "filterctl response" && message.folder.accountId === accountId) {
+                    if (message.subject === "filterctl response" && message.folder.accountId === account.id) {
                         console.log("filterctl response:", message);
                         removeListener();
                         var response = {
                             command: command,
-                            accountId: accountId,
+                            accountId: account.id,
                         };
 
                         getMessageBody(message).then((body) => {
@@ -86,7 +84,7 @@ export function sendEmailRequest(accountId, command) {
 
         try {
             browser.messages.onNewMailReceived.addListener(handleNewMail);
-            sendFilterControlMessage(accountId, command)
+            sendFilterControlMessage(account, command)
                 .then(() => {
                     return;
                 })

@@ -20,7 +20,7 @@ async function awaitPopup(windowName, args = {}) {
 
             function messageListener(request, sender, sendResponse) {
                 console.log("awaitPopup[" + popupId + "] messageListener:", request, sender, sendResponse);
-                if (sender.tab.windowId != popupId) {
+                if (sender.tab.windowId !== popupId) {
                     console.log("awaitPopup sender id mismatch:", sender.tab.windowId);
                 } else if (request.popupResponse) {
                     response = request.popupResponse;

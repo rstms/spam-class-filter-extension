@@ -50,6 +50,7 @@ class Request {
         if (typeof result === "object" && this.responseKey) {
             result = result[this.responseKey];
         }
+        console.log("resolving response:", result);
         this.resolvePromise(result);
     }
 }

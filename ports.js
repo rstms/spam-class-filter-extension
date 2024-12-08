@@ -51,6 +51,9 @@ function manage(port, op) {
                     case REMOVE_PORT:
                         waiter.reject(new Error("port removed:", name));
                         break;
+                    default:
+                        throw new Error(`unexpected op: ${op}`);
+                        break;
                 }
             }
         }
