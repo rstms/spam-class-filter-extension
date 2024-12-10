@@ -1,12 +1,6 @@
 import { domainPart } from "./common.js";
 
-var themeHook = null;
-
-export function setThemeHook(func) {
-    themeHook = func;
-}
-
-async function sendFilterControlMessage(account, subject) {
+async function sendFilterControlMessage(account, subject, position) {
     try {
         const identity = account.identities[0];
         const domain = domainPart(identity.email);
@@ -19,10 +13,10 @@ async function sendFilterControlMessage(account, subject) {
         };
         console.log("sending FilterControl Email:", msg);
         const comp = await browser.compose.beginNew();
-        const details = await browser.compose.getComposeDetails(comp.id);
-        if (themeHook) {
-            await themeHook();
+        if (position && position !== {}) {
+            await browser.windows.update(comp.windowId, position);
         }
+        const details = await browser.compose.getComposeDetails(comp.id);
         await browser.compose.setComposeDetails(comp.id, msg);
         const ret = await browser.compose.sendMessage(comp.id);
         console.log("compose.sendMessage returned:", ret);
@@ -46,7 +40,7 @@ async function getMessageBody(message) {
     }
 }
 
-export function sendEmailRequest(account, command) {
+export function sendEmailRequest(account, command, position) {
     //console.log("sendEmailRequest:", account, command);
     return new Promise((resolve, reject) => {
         function removeListener() {
@@ -84,7 +78,7 @@ export function sendEmailRequest(account, command) {
 
         try {
             browser.messages.onNewMailReceived.addListener(handleNewMail);
-            sendFilterControlMessage(account, command)
+            sendFilterControlMessage(account, command, position)
                 .then(() => {
                     return;
                 })

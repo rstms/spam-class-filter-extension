@@ -1,19 +1,27 @@
 import { Classes } from "./classes.js";
 import { config } from "./config.js";
-import * as requests from "./request.js";
+import * as requests from "./requests.js";
 import * as ports from "./ports.js";
 import { domainPart } from "./common.js";
 
+//const EDITOR_WINDOW_LOAD_TIMEOUT = 5000;
+const EDITOR_WINDOW_LOAD_TIMEOUT = 0;
+
 var editor = null;
 var systemTheme = null;
-var editorWindowSize = null;
 var editorWindowResolve = null;
+var editorPosition = {};
 
 var classes = new Classes();
 var accounts = null;
+
+// account selected in editor
 var currentAccount = null;
 
-const EDITOR_WINDOW_LOAD_TIMEOUT = 5000;
+// account of context menu click in accounts/folders tree
+var selectedAccount = null;
+
+const menuId = "rstms-spam-filter-classes-menu";
 
 function defaultAccount() {
     try {
@@ -40,6 +48,7 @@ export async function initializeAccounts() {
             }
         }
         currentAccount = defaultAccount();
+        selectedAccount = currentAccount;
     } catch (e) {
         console.error(e);
     }
@@ -48,6 +57,7 @@ export async function initializeAccounts() {
 async function createWindow(name) {
     try {
         let args = await config.windowPosition.get(name);
+        console.log("saved windowPosition:", args);
         args.url = `./${name}.html`;
         args.type = "popup";
         args.allowScriptsToClose = true;
@@ -57,23 +67,33 @@ async function createWindow(name) {
     }
 }
 
-function createEditorWindow() {
+function createEditorWindow(timeout = undefined) {
     return new Promise((resolve, reject) => {
         try {
-            var timer = setTimeout(() => {
-                reject(new Error("editor window timeout"));
-            }, EDITOR_WINDOW_LOAD_TIMEOUT);
+            var timer = null;
 
-            editorWindowResolve = (size) => {
-                //console.log("editor window resolver:", size);
-                clearTimeout(timer);
+            if (timeout === undefined) {
+                timeout = EDITOR_WINDOW_LOAD_TIMEOUT;
+            }
+
+            if (timeout !== 0) {
+                timer = setTimeout(() => {
+                    reject(new Error("create editor window timeout"));
+                }, timeout);
+            }
+
+            editorWindowResolve = (result) => {
+                console.log("editor window resolver called:", result);
+                if (timer) {
+                    clearTimeout(timer);
+                }
                 editorWindowResolve = null;
-                resolve(size);
+                resolve(result);
             };
 
             createWindow("editor").then((e) => {
                 editor = e;
-                //console.log("editor window created:", editor);
+                console.log("editor window created:", editor);
             });
         } catch (e) {
             reject(e);
@@ -83,43 +103,53 @@ function createEditorWindow() {
 
 async function showEditor() {
     try {
-        await loadClasses(true);
+        console.log("showEditor:", editor);
+        console.log("currentAccount.id:", currentAccount.id);
+        console.log("selectedAccount.Id", selectedAccount.id);
 
         if (editor) {
-            console.log("sending selectAccount");
-            const port = await ports.get("editor");
-            const result = await requests.sendMessage(port, { id: "selectAccount" });
-            console.log("selectAccount result:", result);
-            return;
+            // editor is running, bring it to foreground and resize it
+            let args = editorPosition;
+            args.focused = true;
+            await browser.windows.update(editor.id, args);
+
+            if (selectedAccount != currentAccount) {
+                // ask the editor to change to selectedAccount if possible
+                const port = await ports.get("editor");
+                await requests.sendMessage(port, { id: "selectAccount", accountId: selectedAccount.id });
+                selectedAccount = currentAccount;
+            }
+        } else {
+            // editor is not open, so okay to change currentAccount
+            if (selectedAccount != currentAccount) {
+                currentAccount = selectedAccount;
+            }
+
+            editorPosition = await createEditorWindow();
         }
-        //console.log("calling createEditorWindow...");
-        const size = await createEditorWindow();
-        //console.log("createEditorWindow returned:", size);
-        //console.log("editor:", editor);
-        await browser.windows.update(editor.id, size);
     } catch (e) {
         console.error(e);
     }
 }
 
 async function handleIconClicked() {
-    await showEditor();
+    try {
+        await showEditor();
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 async function handleMenuClick(info, tab) {
     try {
         switch (info.menuItemId) {
-            case "rstms-filterctl-context-menu":
-                var accountId;
-                if (info.selectedAccount) {
-                    accountId = info.selectedAccount.id;
-                } else {
-                    accountId = info.selectedFolders[0].accountId;
+            case menuId:
+                if (info.selectedFolders && info.selectedFolders.length > 0) {
+                    const id = info.selectedFolders[0].accountId;
+                    if (id && accounts[id]) {
+                        selectedAccount = accounts[id];
+                    }
                 }
-                currentAccount = accounts[accountId];
-                await showEditor();
-                break;
-            case "rstms-filterctl-tools-menu":
                 await showEditor();
                 break;
         }
@@ -129,8 +159,12 @@ async function handleMenuClick(info, tab) {
 }
 
 async function handleWindowRemoved(closedId) {
-    if (editor && closedId == editor.id) {
-        editor = null;
+    try {
+        if (editor && closedId == editor.id) {
+            editor = null;
+        }
+    } catch (e) {
+        console.error(e);
     }
 }
 
@@ -145,78 +179,153 @@ async function initialize(mode) {
 }
 
 browser.menus.create({
-    id: "rstms-filterctl-context-menu",
+    id: menuId,
     title: "Spam Class Thresholds",
-    contexts: ["folder_pane"],
-});
-
-browser.menus.create({
-    id: "rstms-filterctl-tools-menu",
-    title: "Spam Class Thresholds",
-    contexts: ["tools_menu"],
+    contexts: ["tools_menu", "folder_pane"],
 });
 
 async function handleStartup() {
-    await config.session.reset();
-    await initialize("startup");
+    try {
+        await config.session.reset();
+        await initialize("startup");
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 async function handleInstalled() {
-    await config.local.reset();
-    await config.session.reset();
-    await initialize("installed");
+    try {
+        await config.local.reset();
+        await config.session.reset();
+        await initialize("installed");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getSystemTheme(message, sender) {
+    try {
+        const tabs = await browser.tabs.query({ type: "mail" });
+        for (const tab of tabs) {
+            const theme = await browser.theme.getCurrent(tab.id);
+            console.log("tab theme:", tab, theme);
+        }
+        return {};
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getClasses(message, sender) {
+    try {
+        console.log("getClasses:", message, sender);
+        let levels = await classes.get(accounts[message.accountId]);
+        return levels;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function setClasses(message, sender) {
+    try {
+        let validationResult = await classes.set(accounts[message.accountId], message.levels);
+        return validationResult;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function saveClasses(message, sender) {
+    try {
+        const validationResult = await await classes.send(accounts[message.accountId], message.levels);
+        return validationResult;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getEditorWindowId(message, sender) {
+    try {
+        return editor.id;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function setComposePosition(message, sender) {
+    try {
+        classes.setComposePosition(message.position);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function editorWindowLoaded(message, sender) {
+    try {
+        console.log("editorWindowLoaded");
+        editorWindowResolve(message.position);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function loadWindowPosition(message, sender) {
+    try {
+        return await config.windowPosition.get(message.name, message.defaults);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getAccounts(message, sender) {
+    try {
+        return accounts;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getCurrentAccountId(message, sender) {
+    try {
+        return currentAccount.id;
+    } catch (e) {
+        console.error(e);
+    }
+}
+async function setDefaultLevels(message, sender) {
+    try {
+        return await classes.setDefaultLevels(accounts[message.accountId]);
+    } catch (e) {
+        console.error(e);
+    }
+}
+async function refreshAll(message, sender) {
+    try {
+        await loadClasses(true);
+        return await classes.get(currentAccount);
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 async function handleMessage(message, sender) {
     try {
-        console.log("background received message:", sender.name, message);
-        if (!requests.resolveResponse(message)) {
-            switch (message.id) {
-                case "ping":
-                    sender.postMessage({ id: "pong", src: "background" });
-                    break;
-                case "getSystemTheme":
-                    requests.respond(sender, message, { systemTheme: systemTheme });
-                    break;
-                case "editorWindowLoaded":
-                    editorWindowResolve({ height: message.height, width: message.width });
-                case "resizeEditorWindow":
-                    editorWindowSize = { height: message.height, width: message.width };
-                    if (editor) {
-                        await browser.windows.update(editor.id, editorWindowSize);
-                    }
-                    requests.respond(sender, message);
-                    break;
-                case "saveWindowPosition":
-                    await config.windowPosition.set(message.name, {
-                        left: message.left,
-                        top: message.top,
-                        height: message.height,
-                        width: message.width,
-                    });
-                case "getClasses":
-                    const levels = await classes.get(accounts[message.accountId]);
-                    requests.respond(sender, message, { levels: levels });
-                    break;
-                case "setClasses":
-                    var state = await classes.set(accounts[message.accountId], message.levels);
-                    requests.respond(sender, message, { state: state });
-                    break;
-                case "getAccounts":
-                    requests.respond(sender, message, { accounts: accounts });
-                    break;
-                case "getCurrentAccountId":
-                    requests.respond(sender, message, { accountId: currentAccount.id });
-                    break;
-                case "setDefaultLevels":
-                    await classes.setDefaultLevels(accounts[message.accountId]);
-                    requests.respond(sender, message);
-                    break;
-                case "refreshAll":
-                    await loadClasses(true);
-                    requests.respond(sender, message);
-                    break;
-            }
+        console.log("background received:", message);
+        // resolve responses to our request messages
+        if (await requests.resolveResponses(message)) {
+            return;
+        }
+        if (await requests.resolveRequests(message, sender)) {
+            return;
+        }
+        // message not handled by requests
+        switch (message.id) {
+            case "ping":
+                sender.postMessage({ id: "pong", src: "background" });
+                break;
+            case "saveWindowPosition":
+                await config.windowPosition.set(message.name, message.position);
+                break;
         }
     } catch (e) {
         console.error(e);
@@ -224,8 +333,12 @@ async function handleMessage(message, sender) {
 }
 
 async function loadClasses(force = false) {
-    for (const account of Object.values(accounts)) {
-        await classes.get(account, force);
+    try {
+        for (const account of Object.values(accounts)) {
+            await classes.get(account, force);
+        }
+    } catch (e) {
+        console.error(e);
     }
 }
 
@@ -256,3 +369,16 @@ browser.menus.onClicked.addListener(handleMenuClick);
 browser.action.onClicked.addListener(handleIconClicked);
 browser.windows.onRemoved.addListener(handleWindowRemoved);
 browser.runtime.onConnect.addListener(handleConnect);
+
+requests.addHandler("getSystemTheme", getSystemTheme);
+requests.addHandler("setClasses", setClasses);
+requests.addHandler("getClasses", getClasses);
+requests.addHandler("saveClasses", saveClasses);
+requests.addHandler("getEditorWindowId", getEditorWindowId);
+requests.addHandler("setComposePosition", setComposePosition);
+requests.addHandler("editorWindowLoaded", editorWindowLoaded);
+requests.addHandler("loadWindowPosition", loadWindowPosition);
+requests.addHandler("getAccounts", getAccounts);
+requests.addHandler("getCurrentAccountId", getCurrentAccountId);
+requests.addHandler("setDefaultLevels", setDefaultLevels);
+requests.addHandler("refreshAll", refreshAll);

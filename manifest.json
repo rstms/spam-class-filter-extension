@@ -10,7 +10,12 @@
     }
   },
   "action": {
-    "default_title": "Spam Filter Classes"
+    "default_title": "Spam Filter Classes",
+    "default_icon": {
+	"16": "./assets/images/filter.svg",
+	"48": "./assets/images/filter.svg",
+	"128": "./assets/images/filter.svg"
+    }
   },
   "options_ui": {
     "page": "options.html",

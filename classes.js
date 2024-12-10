@@ -3,6 +3,7 @@ import { domainPart, differ } from "./common.js";
 
 export class Classes {
     constructor() {
+        this.composePosition = {};
         this.classes = {
             dirty: {},
             server: {},
@@ -27,6 +28,10 @@ export class Classes {
         ];
     }
 
+    setComposePosition(pos) {
+        this.composePosition = pos;
+    }
+
     all() {
         try {
             var classes = {};
@@ -37,6 +42,15 @@ export class Classes {
                 classes[id] = levels;
             }
             return classes;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    levels(account) {
+        try {
+            var classes = this.all();
+            return classes[account.id];
         } catch (e) {
             console.error(e);
         }
@@ -60,23 +74,14 @@ export class Classes {
         }
     }
 
-    setServer(account, levels) {
-        try {
-            delete this.classes.dirty[account.id];
-            this.classes.server[account.id] = levels;
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
     async get(account, force = false) {
         try {
-            var classes = this.all();
-            var levels = classes[account.id];
+            var levels = this.levels(account);
             if (force || !Array.isArray(levels) || levels.lengh === 0) {
-                const result = await sendEmailRequest(account, "list");
+                const result = await sendEmailRequest(account, "list", this.composePosition);
                 levels = result.json.Classes;
-                this.setServer(account.id, levels);
+                delete this.classes.dirty[account.id];
+                this.classes.server[account.id] = levels;
             }
             return levels;
         } catch (e) {
@@ -91,14 +96,19 @@ export class Classes {
             } else {
                 this.classes.dirty[account.id] = levels;
             }
-            return validate(account);
+            return this.validate(account);
         } catch (e) {
             console.error(e);
         }
     }
 
     async setDefaultLevels(account) {
-        await this.set(account, this.defaultLevels);
+        try {
+            await this.set(account, this.defaultLevels);
+            return this.defaultLevels;
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     async sendAllUpdates(accounts, force = false) {
@@ -114,8 +124,7 @@ export class Classes {
 
     async sendUpdate(account, force = false) {
         try {
-            const classes = this.all();
-            var levels = classes[account.id];
+            var levels = this.levels(account);
             await this.send(account, levels, force);
         } catch (e) {
             console.error(e);
@@ -123,17 +132,21 @@ export class Classes {
     }
 
     throwInvalidLevels(levels) {
-        const error = this.validateLevels(levels);
-        if (error) {
-            console.error("level validation failed:", error, levels);
-            throw new Error(`Level validation failed: ${error}`);
+        try {
+            const error = this.validateLevels(levels);
+            if (error) {
+                console.error("level validation failed:", error, levels);
+                throw new Error(`Level validation failed: ${error}`);
+            }
+            return error;
+        } catch (e) {
+            console.error(e);
         }
-        return error;
     }
 
     validate(account) {
         try {
-            const levels = this.get(account);
+            var levels = this.levels(account);
             const message = this.validateLevels(levels);
             return {
                 dirty: this.isDirty(account),
@@ -189,7 +202,7 @@ export class Classes {
                     values.push(level.name + "=" + level.score);
                 }
                 const subject = "reset " + levels.join(",");
-                const result = await sendEmailRequest(account, subject);
+                const result = await sendEmailRequest(account, subject, this.composePosition);
                 const returned = result.json.Classes;
                 this.throwInvalidLevels(returned);
                 if (differ(levels, returned)) {

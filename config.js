@@ -60,32 +60,29 @@ class ConfigBase {
     async set(key, value) {
         try {
             console.log("set:", this.name, key, value);
-            const current = {};
-            current[key] = await this.get(key);
-            const update = {};
-            update[key] = value;
-            if (!differ(current, update)) {
+            const current = await this.get(key);
+            if (!differ(current, value)) {
                 return;
             }
-
+            var update = {};
+            update[key] = value;
             const changes = await this.storageSync("set", update);
             if (Object.keys(changes).length !== 1) {
                 throw new Error("unexpected storage change length");
             }
             for (const [changeKey, { newValue, oldValue }] of Object.entries(changes)) {
-                const resultFrom = {};
-                resultFrom[changeKey] = oldValue;
-                if (differ(current, resultFrom)) {
-                    console.log("current:", current);
-                    console.log("resultFrom:", resultFrom);
-                    throw new Error("unexpected storage change from value");
+                if (changeKey !== key) {
+                    throw new Error("unexpected storage change key");
                 }
-                const resultTo = {};
-                resultTo[changeKey] = newValue;
-                if (differ(update, resultTo)) {
-                    console.log("update:", update);
-                    console.log("resultTo:", resultTo);
-                    throw new Error("unexpected storage change to value");
+                if (differ(current, oldValue)) {
+                    console.log("current:", current);
+                    console.log("oldValue:", oldValue);
+                    throw new Error("unexpected storage change oldValue");
+                }
+                if (differ(value, newValue)) {
+                    console.log("value:", value);
+                    console.log("newValue:", newValue);
+                    throw new Error("unexpected storage change newValue");
                 }
             }
         } catch (e) {
@@ -155,20 +152,41 @@ class ConfigSession extends ConfigBase {
     }
 }
 
-class WindowPosition extends ConfigLocal {
+class WindowPosition {
     constructor() {
-        super();
+        this.config = new ConfigLocal();
     }
-    async get(name) {
+
+    addValues(pos, newPos) {
+        try {
+            if (typeof newPos !== "object") {
+                return pos;
+            }
+            for (const [key, value] of Object.entries(newPos)) {
+                switch (key) {
+                    case "top":
+                    case "left":
+                    case "height":
+                    case "width":
+                        pos[key] = value;
+                }
+            }
+            return pos;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async get(name, defaults = undefined) {
         try {
             console.log("config.windowPosition.get:", name);
-            var ret = {};
-            const windowPos = await super.get("windowPos");
-            if (windowPos && windowPos[name]) {
-                ret = windowPos[name];
+            var pos = this.addValues({}, defaults);
+            const windowPos = await this.config.get("windowPos");
+            if (typeof windowPos === "object") {
+                pos = this.addValues(pos, windowPos[name]);
             }
-            console.log("config.windowPosition.get returning:", name, ret);
-            return ret;
+            console.log("config.windowPosition.get returning:", name, pos);
+            return pos;
         } catch (e) {
             console.error(e);
         }
@@ -177,12 +195,12 @@ class WindowPosition extends ConfigLocal {
     async set(name, pos) {
         try {
             console.log("config.windowPosition.set:", name, pos);
-            var windowPos = await super.get("windowPos");
+            var windowPos = await this.config.get("windowPos");
             if (!windowPos) {
                 windowPos = {};
             }
-            windowPos[name] = pos;
-            await super.set("windowPos", windowPos);
+            windowPos[name] = this.addValues({}, pos);
+            await this.config.set("windowPos", windowPos);
         } catch (e) {
             console.error(e);
         }
