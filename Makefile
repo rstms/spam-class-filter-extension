@@ -26,6 +26,12 @@ fmt: .prettier
 	cd eslint && $(docker) build . -t eslint
 	touch $@
 
+release:
+	rm -f dist/release.zip
+	zip dist/release.zip *.js *.html manifest.json VERSION
+	zip dist/release.zip -r assets
+	mv dist/release.zip dist/spam-class-extension-$(shell cat VERSION).xpi
+
 clean:
 	rm -f .eslint
 	docker rmi eslint || true
