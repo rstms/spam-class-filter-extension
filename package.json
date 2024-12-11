@@ -1,6 +1,6 @@
 {
   "name": "spam-class-filter-extension",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "This extension provides a tools menu command which opens an editor window for spam class filters.",
   "type": "module",
   "main": "background.js",
