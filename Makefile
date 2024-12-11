@@ -31,3 +31,4 @@ clean:
 	docker rmi eslint || true
 	rm -f .prettier
 	docker rmi prettier || true
+	rm -rf node_modules
