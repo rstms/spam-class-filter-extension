@@ -1,8 +1,15 @@
 
 docker = env DOCKER_BUILD_OUTPUT=plain BUILDKIT_PROGRESS=plain docker
 
-eslint: .eslint
-	docker run --rm -v "$$(pwd):/app" eslint
+lint: eslint.config.js
+	docker run --rm -v "$$(pwd):/app" eslint *.js
+
+eslint.config.js: .eslint
+	docker run -it --rm -v "$$(pwd):/app" eslint config >$@
+
+shell:
+	docker run -it --rm -v "$$(pwd):/app" eslint shell
+
 
 fmt: .prettier
 	chmod 0660 editor.html
@@ -13,6 +20,12 @@ fmt: .prettier
 	cd prettier && $(docker) build . -t prettier
 	touch $@
 
-.eslint: eslint/Dockerfile
-	cd eslint && $(docker) build . -t eslint
+.eslint: eslint/Dockerfile eslint/entrypoint eslint/eslint.config.js
+	cd eslint && $(docker) build --no-cache . -t eslint
 	touch $@
+
+clean:
+	rm -f .eslint
+	docker rmi eslint || true
+	rm -f .prettier
+	docker rmi prettier || true

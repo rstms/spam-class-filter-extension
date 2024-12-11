@@ -2,13 +2,21 @@ FROM node:alpine
 RUN mkdir /app
 WORKDIR /app
 
-RUN npm install -g \
-    eslint@^8.0.1 \
-    eslint-config-standard \
-    eslint-plugin-import@^2.25.2 \
-    eslint-plugin-n@^16.0.0 \
-    eslint-plugin-promise@^6.0.0
+RUN npm install -g eslint eslint-config-standard eslint-plugin-import eslint-plugin-n eslint-plugin-promise --save-dev
+#globals @eslint/migrate-config
+#RUN npm install -g @eslint/eslintrc --save-dev
+RUN npm install -g @eslint/js --save-dev
 
-RUN npm init -y
-RUN npm install --save-dev eslint-config-standard eslint-plugin-promise eslint-plugin-import eslint-plugin-n
-ENTRYPOINT ["eslint"]
+
+#RUN yes | npm init @eslint/config@latest -- --config eslint-config-standard
+#RUN npm install -g @eslint/migrate-config
+#RUN cp $(find / -name .eslintrc.json) .
+#RUN npx @eslint/migrate-config .eslintrc.json
+
+#RUN npx @eslint/migrate-config node_modules/eslint-config-standard/.eslintrc.json
+#RUN npm install globals
+
+COPY --chmod=0755 entrypoint /usr/bin/entrypoint
+COPY eslint.config.js /
+
+ENTRYPOINT ["/usr/bin/entrypoint"]

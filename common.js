@@ -26,7 +26,7 @@ export function differ(original, current) {
         }
 
         for (const key of originalKeys) {
-            if (!current.hasOwnProperty(key)) {
+            if (!key in original) {
                 return true;
             }
 

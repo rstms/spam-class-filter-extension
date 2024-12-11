@@ -1,0 +1,13 @@
+#!/bin/sh
+
+if [ $# -eq 0 ]; then
+  cmd=
+else
+  cmd=$1
+fi
+
+case $cmd in 
+  shell) /bin/sh ;;
+  config) cat /eslint.config.js;;
+  *) npx eslint "$@" ;;
+esac

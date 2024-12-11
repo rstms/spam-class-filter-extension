@@ -51,7 +51,7 @@ class Request {
         try {
             this.remove();
             var result = message;
-            if (message.hasOwnProperty("result")) {
+            if ("result" in message) {
                 result = message.result;
             }
             console.log("resolving response:", result);

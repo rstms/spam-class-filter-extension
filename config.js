@@ -1,4 +1,4 @@
-import { differ, generateUUID } from "./common.js";
+import { differ } from "./common.js";
 
 const STORAGE_UPDATE_TIMEOUT = 3000;
 
@@ -12,13 +12,6 @@ const DEFAULTS = {
         "greenbluffllc.com": false,
         "harborstreetventures.com": false,
         "citybestmanagement.com": false,
-    },
-};
-
-const DEFAULT_WINDOW_POS = {
-    editor: {
-        width: 594,
-        height: 568,
     },
 };
 
