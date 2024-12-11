@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "version": "1.0",
+  "version": "0.0.2",
   "author": "Reliance Systems",
   "name": "Spam Filter Class Control",
   "browser_specific_settings": {
