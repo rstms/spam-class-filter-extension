@@ -2,3 +2,4 @@ limbo
 .prettier
 .eslint
 notes
+node_modules
