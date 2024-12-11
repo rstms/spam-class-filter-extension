@@ -1,5 +1,7 @@
 import { generateUUID } from "./common.js";
 
+/* global console, setTimeout, clearTimeout */
+
 const PORT_CONNECT_TIMEOUT = 3000;
 
 export var connectedPorts = {};
@@ -49,11 +51,10 @@ function manage(port, op) {
                         waiter.resolve(port);
                         break;
                     case REMOVE_PORT:
-                        waiter.reject(new Error("port removed:", name));
+                        waiter.reject(new Error("port removed:", port.name));
                         break;
                     default:
                         throw new Error(`unexpected op: ${op}`);
-                        break;
                 }
             }
         }

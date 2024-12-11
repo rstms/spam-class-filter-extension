@@ -17,6 +17,7 @@ RUN npm install -g @eslint/js --save-dev
 #RUN npm install globals
 
 COPY --chmod=0755 entrypoint /usr/bin/entrypoint
-COPY eslint.config.js /
+
+COPY eslint.config.js /eslint.config.js
 
 ENTRYPOINT ["/usr/bin/entrypoint"]

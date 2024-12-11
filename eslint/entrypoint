@@ -6,8 +6,15 @@ else
   cmd=$1
 fi
 
+
+config_file="${ESLINT_CONFIG_FILE:-eslint.config.js}"
+
+if [ ! -e "${config_file}" ]; then
+  config_file=/eslint.config.js
+fi
+
 case $cmd in 
   shell) /bin/sh ;;
   config) cat /eslint.config.js;;
-  *) npx eslint "$@" ;;
+  *) eslint -c ${config_file}  "$@" ;;
 esac

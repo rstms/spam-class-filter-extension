@@ -1,3 +1,6 @@
+
+/* globals console, document */
+
 async function onOptionsSave(event) {
     console.log("options saved clicked:", event);
     var useEmail = document.getElementById("options-use-email");

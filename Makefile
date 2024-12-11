@@ -1,7 +1,7 @@
 
 docker = env DOCKER_BUILD_OUTPUT=plain BUILDKIT_PROGRESS=plain docker
 
-lint: eslint.config.js
+lint: .eslint
 	docker run --rm -v "$$(pwd):/app" eslint *.js
 
 eslint.config.js: .eslint
@@ -21,7 +21,7 @@ fmt: .prettier
 	touch $@
 
 .eslint: eslint/Dockerfile eslint/entrypoint eslint/eslint.config.js
-	cd eslint && $(docker) build --no-cache . -t eslint
+	cd eslint && $(docker) build . -t eslint
 	touch $@
 
 clean:

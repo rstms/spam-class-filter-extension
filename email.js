@@ -1,5 +1,7 @@
 import { domainPart } from "./common.js";
 
+/* globals browser, messenger, console */
+
 async function sendFilterControlMessage(account, subject, position) {
     try {
         const identity = account.identities[0];
@@ -13,10 +15,10 @@ async function sendFilterControlMessage(account, subject, position) {
         };
         console.log("sending FilterControl Email:", msg);
         const comp = await browser.compose.beginNew();
-        if (position && position !== {}) {
+        if (position && position != {}) {
             await browser.windows.update(comp.windowId, position);
         }
-        const details = await browser.compose.getComposeDetails(comp.id);
+        await browser.compose.getComposeDetails(comp.id);
         await browser.compose.setComposeDetails(comp.id, msg);
         const ret = await browser.compose.sendMessage(comp.id);
         console.log("compose.sendMessage returned:", ret);

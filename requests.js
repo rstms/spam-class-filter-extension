@@ -1,5 +1,7 @@
 import { generateUUID } from "./common.js";
 
+/* global console, setTimeout, clearTimeout */
+
 //const DEFAULT_TIMEOUT = 1024;
 const DEFAULT_TIMEOUT = 0;
 
@@ -135,7 +137,7 @@ export function addHandler(id, func) {
 }
 
 export function removeHandler(id) {
-    for ([key, value] of Object.entries(registeredHandlers)) {
+    for (const [key, value] of Object.entries(registeredHandlers)) {
         if (key === id || value == id) {
             delete registeredHandlers[key];
         }
