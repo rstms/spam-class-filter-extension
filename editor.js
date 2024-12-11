@@ -1,6 +1,8 @@
 import * as requests from "./requests.js";
 import { differ } from "./common.js";
 
+/* globals browser, window, document, console */
+
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 16;
 
@@ -25,7 +27,8 @@ Each message's spam score is compared to the thresholds of each class and The lo
 function getLevels() {
     try {
         let ret = [];
-        for (let i = 0; true; i++) {
+	let i = 0;
+	while (true) {
             let nameElement = document.getElementById(`level-name-${i}`);
             if (!nameElement) {
                 return ret;
@@ -41,6 +44,7 @@ function getLevels() {
                 level.score = parseFloat(level.score);
             }
             ret.push(level);
+	    i += 1;
         }
     } catch (e) {
         console.error(e);
@@ -49,7 +53,7 @@ function getLevels() {
 
 async function onTableChange(event) {
     try {
-        console.log("table change");
+        console.log("table change:", event);
         await updateControlState();
     } catch (e) {
         console.error(e);
@@ -93,7 +97,7 @@ async function onScoreChanged(event) {
     }
 }
 
-async function onNameChanged(event) {
+async function onNameChanged() {
     try {
         console.log("name changed");
         await updateControlState();
@@ -104,7 +108,8 @@ async function onNameChanged(event) {
 
 function newLevelName(levels) {
     try {
-        for (let i = 1; true; i += 1) {
+	let i = 0;
+	while(true) {
             let name = `class${i}`;
             let found = false;
             for (let level of levels) {
@@ -115,6 +120,7 @@ function newLevelName(levels) {
             if (!found) {
                 return name;
             }
+	    i += 1;
         }
     } catch (e) {
         console.error(e);
@@ -277,7 +283,7 @@ async function saveChanges() {
     }
 }
 
-async function onApply(event) {
+async function onApply() {
     try {
         await saveChanges();
     } catch (e) {
@@ -285,7 +291,7 @@ async function onApply(event) {
     }
 }
 
-async function onCancel(event) {
+async function onCancel() {
     try {
         window.close();
     } catch (e) {
@@ -293,7 +299,7 @@ async function onCancel(event) {
     }
 }
 
-async function onOk(event) {
+async function onOk() {
     try {
         await saveChanges();
         window.close();
@@ -302,7 +308,7 @@ async function onOk(event) {
     }
 }
 
-async function onDefaults(event) {
+async function onDefaults() {
     try {
         const levels = await requests.sendMessage(port, { id: "setDefaultLevels", accountId: accountId() });
         await populateRows(levels);
@@ -311,7 +317,7 @@ async function onDefaults(event) {
     }
 }
 
-async function onRefresh(event) {
+async function onRefresh() {
     try {
         await sendComposePosition();
         const levels = await requests.sendMessage(port, "refreshAll");
@@ -380,14 +386,6 @@ async function onAccountSelectChange(event) {
 }
 
 var hasLoaded = false;
-
-async function setPosition(pos) {
-    try {
-        await browser.windows.update(windowId, pos);
-    } catch (e) {
-        console.error(e);
-    }
-}
 
 async function sendComposePosition() {
     try {
@@ -523,7 +521,7 @@ async function onHelp(event) {
     }
 }
 
-async function handleUnload(event) {
+async function handleUnload() {
     try {
         port.postMessage({
             id: "saveWindowPosition",
@@ -540,7 +538,7 @@ async function handleUnload(event) {
     }
 }
 
-async function handleResize(event) {
+async function handleResize() {
     try {
         await browser.windows.update(windowId, initialSize);
     } catch (e) {
@@ -548,7 +546,7 @@ async function handleResize(event) {
     }
 }
 
-async function handleSelectAccount(message, sender) {
+async function handleSelectAccount(message) {
     try {
         console.log("selectAccount:", message);
         if (!controls.accountSelect.disabled) {

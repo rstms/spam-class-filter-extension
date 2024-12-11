@@ -1,5 +1,7 @@
 import { differ } from "./common.js";
 
+/* globals console, browser, setTimeout, clearTimeout */
+
 const STORAGE_UPDATE_TIMEOUT = 3000;
 
 const DEFAULTS = {
@@ -124,7 +126,6 @@ class ConfigBase {
                         break;
                     default:
                         throw new Error("unexpected storage operation: " + op);
-                        break;
                 }
             } catch (e) {
                 reject(e);

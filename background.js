@@ -4,11 +4,12 @@ import * as requests from "./requests.js";
 import * as ports from "./ports.js";
 import { domainPart } from "./common.js";
 
+/* globals browser, console, setTimeout, clearTimeout */
+
 //const EDITOR_WINDOW_LOAD_TIMEOUT = 5000;
 const EDITOR_WINDOW_LOAD_TIMEOUT = 0;
 
 var editor = null;
-var systemTheme = null;
 var editorWindowResolve = null;
 var editorPosition = {};
 
@@ -140,7 +141,7 @@ async function handleIconClicked() {
     }
 }
 
-async function handleMenuClick(info, tab) {
+async function handleMenuClick(info) {
     try {
         switch (info.menuItemId) {
             case menuId:
@@ -169,9 +170,9 @@ async function handleWindowRemoved(closedId) {
 }
 
 async function initialize(mode) {
-    await initializeAccounts();
     try {
-        console.log(mode, window);
+	await initializeAccounts();
+        console.log(mode);
         //await showEditor();
     } catch (e) {
         console.error(e);
@@ -203,7 +204,7 @@ async function handleInstalled() {
     }
 }
 
-async function getSystemTheme(message, sender) {
+async function getSystemTheme() {
     try {
         const tabs = await browser.tabs.query({ type: "mail" });
         for (const tab of tabs) {
@@ -216,9 +217,9 @@ async function getSystemTheme(message, sender) {
     }
 }
 
-async function getClasses(message, sender) {
+async function getClasses(message) {
     try {
-        console.log("getClasses:", message, sender);
+        console.log("getClasses:", message);
         let levels = await classes.get(accounts[message.accountId]);
         return levels;
     } catch (e) {
@@ -226,7 +227,7 @@ async function getClasses(message, sender) {
     }
 }
 
-async function setClasses(message, sender) {
+async function setClasses(message) {
     try {
         let validationResult = await classes.set(accounts[message.accountId], message.levels);
         return validationResult;
@@ -235,7 +236,7 @@ async function setClasses(message, sender) {
     }
 }
 
-async function saveClasses(message, sender) {
+async function saveClasses(message) {
     try {
         const validationResult = await await classes.send(accounts[message.accountId], message.levels);
         return validationResult;
@@ -244,7 +245,7 @@ async function saveClasses(message, sender) {
     }
 }
 
-async function getEditorWindowId(message, sender) {
+async function getEditorWindowId() {
     try {
         return editor.id;
     } catch (e) {
@@ -252,7 +253,7 @@ async function getEditorWindowId(message, sender) {
     }
 }
 
-async function setComposePosition(message, sender) {
+async function setComposePosition(message) {
     try {
         classes.setComposePosition(message.position);
     } catch (e) {
@@ -260,7 +261,7 @@ async function setComposePosition(message, sender) {
     }
 }
 
-async function editorWindowLoaded(message, sender) {
+async function editorWindowLoaded(message) {
     try {
         console.log("editorWindowLoaded");
         editorWindowResolve(message.position);
@@ -269,7 +270,7 @@ async function editorWindowLoaded(message, sender) {
     }
 }
 
-async function loadWindowPosition(message, sender) {
+async function loadWindowPosition(message) {
     try {
         return await config.windowPosition.get(message.name, message.defaults);
     } catch (e) {
@@ -277,7 +278,7 @@ async function loadWindowPosition(message, sender) {
     }
 }
 
-async function getAccounts(message, sender) {
+async function getAccounts() {
     try {
         return accounts;
     } catch (e) {
@@ -285,21 +286,21 @@ async function getAccounts(message, sender) {
     }
 }
 
-async function getCurrentAccountId(message, sender) {
+async function getCurrentAccountId() {
     try {
         return currentAccount.id;
     } catch (e) {
         console.error(e);
     }
 }
-async function setDefaultLevels(message, sender) {
+async function setDefaultLevels(message) {
     try {
         return await classes.setDefaultLevels(accounts[message.accountId]);
     } catch (e) {
         console.error(e);
     }
 }
-async function refreshAll(message, sender) {
+async function refreshAll() {
     try {
         await loadClasses(true);
         return await classes.get(currentAccount);

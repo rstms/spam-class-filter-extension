@@ -1,5 +1,7 @@
 import { sendEmailRequest } from "./email.js";
-import { domainPart, differ } from "./common.js";
+import { differ } from "./common.js";
+
+/* global console */
 
 export class Classes {
     constructor() {
@@ -58,10 +60,10 @@ export class Classes {
 
     isDirty(account) {
         try {
-            if (!this.classes.server.hasOwnProperty(account.id)) {
+            if (! ( account.id in this.classes.server)) {
                 throw new Error("class not present");
             }
-            if (!this.classes.dirty.hasOwnProperty(account.id)) {
+            if (! ( account.id in this.classes.dirty)) {
                 return false;
             }
             const dirty = differ(this.classes.dirty[account.id], this.classes.server[account.id]);
@@ -178,7 +180,7 @@ export class Classes {
                 lastScore = levels[i].score;
                 levelObj[levels[i].name] = levels[i].score;
             }
-            if (!levelObj.hasOwnProperty("spam")) {
+            if (! ("spam" in levelObj)) {
                 return "missing spam class";
             }
             if (levelObj["spam"] != 999) {
