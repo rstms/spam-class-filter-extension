@@ -1,5 +1,6 @@
 import * as requests from "./requests.js";
 import { differ } from "./common.js";
+import * as ports from "./ports.js";
 
 /* globals browser, window, document, console */
 
@@ -8,10 +9,7 @@ const MAX_LEVELS = 16;
 
 var accountNames = {};
 var accountIndex = {};
-var initialPosition = {};
-var initialSize = {};
 var port;
-var windowId;
 var controls = {};
 
 var helpContent = `
@@ -285,7 +283,10 @@ async function saveChanges() {
 
 async function onApply() {
     try {
-        await saveChanges();
+        const attr = document.documentElement.getAttribute("data-bss-forced-theme");
+        console.log("attr:", attr);
+        console.log("themeSwitcher:", controls.themeSwitcher);
+        //await saveChanges();
     } catch (e) {
         console.error(e);
     }
@@ -404,52 +405,6 @@ async function sendComposePosition() {
     }
 }
 
-async function resizeToContent(windowId) {
-    let pos = {
-        top: Math.floor(window.screenY),
-        left: Math.floor(window.screenX),
-        width: Math.floor(window.outerWidth),
-    };
-
-    let bodyStyle = window.getComputedStyle(document.body);
-    let height = document.body.scrollHeight;
-    height += parseFloat(bodyStyle.borderTop);
-    height += parseFloat(bodyStyle.borderBottom);
-    height += parseFloat(bodyStyle.marginTop);
-    height += parseFloat(bodyStyle.marginBottom);
-    height += window.outerHeight - window.innerHeight;
-    pos.height = Math.floor(height);
-
-    const saved = await requests.sendMessage(port, { id: "loadWindowPosition", name: "editor" });
-    if (typeof saved === "object" && saved["left"] && saved["top"]) {
-        pos.left = saved.left;
-        pos.top = saved.top;
-    } else {
-        pos = await centerOnMainWindow(pos);
-    }
-    await browser.windows.update(windowId, pos);
-    return pos;
-}
-
-async function centerOnMainWindow(pos) {
-    try {
-        var main = {};
-        const tabs = await browser.tabs.query({ type: "mail" });
-        if (tabs.length > 0) {
-            const info = await browser.windows.get(tabs[0].windowId);
-            main.top = info.top;
-            main.left = info.left;
-            main.height = info.height;
-            main.width = info.width;
-            pos.left = Math.floor(main.left + main.width / 2 - pos.width / 2);
-            pos.top = Math.floor(main.top + main.height / 2 - pos.height / 2);
-        }
-        return pos;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 async function handleLoad() {
     try {
         console.log("onLoad BEGIN");
@@ -459,38 +414,14 @@ async function handleLoad() {
         }
         hasLoaded = true;
 
+        await connectToBackground();
+
         controls.helpText.innerHTML = helpContent;
-
-        let style = controls.tableDiv.style;
-
-        /*
-	console.log("level-table-div:", tableDiv);
-        console.log("level-table-div scrollHeight:", tableDiv.scrollHeight);
-        console.log("level-table-div clientHeight:", tableDiv.clientHeight);
-        console.log("level-table-div scrollTopMax:", tableDiv.scrollTopMax);
-	*/
-
-        const tableHeight = controls.tableDiv.clientHeight + 2;
-        style["min-height"] = `${tableHeight}px`;
-        style["max-height"] = `${tableHeight}px`;
-        style["overflow-y"] = "auto";
-
-        //console.log("level-table-div style:", style);
-
-        windowId = await requests.sendMessage(port, "getEditorWindowId");
-
-        initialPosition = await resizeToContent(windowId);
-        initialSize = {
-            width: initialPosition.width,
-            height: initialPosition.height,
-        };
 
         await populateAccountSelect();
 
         const levels = await getClasses(accountId());
         await populateRows(levels);
-
-        requests.sendMessage(port, { id: "editorWindowLoaded", position: initialPosition });
 
         console.log("onLoad END");
     } catch (e) {
@@ -523,24 +454,9 @@ async function onHelp(event) {
 
 async function handleUnload() {
     try {
-        port.postMessage({
-            id: "saveWindowPosition",
-            name: "editor",
-            position: {
-                top: window.screenY,
-                left: window.screenX,
-                height: window.outerHeight,
-                width: window.outerWidth,
-            },
-        });
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleResize() {
-    try {
-        await browser.windows.update(windowId, initialSize);
+        port.disconnect();
+        ports.remove(port);
+        port = null;
     } catch (e) {
         console.error(e);
     }
@@ -581,7 +497,11 @@ async function handleMessage(message, sender) {
 
 async function connectToBackground() {
     try {
+        console.log("connectToBackground");
+        const background = await browser.runtime.getBackgroundPage();
+        console.log("background:", background);
         port = await browser.runtime.connect({ name: "editor" });
+        ports.add("editor");
         port.onMessage.addListener(handleMessage);
         //port.postMessage({ id: "ping", src: "editor" });
     } catch (e) {
@@ -614,13 +534,10 @@ addControl("changedSpan", "status-changed-span");
 addControl("statusSpan", "status-message-span");
 addControl("applyButton", "apply-button");
 addControl("helpText", "help-text");
-addControl("tableDiv", "level-table-div");
 addControl("tableGridRow", "table-grid-row");
 addControl("tableGridColumn", "table-grid-column");
 addControl("classTable", "class-table", "change", onTableChange);
+addControl("themeSwitcher", "theme-switcher");
 
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);
-window.addEventListener("resize", handleResize);
-
-connectToBackground();

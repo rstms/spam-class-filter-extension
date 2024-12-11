@@ -4,10 +4,10 @@ import * as requests from "./requests.js";
 import * as ports from "./ports.js";
 import { domainPart } from "./common.js";
 
-/* globals browser, console, setTimeout, clearTimeout */
+/* globals browser, console */
 
 //const EDITOR_WINDOW_LOAD_TIMEOUT = 5000;
-const EDITOR_WINDOW_LOAD_TIMEOUT = 0;
+//const EDITOR_WINDOW_LOAD_TIMEOUT = 0;
 
 var editor = null;
 var editorWindowResolve = null;
@@ -55,6 +55,7 @@ export async function initializeAccounts() {
     }
 }
 
+/*
 async function createWindow(name) {
     try {
         let args = await config.windowPosition.get(name);
@@ -67,7 +68,9 @@ async function createWindow(name) {
         console.error(e);
     }
 }
+*/
 
+/*
 function createEditorWindow(timeout = undefined) {
     return new Promise((resolve, reject) => {
         try {
@@ -101,6 +104,7 @@ function createEditorWindow(timeout = undefined) {
         }
     });
 }
+*/
 
 async function showEditor() {
     try {
@@ -125,8 +129,8 @@ async function showEditor() {
             if (selectedAccount != currentAccount) {
                 currentAccount = selectedAccount;
             }
-
-            editorPosition = await createEditorWindow();
+            await browser.runtime.openOptionsPage();
+            //editorPosition = await createEditorWindow();
         }
     } catch (e) {
         console.error(e);
@@ -345,7 +349,7 @@ async function loadClasses(force = false) {
 
 async function handleDisconnect(port) {
     try {
-        //console.log("background got disconnect:", port);
+        console.log("background got disconnect:", port);
         ports.remove(port);
     } catch (e) {
         console.error(e);
@@ -354,7 +358,7 @@ async function handleDisconnect(port) {
 
 async function handleConnect(port) {
     try {
-        //console.log("background got connection:", port);
+        console.log("background got connection:", port);
         ports.add(port);
         port.onMessage.addListener(handleMessage);
         port.onDisconnect.addListener(handleDisconnect);
@@ -370,7 +374,6 @@ browser.menus.onClicked.addListener(handleMenuClick);
 browser.action.onClicked.addListener(handleIconClicked);
 browser.windows.onRemoved.addListener(handleWindowRemoved);
 browser.runtime.onConnect.addListener(handleConnect);
-
 requests.addHandler("getSystemTheme", getSystemTheme);
 requests.addHandler("setClasses", setClasses);
 requests.addHandler("getClasses", getClasses);
