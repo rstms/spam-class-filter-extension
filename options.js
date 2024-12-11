@@ -1,4 +1,3 @@
-
 /* globals console, document */
 
 async function onOptionsSave(event) {

@@ -27,8 +27,8 @@ Each message's spam score is compared to the thresholds of each class and The lo
 function getLevels() {
     try {
         let ret = [];
-	let i = 0;
-	while (true) {
+        let i = 0;
+        while (true) {
             let nameElement = document.getElementById(`level-name-${i}`);
             if (!nameElement) {
                 return ret;
@@ -44,7 +44,7 @@ function getLevels() {
                 level.score = parseFloat(level.score);
             }
             ret.push(level);
-	    i += 1;
+            i += 1;
         }
     } catch (e) {
         console.error(e);
@@ -108,8 +108,8 @@ async function onNameChanged() {
 
 function newLevelName(levels) {
     try {
-	let i = 0;
-	while(true) {
+        let i = 0;
+        while (true) {
             let name = `class${i}`;
             let found = false;
             for (let level of levels) {
@@ -120,7 +120,7 @@ function newLevelName(levels) {
             if (!found) {
                 return name;
             }
-	    i += 1;
+            i += 1;
         }
     } catch (e) {
         console.error(e);

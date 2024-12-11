@@ -171,7 +171,7 @@ async function handleWindowRemoved(closedId) {
 
 async function initialize(mode) {
     try {
-	await initializeAccounts();
+        await initializeAccounts();
         console.log(mode);
         //await showEditor();
     } catch (e) {

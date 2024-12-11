@@ -1,7 +1,9 @@
 
 docker = env DOCKER_BUILD_OUTPUT=plain BUILDKIT_PROGRESS=plain docker
 
-lint: .eslint
+default: fmt lint
+
+lint: .eslint 
 	docker run --rm -v "$$(pwd):/app" eslint *.js
 
 eslint.config.js: .eslint
