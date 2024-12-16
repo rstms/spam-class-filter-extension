@@ -6,20 +6,11 @@ import { domainPart } from "./common.js";
 
 /* globals browser, console */
 
-//const EDITOR_WINDOW_LOAD_TIMEOUT = 5000;
-//const EDITOR_WINDOW_LOAD_TIMEOUT = 0;
-
 var editor = null;
 var editorWindowResolve = null;
-var editorPosition = {};
 
 var classes = new Classes();
 var accounts = null;
-
-// account selected in editor
-var currentAccount = null;
-
-// account of context menu click in accounts/folders tree
 var selectedAccount = null;
 
 const menuId = "rstms-spam-filter-classes-menu";
@@ -48,90 +39,7 @@ export async function initializeAccounts() {
                 }
             }
         }
-        currentAccount = defaultAccount();
-        selectedAccount = currentAccount;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-/*
-async function createWindow(name) {
-    try {
-        let args = await config.windowPosition.get(name);
-        console.log("saved windowPosition:", args);
-        args.url = `./${name}.html`;
-        args.type = "popup";
-        args.allowScriptsToClose = true;
-        return await browser.windows.create(args);
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
-/*
-function createEditorWindow(timeout = undefined) {
-    return new Promise((resolve, reject) => {
-        try {
-            var timer = null;
-
-            if (timeout === undefined) {
-                timeout = EDITOR_WINDOW_LOAD_TIMEOUT;
-            }
-
-            if (timeout !== 0) {
-                timer = setTimeout(() => {
-                    reject(new Error("create editor window timeout"));
-                }, timeout);
-            }
-
-            editorWindowResolve = (result) => {
-                console.log("editor window resolver called:", result);
-                if (timer) {
-                    clearTimeout(timer);
-                }
-                editorWindowResolve = null;
-                resolve(result);
-            };
-
-            createWindow("editor").then((e) => {
-                editor = e;
-                console.log("editor window created:", editor);
-            });
-        } catch (e) {
-            reject(e);
-        }
-    });
-}
-*/
-
-async function showEditor() {
-    try {
-        console.log("showEditor:", editor);
-        console.log("currentAccount.id:", currentAccount.id);
-        console.log("selectedAccount.Id", selectedAccount.id);
-
-        if (editor) {
-            // editor is running, bring it to foreground and resize it
-            let args = editorPosition;
-            args.focused = true;
-            await browser.windows.update(editor.id, args);
-
-            if (selectedAccount != currentAccount) {
-                // ask the editor to change to selectedAccount if possible
-                const port = await ports.get("editor");
-                await requests.sendMessage(port, { id: "selectAccount", accountId: selectedAccount.id });
-                selectedAccount = currentAccount;
-            }
-        } else {
-            // editor is not open, so okay to change currentAccount
-            if (selectedAccount != currentAccount) {
-                currentAccount = selectedAccount;
-            }
-            await browser.runtime.openOptionsPage();
-            //editorPosition = await createEditorWindow();
-        }
+        selectedAccount = defaultAccount;
     } catch (e) {
         console.error(e);
     }
@@ -139,7 +47,7 @@ async function showEditor() {
 
 async function handleIconClicked() {
     try {
-        await showEditor();
+        await focusEditorWindow();
     } catch (e) {
         console.error(e);
     }
@@ -152,10 +60,16 @@ async function handleMenuClick(info) {
                 if (info.selectedFolders && info.selectedFolders.length > 0) {
                     const id = info.selectedFolders[0].accountId;
                     if (id && accounts[id]) {
+                        // the user clicked the context menu in the folder list,
+                        // so select the account of the folder if possible
                         selectedAccount = accounts[id];
+                        const port = await ports.get("editor", ports.NO_WAIT);
+                        if (port) {
+                            await requests.sendMessage(port, { id: "selectAccount", accountId: id });
+                        }
                     }
                 }
-                await showEditor();
+                await focusEditorWindow();
                 break;
         }
     } catch (e) {
@@ -175,9 +89,12 @@ async function handleWindowRemoved(closedId) {
 
 async function initialize(mode) {
     try {
-        await initializeAccounts();
         console.log(mode);
-        //await showEditor();
+        if (!accounts) {
+            await initializeAccounts();
+        }
+        await config.session.reset();
+        classes.options.autoDelete = await config.local.get("autoDelete");
     } catch (e) {
         console.error(e);
     }
@@ -191,7 +108,6 @@ browser.menus.create({
 
 async function handleStartup() {
     try {
-        await config.session.reset();
         await initialize("startup");
     } catch (e) {
         console.error(e);
@@ -200,9 +116,29 @@ async function handleStartup() {
 
 async function handleInstalled() {
     try {
-        await config.local.reset();
-        await config.session.reset();
         await initialize("installed");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSuspendCanceled() {
+    try {
+        await initialize("suspendCanceled");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function focusEditorWindow() {
+    try {
+        const tabs = await browser.tabs.query({ title: "Spam Filter Classes", type: "content" });
+        if (tabs.length > 0) {
+            await browser.windows.update(tabs[0].windowId, { focused: true });
+        }
+        await browser.runtime.openOptionsPage();
+        const port = await ports.get("editor");
+        await requests.sendMessage(port, { id: "selectEditorTab", name: "classes" });
     } catch (e) {
         console.error(e);
     }
@@ -240,10 +176,21 @@ async function setClasses(message) {
     }
 }
 
-async function saveClasses(message) {
+async function sendClasses(message) {
     try {
-        const validationResult = await await classes.send(accounts[message.accountId], message.levels);
+        let validationResult = await classes.set(accounts[message.accountId], message.levels);
+        if (validationResult.valid) {
+            validationResult = await await classes.sendUpdate(accounts[message.accountId]);
+        }
         return validationResult;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function sendAllClasses(message) {
+    try {
+        return await classes.sendAllUpdates(accounts, message.force);
     } catch (e) {
         console.error(e);
     }
@@ -284,15 +231,21 @@ async function loadWindowPosition(message) {
 
 async function getAccounts() {
     try {
+        if (!accounts) {
+            await initializeAccounts();
+        }
         return accounts;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function getCurrentAccountId() {
+async function getSelectedAccountId() {
     try {
-        return currentAccount.id;
+        if (!accounts) {
+            await initializeAccounts();
+        }
+        return selectedAccount.id;
     } catch (e) {
         console.error(e);
     }
@@ -307,7 +260,6 @@ async function setDefaultLevels(message) {
 async function refreshAll() {
     try {
         await loadClasses(true);
-        return await classes.get(currentAccount);
     } catch (e) {
         console.error(e);
     }
@@ -368,21 +320,76 @@ async function handleConnect(port) {
     }
 }
 
+async function sendCommand(message) {
+    try {
+        let parts = [message.command.trim()];
+        if (message.argument.trim()) {
+            parts.push(message.argument.trim());
+        }
+        const subject = parts.join(" ");
+        const account = accounts[message.accountId];
+        return await classes.sendCommand(account, subject);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSuspend() {
+    try {
+        const port = await ports.get("editor", ports.NO_WAIT);
+        if (port) {
+            console.log("background suspending, disconnecting port");
+            port.disconnect();
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getConfigValue(message) {
+    try {
+        return await config.local.get(message.key);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function setConfigValue(message) {
+    try {
+        await config.local.set(message.key, message.value);
+        switch (message.key) {
+            case "autoDelete":
+                classes.options.autoDelete = message.value;
+                break;
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 browser.runtime.onStartup.addListener(handleStartup);
 browser.runtime.onInstalled.addListener(handleInstalled);
+browser.runtime.onSuspend.addListener(handleSuspend);
+browser.runtime.onSuspendCanceled.addListener(handleSuspendCanceled);
+
 browser.menus.onClicked.addListener(handleMenuClick);
 browser.action.onClicked.addListener(handleIconClicked);
 browser.windows.onRemoved.addListener(handleWindowRemoved);
 browser.runtime.onConnect.addListener(handleConnect);
+
 requests.addHandler("getSystemTheme", getSystemTheme);
 requests.addHandler("setClasses", setClasses);
 requests.addHandler("getClasses", getClasses);
-requests.addHandler("saveClasses", saveClasses);
+requests.addHandler("sendClasses", sendClasses);
+requests.addHandler("sendAllClasses", sendAllClasses);
 requests.addHandler("getEditorWindowId", getEditorWindowId);
 requests.addHandler("setComposePosition", setComposePosition);
 requests.addHandler("editorWindowLoaded", editorWindowLoaded);
 requests.addHandler("loadWindowPosition", loadWindowPosition);
 requests.addHandler("getAccounts", getAccounts);
-requests.addHandler("getCurrentAccountId", getCurrentAccountId);
+requests.addHandler("getSelectedAccountId", getSelectedAccountId);
 requests.addHandler("setDefaultLevels", setDefaultLevels);
 requests.addHandler("refreshAll", refreshAll);
+requests.addHandler("sendCommand", sendCommand);
+requests.addHandler("setConfigValue", setConfigValue);
+requests.addHandler("getConfigValue", getConfigValue);

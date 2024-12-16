@@ -4,6 +4,9 @@ import { generateUUID } from "./common.js";
 
 const PORT_CONNECT_TIMEOUT = 3000;
 
+export const NO_WAIT = true;
+export const WAIT = false;
+
 export var connectedPorts = {};
 
 var portWaiters = {};

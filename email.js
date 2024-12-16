@@ -1,8 +1,10 @@
 import { domainPart } from "./common.js";
 
-/* globals browser, messenger, console */
+/* globals messenger, console, setTimeout, clearTimeout  */
 
-async function sendFilterControlMessage(account, subject, position) {
+const EMAIL_REQUEST_TIMEOUT = 1024 * 10;
+
+async function sendFilterControlMessage(account, subject) {
     try {
         const identity = account.identities[0];
         const domain = domainPart(identity.email);
@@ -13,15 +15,14 @@ async function sendFilterControlMessage(account, subject, position) {
             subject: subject,
             isPlainText: true,
         };
-        console.log("sending FilterControl Email:", msg);
-        const comp = await browser.compose.beginNew();
-        if (position && position != {}) {
-            await browser.windows.update(comp.windowId, position);
-        }
-        await browser.compose.getComposeDetails(comp.id);
-        await browser.compose.setComposeDetails(comp.id, msg);
-        const ret = await browser.compose.sendMessage(comp.id);
-        console.log("compose.sendMessage returned:", ret);
+        console.log("sendFilterControlMessage:", msg);
+        const comp = await messenger.compose.beginNew();
+        const details = await messenger.compose.getComposeDetails(comp.id);
+        console.log("details:", details);
+        await messenger.compose.setComposeDetails(comp.id, msg);
+        const ret = await messenger.compose.sendMessage(comp.id);
+        console.log("messenger.compose.sendMessage returned:", ret);
+        return ret;
     } catch (e) {
         console.error(e);
     }
@@ -32,8 +33,9 @@ async function getMessageBody(message) {
         const fullMessage = await messenger.messages.getFull(message.id);
         for (const part of fullMessage.parts) {
             if (part.contentType === "text/plain") {
-                await messenger.messages.delete([message.id], true);
-                return part.body;
+                const body = part.body;
+                console.log("body:", body);
+                return body;
             }
         }
         throw new Error("failed to find message body:", message);
@@ -42,54 +44,70 @@ async function getMessageBody(message) {
     }
 }
 
-export function sendEmailRequest(account, command, position) {
+function safeParseJSON(body) {
+    try {
+        return JSON.parse(body);
+    } catch (e) {
+        console.warn(e);
+        return undefined;
+    }
+}
+
+export function sendEmailRequest(account, command, options = {}) {
     //console.log("sendEmailRequest:", account, command);
     return new Promise((resolve, reject) => {
-        function removeListener() {
-            try {
-                browser.messages.onNewMailReceived.removeListener(handleNewMail);
-            } catch (error) {
-                console.error("removeListener failed:", error);
-            }
-        }
-
-        function handleNewMail(folder, messageList) {
-            try {
-                console.log("handleNewMail[" + account.id + "] messages:", messageList.messages.length);
-                for (const message of messageList.messages) {
-                    if (message.subject === "filterctl response" && message.folder.accountId === account.id) {
-                        console.log("filterctl response:", message);
-                        removeListener();
-                        var response = {
-                            command: command,
-                            accountId: account.id,
-                        };
-
-                        getMessageBody(message).then((body) => {
-                            response.body = body;
-                            response.json = JSON.parse(body);
-                            console.log("sendEmailRequest returning:", response);
-                            resolve(response);
-                        });
-                    }
-                }
-            } catch (e) {
-                reject(e);
-            }
-        }
-
+        var timer = null;
+        var handler = null;
         try {
-            browser.messages.onNewMailReceived.addListener(handleNewMail);
-            sendFilterControlMessage(account, command, position)
-                .then(() => {
-                    return;
-                })
-                .catch((error) => {
-                    removeListener();
-                    reject("sendFilterControlMessage failed:", error);
-                });
-        } catch (error) {
-            reject("addListener failed:", error);
+            async function handleNewMailReceived(folder, messageList) {
+                try {
+                    console.log("handleNewMail[" + account.id + "] messages:", messageList.messages.length);
+                    for (const message of messageList.messages) {
+                        if (message.subject === "filterctl response" && message.folder.accountId === account.id) {
+                            clearTimeout(timer);
+                            messenger.messages.onNewMailReceived.removeListener(handler);
+                            console.log("filterctl response:", message);
+                            var response = {
+                                command: command,
+                                accountId: account.id,
+                                body: await getMessageBody(message),
+                            };
+                            if (options.autoDelete) {
+                                await messenger.messages.delete([message.id], true);
+                                console.log("deleted: ", message.id);
+                            }
+                            response.json = safeParseJSON(response.body);
+                            resolve(response);
+                        }
+                    }
+                } catch (e) {
+                    clearTimeout(timer);
+                    messenger.messages.onNewMailReceived.removeListener(handler);
+                    reject(e);
+                }
+            }
+
+            handler = handleNewMailReceived;
+            messenger.messages.onNewMailReceived.addListener(handler);
+            timer = setTimeout(() => {
+                messenger.messages.onNewMailReceived.removeListener(handler);
+                reject(new Error("email response timeout"));
+            }, EMAIL_REQUEST_TIMEOUT);
+
+            sendFilterControlMessage(account, command).then((sent) => {
+                if (options.autoDelete) {
+                    const messageId = sent.messages[0].id;
+                    messenger.messages.delete([messageId], true).then(() => {
+                        console.log("deleted: ", messageId);
+                    });
+                }
+            });
+        } catch (e) {
+            if (handler) {
+                messenger.messages.onNewMailReceived.removeListener(handler);
+            }
+            clearTimeout(timer);
+            reject(e);
         }
     });
 }

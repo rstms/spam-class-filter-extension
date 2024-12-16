@@ -1,11 +1,12 @@
 import * as requests from "./requests.js";
 import { differ } from "./common.js";
-import * as ports from "./ports.js";
 
-/* globals browser, window, document, console */
+/* globals browser, window, document, console, setTimeout, clearTimeout */
 
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 16;
+const STATUS_PENDING_TIMEOUT = 5120;
+var statusPendingTimer;
 
 var accountNames = {};
 var accountIndex = {};
@@ -20,6 +21,8 @@ Higher scores indicate more spam characteristics.
 After scoring, the rspam-classes filter adds an 'X-Spam-Class' header.  This header's value is set to the name of the class with the lowest threshold that is greater than the message score.  The class names are text that can be easily matched in a filtering rule.
 <br><br>
 Each message's spam score is compared to the thresholds of each class and The lowest (least spammy) class is assigned.  In other words, a message must have a score below a class threshold value to be assigned to that class.
+<br><br>
+This class editor exchanges data with the mail server by automatically sendng email messages to the special email address 'filterctl@SELECTED_ACCOUNT_DOMAIN'.  Each message sent will trigger a reply message.  By default these control messages are deleted from the Inbox and Sent mail folders.  There is an option to toggle automatic deletion of these messages.
 `;
 
 function getLevels() {
@@ -52,7 +55,7 @@ function getLevels() {
 async function onTableChange(event) {
     try {
         console.log("table change:", event);
-        await updateControlState();
+        await updateClasses();
     } catch (e) {
         console.error(e);
     }
@@ -77,7 +80,7 @@ async function onSliderMoved(event) {
         const row = parseInt(event.srcElement.getAttribute("data-row"));
         let score = document.getElementById(`level-score-${row}`);
         score.value = event.srcElement.value;
-        await updateControlState();
+        await updateClasses();
     } catch (e) {
         console.error(e);
     }
@@ -89,7 +92,7 @@ async function onScoreChanged(event) {
         const row = parseInt(event.srcElement.getAttribute("data-row"));
         const slider = document.getElementById(`level-slider-${row}`);
         slider.value = `${event.srcElement.value}`;
-        await updateControlState();
+        await updateClasses();
     } catch (e) {
         console.error(e);
     }
@@ -98,7 +101,7 @@ async function onScoreChanged(event) {
 async function onNameChanged() {
     try {
         console.log("name changed");
-        await updateControlState();
+        await updateClasses();
     } catch (e) {
         console.error(e);
     }
@@ -191,10 +194,24 @@ function appendCell(row, index, id, control, text, disabled) {
     }
 }
 
-async function populateRows(levels) {
+async function fixSpamLevel(levels) {
+    console.log("fixSpamLevel:", levels);
+    let ret = [];
+    for (const level of levels) {
+        if (level.name != "spam" && level.score < 999) {
+            ret.push(level);
+        }
+    }
+    ret.push({ name: "spam", score: 999 });
+    console.log("fixSpamLevel ret:", ret);
+    return ret;
+}
+
+async function populateRows() {
     try {
         //console.log("table body:", tableBody.innerHTML);
         console.log("BEGIN populateRows");
+        const levels = await fixSpamLevel(await getClasses(accountId()));
         controls.tableBody.innerHTML = "";
         var index = 0;
         for (const level of levels) {
@@ -238,36 +255,91 @@ async function populateRows(levels) {
             throw new Error("editedLevels() return differs from background getClasses() return");
         }
 
-        await updateControlState();
+        await updateClasses();
         console.log("END populateRows");
     } catch (e) {
         console.error(e);
     }
 }
 
-async function updateControlState(sendToServer = false) {
+async function updateClasses(sendToServer = false) {
     try {
-        console.log("BEGIN updateControlState");
-
         const id = accountId();
-        const state = await requests.sendMessage(port, {
+
+        await setStatusPending("sending classes...");
+        let state = await requests.sendMessage(port, {
             id: sendToServer ? "sendClasses" : "setClasses",
             accountId: id,
             levels: getLevels(),
             name: accountNames[id],
         });
+        return await updateStatus(state);
+    } catch (e) {
+        console.error(e);
+    }
+}
 
-        console.log("updateControlState:", state);
+async function statusPendingTimeout() {
+    await updateStatus({ error: true, message: "Pending operation timed out." });
+}
 
-        controls.changedCheckbox.checked = state.dirty;
-        controls.changedSpan.innerText = state.dirty ? "Changed" : "Unchanged";
+async function setStatusPending(message) {
+    try {
+        if (statusPendingTimer) {
+            clearTimeout(statusPendingTimer);
+        }
+        statusPendingTimer = setTimeout(statusPendingTimeout, STATUS_PENDING_TIMEOUT);
+        await updateStatus({ message: message, disable: true });
+    } catch (e) {
+        console.error(e);
+    }
+}
 
-        controls.statusSpan.innerText = " " + (state.valid ? "Validated" : "Validation Failed: " + state.message);
-        controls.applyButton.disabled = !state.valid;
-        controls.accountSelect.disabled = !state.valid;
-        controls.okButton.disabled = !state.valid;
+async function updateStatus(state = undefined) {
+    try {
+        if (statusPendingTimer) {
+            clearTimeout(statusPendingTimer);
+            statusPendingTimer = null;
+        }
 
-        console.log("END updateControlState");
+        if (state == undefined) {
+            state = {
+                error: true,
+                message: "unknown error",
+            };
+        }
+
+        console.log("updateStatus:", state);
+
+        let parts = [];
+
+        if (state.error) {
+            parts.push("Error");
+        } else {
+            if (state.dirty) {
+                if (state.valid) {
+                    parts.push("Unsaved Validated Changes");
+                } else {
+                    parts.push("Validatation Failed");
+                    state.disable = true;
+                }
+            } else if (state.dirty === false) {
+                parts.push("Unchanged");
+            }
+        }
+
+        if (state.message) {
+            let prefix = "";
+            if (parts.length > 0) {
+                prefix = ": ";
+            }
+            parts.push(prefix + state.message.trim());
+        }
+        controls.statusMessage.innerHTML = parts.join(" ");
+
+        controls.applyButton.disabled = state.disable;
+        controls.accountSelect.disabled = state.disable;
+        controls.okButton.disabled = state.disable;
     } catch (e) {
         console.error(e);
     }
@@ -275,18 +347,19 @@ async function updateControlState(sendToServer = false) {
 
 async function saveChanges() {
     try {
-        await updateControlState(true);
+        await setStatusPending("sending changed classes...");
+        const state = await requests.sendMessage(port, { id: "sendAllClasses", force: false });
+        await updateStatus(state);
+        return state;
     } catch (e) {
         console.error(e);
+        await updateStatus({ error: true, message: "Pending operation failed." });
     }
 }
 
 async function onApply() {
     try {
-        const attr = document.documentElement.getAttribute("data-bss-forced-theme");
-        console.log("attr:", attr);
-        console.log("themeSwitcher:", controls.themeSwitcher);
-        //await saveChanges();
+        await saveChanges();
     } catch (e) {
         console.error(e);
     }
@@ -302,8 +375,10 @@ async function onCancel() {
 
 async function onOk() {
     try {
-        await saveChanges();
-        window.close();
+        let state = await saveChanges();
+        if (typeof state === "object" && state.success) {
+            window.close();
+        }
     } catch (e) {
         console.error(e);
     }
@@ -320,9 +395,34 @@ async function onDefaults() {
 
 async function onRefresh() {
     try {
-        await sendComposePosition();
-        const levels = await requests.sendMessage(port, "refreshAll");
+        await setStatusPending("requesting all classes...");
+        await requests.sendMessage(port, "refreshAll");
+        const levels = await getClasses(accountId());
         await populateRows(levels);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onAdvancedSend() {
+    try {
+        const message = {
+            id: "sendCommand",
+            accountId: accountId(),
+            command: controls.advancedCommand.value,
+            argument: controls.advancedArgument.value,
+        };
+        const result = await requests.sendMessage(port, message);
+
+        const output = controls.advancedOutput;
+        output.style.height = "0px";
+
+        if (result == undefined) {
+            output.value = "Error: server communication failed";
+        } else {
+            output.value = result.body;
+        }
+        output.style.height = `${output.scrollHeight}px`;
     } catch (e) {
         console.error(e);
     }
@@ -332,7 +432,6 @@ async function populateAccountSelect() {
     try {
         console.log("BEGIN populateAccountSelect");
         const accounts = await requests.sendMessage(port, "getAccounts");
-        const currentAccountId = await requests.sendMessage(port, "getCurrentAccountId");
         controls.accountSelect.innerHTML = "";
         accountNames = {};
         var i = 0;
@@ -347,7 +446,8 @@ async function populateAccountSelect() {
             controls.accountSelect.appendChild(option);
             i++;
         }
-        await setSelectedAccount(currentAccountId);
+        const selectedAccountId = await requests.sendMessage(port, "getSelectedAccountId");
+        await setSelectedAccount(selectedAccountId);
         console.log("END populateAccountSelect");
     } catch (e) {
         console.error(e);
@@ -357,6 +457,18 @@ async function populateAccountSelect() {
 async function setSelectedAccount(id) {
     try {
         controls.accountSelect.selectedIndex = accountIndex[id];
+        controls.advancedSelectedAccount.value = accountNames[id];
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function setAdvancedTabVisible(visible) {
+    try {
+        controls.advancedTab.hidden = !visible;
+        controls.advancedTabLink.hidden = !visible;
+        controls.optionsShowAdvancedTab.checked = visible;
+        await requests.sendMessage(port, { id: "setConfigValue", key: "advancedTabVisible", value: visible });
     } catch (e) {
         console.error(e);
     }
@@ -380,30 +492,22 @@ async function onAccountSelectChange(event) {
         console.log("index:", accountIndex[id]);
         console.log("name:", accountNames[id]);
         const levels = await getClasses(id);
+        controls.advancedSelectedAccount.value = accountNames[id];
         await populateRows(levels);
     } catch (e) {
         console.error(e);
     }
 }
 
-var hasLoaded = false;
-
-async function sendComposePosition() {
+async function populateOptions() {
     try {
-        const message = {
-            id: "setComposePosition",
-            position: {
-                top: Math.floor(window.mozInnerScreenY),
-                left: Math.floor(window.mozInnerScreenX),
-                height: Math.floor(window.innerHeight),
-                width: Math.floor(window.innerWidth),
-            },
-        };
-        await requests.sendMessage(port, message);
+        controls.optionsAutoDelete.checked = await requests.sendMessage(port, { id: "getConfigValue", key: "autoDelete" });
     } catch (e) {
         console.error(e);
     }
 }
+
+var hasLoaded = false;
 
 async function handleLoad() {
     try {
@@ -417,9 +521,10 @@ async function handleLoad() {
         await connectToBackground();
 
         controls.helpText.innerHTML = helpContent;
-
+        await populateOptions();
+        const visible = await await requests.sendMessage(port, { id: "getConfigValue", key: "advancedTabVisible" });
+        await setAdvancedTabVisible(visible);
         await populateAccountSelect();
-
         const levels = await getClasses(accountId());
         await populateRows(levels);
 
@@ -431,22 +536,8 @@ async function handleLoad() {
 
 async function getClasses(accountId) {
     try {
-        await sendComposePosition();
+        await setStatusPending("requesting classes...");
         return await requests.sendMessage(port, { id: "getClasses", accountId: accountId });
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onHelp(event) {
-    try {
-        let button = event.srcElement;
-        //console.log("help:", event, button.classList);
-        if (button.classList.contains("collapsed")) {
-            button.text = "Show Help";
-        } else {
-            button.text = "Hide Help";
-        }
     } catch (e) {
         console.error(e);
     }
@@ -454,9 +545,10 @@ async function onHelp(event) {
 
 async function handleUnload() {
     try {
-        port.disconnect();
-        ports.remove(port);
-        port = null;
+        if (port) {
+            port.disconnect();
+            port = null;
+        }
     } catch (e) {
         console.error(e);
     }
@@ -467,6 +559,7 @@ async function handleSelectAccount(message) {
         console.log("selectAccount:", message);
         if (!controls.accountSelect.disabled) {
             await setSelectedAccount(message.accountId);
+            await onAccountSelectChange(message);
         }
         return accountId();
     } catch (e) {
@@ -475,6 +568,22 @@ async function handleSelectAccount(message) {
 }
 
 requests.addHandler("selectAccount", handleSelectAccount);
+
+async function handleSelectEditorTab(message) {
+    try {
+        switch (message.name) {
+            case "classes":
+                console.log("selecting classes tab");
+                controls.classesNavLink.show();
+                break;
+            default:
+                console.warn("selectEditorTab: unexpected tab name:", message.name);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+requests.addHandler("selectEditorTab", handleSelectEditorTab);
 
 async function handleMessage(message, sender) {
     try {
@@ -495,14 +604,23 @@ async function handleMessage(message, sender) {
     }
 }
 
+async function handlePortDisconnect() {
+    try {
+        console.log("port disconnected; closing");
+        window.close();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function connectToBackground() {
     try {
         console.log("connectToBackground");
         const background = await browser.runtime.getBackgroundPage();
         console.log("background:", background);
         port = await browser.runtime.connect({ name: "editor" });
-        ports.add("editor");
         port.onMessage.addListener(handleMessage);
+        port.onDisconnect.addListener(handlePortDisconnect);
         //port.postMessage({ id: "ping", src: "editor" });
     } catch (e) {
         console.error(e);
@@ -512,6 +630,9 @@ async function connectToBackground() {
 function addControl(name, elementId, eventName = null, handler = null) {
     try {
         var element = document.getElementById(elementId);
+        if (!element) {
+            throw new Error(`addControl: ${elementId} not found`);
+        }
         controls[name] = element;
         if (eventName) {
             element.addEventListener(eventName, handler);
@@ -521,23 +642,37 @@ function addControl(name, elementId, eventName = null, handler = null) {
     }
 }
 
+async function onAutoDeleteChange() {
+    await requests.sendMessage(port, { id: "setConfigValue", key: "autoDelete", value: controls.optionsAutoDelete.checked });
+}
+
+async function onShowAdvancedTabChange() {
+    await setAdvancedTabVisible(controls.optionsShowAdvancedTab.checked);
+}
+
 addControl("applyButton", "apply-button", "click", onApply);
 addControl("okButton", "ok-button", "click", onOk);
 addControl("cancelButton", "cancel-button", "click", onCancel);
 addControl("defaultsButton", "defaults-button", "click", onDefaults);
 addControl("refreshButton", "refresh-button", "click", onRefresh);
-addControl("helpButton", "help-button", "click", onHelp);
 addControl("accountSelect", "account-select", "change", onAccountSelectChange);
 addControl("tableBody", "level-table-body");
-addControl("changedCheckbox", "status-changed-checkbox");
-addControl("changedSpan", "status-changed-span");
-addControl("statusSpan", "status-message-span");
+addControl("statusMessage", "status-message-span");
 addControl("applyButton", "apply-button");
 addControl("helpText", "help-text");
 addControl("tableGridRow", "table-grid-row");
 addControl("tableGridColumn", "table-grid-column");
 addControl("classTable", "class-table", "change", onTableChange);
-addControl("themeSwitcher", "theme-switcher");
+addControl("advancedCommand", "advanced-command-select");
+addControl("advancedArgument", "advanced-argument-input");
+addControl("advancedOutput", "advanced-output");
+addControl("advancedSendButton", "advanced-send-button", "click", onAdvancedSend);
+addControl("optionsAutoDelete", "options-auto-delete-checkbox", "change", onAutoDeleteChange);
+addControl("advancedSelectedAccount", "advanced-selected-account-input");
+addControl("optionsShowAdvancedTab", "options-show-advanced-checkbox", "change", onShowAdvancedTabChange);
+addControl("advancedTab", "tab-advanced");
+addControl("advancedTabLink", "tab-advanced-link");
+addControl("classesNavLink", "classes-navlink");
 
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);

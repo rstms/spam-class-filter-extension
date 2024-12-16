@@ -2,8 +2,7 @@ import { generateUUID } from "./common.js";
 
 /* global console, setTimeout, clearTimeout */
 
-//const DEFAULT_TIMEOUT = 1024;
-const DEFAULT_TIMEOUT = 0;
+const DEFAULT_TIMEOUT = 30 * 1024;
 
 var pendingRequests = {};
 var registeredHandlers = {};
@@ -40,8 +39,8 @@ class Request {
     }
 
     remove() {
-        delete pendingRequests[this.id];
         clearTimeout(this.timer);
+        delete pendingRequests[this.id];
     }
 
     reject(error) {
@@ -64,14 +63,14 @@ class Request {
     }
 }
 
-export function sendMessage(port, message, timeout = undefined) {
+export async function sendMessage(port, message, timeout = undefined) {
     try {
         let request = new Request();
         if (typeof message === "string") {
             message = { id: message };
         }
         console.log("sendMessage:", port, message, timeout);
-        return request.post(port, message, timeout);
+        return await request.post(port, message, timeout);
     } catch (e) {
         console.error(e);
     }
@@ -109,6 +108,8 @@ export async function resolveRequests(message, sender, handlers = {}) {
                 await respond(sender, message, result);
                 return true;
             }
+            console.warn(new Error("missing request handler:", message.id));
+            return false;
         }
         return false;
     } catch (e) {

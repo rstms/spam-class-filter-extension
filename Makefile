@@ -27,10 +27,11 @@ fmt: .prettier
 	touch $@
 
 release:
-	rm -f dist/release.zip
-	zip dist/release.zip *.js *.html manifest.json VERSION
-	zip dist/release.zip -r assets
-	mv dist/release.zip dist/spam-class-extension-$(shell cat VERSION).xpi
+	rm -f release.zip
+	zip release.zip -r *.js *.html manifest.json VERSION assets
+	( rm -rf testo && mkdir testo && cd testo && unzip ../release.zip ); find testo
+
+	# mv release.zip dist/spam-class-extension-$(shell cat VERSION).xpi
 
 clean:
 	rm -f .eslint
@@ -38,3 +39,5 @@ clean:
 	rm -f .prettier
 	docker rmi prettier || true
 	rm -rf node_modules
+	rm -rf testo
+	rm release.zip

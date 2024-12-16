@@ -5,7 +5,7 @@ import { differ } from "./common.js";
 
 export class Classes {
     constructor() {
-        this.composePosition = {};
+        this.options = {};
         this.classes = {
             dirty: {},
             server: {},
@@ -28,10 +28,6 @@ export class Classes {
                 score: 999,
             },
         ];
-    }
-
-    setComposePosition(pos) {
-        this.composePosition = pos;
     }
 
     all() {
@@ -80,7 +76,7 @@ export class Classes {
         try {
             var levels = this.levels(account);
             if (force || !Array.isArray(levels) || levels.lengh === 0) {
-                const result = await sendEmailRequest(account, "list", this.composePosition);
+                const result = await sendEmailRequest(account, "list", this.options);
                 levels = result.json.Classes;
                 delete this.classes.dirty[account.id];
                 this.classes.server[account.id] = levels;
@@ -116,9 +112,23 @@ export class Classes {
     async sendAllUpdates(accounts, force = false) {
         try {
             var classes = this.all();
+            let ret = {
+                success: true,
+                error: false,
+                message: "Classes updated successfully.",
+            };
+
             for (const [id, levels] of Object.entries(classes)) {
-                await this.send(accounts[id], levels, force);
+                const result = await this.send(accounts[id], levels, force);
+                if (result.error) {
+                    ret = {
+                        success: false,
+                        error: true,
+                        message: "Failed to update all changed classes.",
+                    };
+                }
             }
+            return ret;
         } catch (e) {
             console.error(e);
         }
@@ -127,7 +137,11 @@ export class Classes {
     async sendUpdate(account, force = false) {
         try {
             var levels = this.levels(account);
-            await this.send(account, levels, force);
+            const result = await this.send(account, levels, force);
+            if (result.error) {
+                return result;
+            }
+            return this.validate(account);
         } catch (e) {
             console.error(e);
         }
@@ -201,10 +215,10 @@ export class Classes {
             if (force || this.isDirty(account)) {
                 var values = [];
                 for (const level of levels) {
-                    values.push(level.name + "=" + level.score);
+                    values.push(`${level.name}=${level.score}`);
                 }
-                const subject = "reset " + levels.join(",");
-                const result = await sendEmailRequest(account, subject, this.composePosition);
+                const subject = "reset " + values.join(" ");
+                const result = await sendEmailRequest(account, subject, this.options);
                 const returned = result.json.Classes;
                 this.throwInvalidLevels(returned);
                 if (differ(levels, returned)) {
@@ -212,7 +226,18 @@ export class Classes {
                 }
                 delete this.classes.dirty[account.id];
                 this.classes.server[account.id] = levels;
+                return { success: true, error: false, message: "classes sent successfully" };
             }
+            return { success: true, error: false, message: "classes unchanged" };
+        } catch (e) {
+            return { success: false, error: true, message: `${e}` };
+        }
+    }
+
+    async sendCommand(account, subject) {
+        try {
+            console.log("sendCommand:", account, subject);
+            return await sendEmailRequest(account, subject);
         } catch (e) {
             console.error(e);
         }

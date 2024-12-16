@@ -6,105 +6,175 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
     <title>Spam Filter Classes</title>
     <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css?h=16160f470b5eb9907bb0b81e0b89a3b0">
-    <link rel="stylesheet" href="assets/css/Lato.css?h=1f9b448f5fd1d5e579f9e40b5a9da2b0">
-    <link rel="stylesheet" href="assets/css/styles.css?h=542ef53475145850d87c54e7ec4585a3">
+    <link rel="stylesheet" href="assets/css/Lato.css?h=8a6610668794691453ca10069fee65fa">
 <script type="module" src="editor.js"></script>
 </head>
 
 <body>
-    <div class="container-xl d-flex">
+    <div class="container-xl">
         <div class="row">
             <div class="col d-flex">
                 <div class="vstack gap-2 py-2 px-0">
-                    <div><a class="btn btn-primary btn-sm" data-bs-toggle="collapse" aria-expanded="false" aria-controls="collapse-1" href="#collapse-1" role="button" id="help-button">Show Help</a>
-                        <div class="collapse" id="collapse-1">
-                            <div class="bg-light-subtle border rounded-0">
-                                <p id="help-text" style="padding: 4px;">help text<br><br></p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row gx-2">
-                        <div class="col-2">
-                            <div class="input-group input-group-sm"><span class="d-md-flex flex-fill justify-content-end input-group-text">Account</span></div>
-                        </div>
-                        <div class="col-10 d-flex"><select class="d-flex flex-fill" id="account-select">
-                                <optgroup label="This is a group">
-                                    <option value="12" selected="">This is item 1</option>
-                                    <option value="13">This is item 2</option>
-                                    <option value="14">This is item 3</option>
-                                </optgroup>
-                            </select></div>
-                    </div>
-                    <div class="row gx-2">
-                        <div class="col-2 text-end d-flex">
-                            <div class="input-group input-group-sm"><span class="d-md-flex flex-fill justify-content-end input-group-text">Status</span></div>
-                        </div>
-                        <div class="col-10 d-flex justify-content-md-start align-items-md-center">
-                            <div class="bg-body-secondary d-flex flex-fill align-self-stretch align-items-md-center">
-                                <div class="hstack gap-2 d-flex flex-fill">
-                                    <div></div><input type="checkbox" id="status-changed-checkbox" disabled="">
-                                    <div><span class="fs-6 fw-normal align-content-center" id="status-changed-span">Changed</span></div>
-                                    <div></div>
-                                    <div class="flex-fill" id="status-message-div"><span class="fs-6 fw-normal align-content-center" id="status-message-span">Changed</span></div>
+                    <div class="row">
+                        <div class="col">
+                            <div id="editor-tabs">
+                                <ul class="nav nav-pills" role="tablist">
+                                    <li class="nav-item" role="presentation" id="tab-classes-link"><a class="nav-link active" role="tab" data-bs-toggle="pill" id="classes-navlink" href="#tab-classes">Classes</a></li>
+                                    <li class="nav-item" role="presentation" id="tab-options-link"><a class="nav-link" role="tab" data-bs-toggle="pill" href="#tab-options">Options</a></li>
+                                    <li class="nav-item" role="presentation" id="tab-advanced-link"><a class="nav-link" role="tab" data-bs-toggle="pill" href="#tab-advanced">Advanced</a></li>
+                                    <li class="nav-item" role="presentation" id="tab-help-link"><a class="nav-link" role="tab" data-bs-toggle="pill" href="#tab-help">Help</a></li>
+                                </ul>
+                                <div class="tab-content">
+                                    <div class="tab-pane active" role="tabpanel" id="tab-classes">
+                                        <div class="vstack gap-2 d-flex">
+                                            <div></div>
+                                            <div class="row gx-2 d-flex">
+                                                <div class="col-2 d-flex">
+                                                    <div class="input-group input-group-sm d-flex"><span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text">Account</span></div>
+                                                </div>
+                                                <div class="col-10 d-flex"><select class="d-flex flex-fill" id="account-select">
+                                                        <optgroup label="This is a group">
+                                                            <option value="12" selected="">This is item 1</option>
+                                                            <option value="13">This is item 2</option>
+                                                            <option value="14">This is item 3</option>
+                                                        </optgroup>
+                                                    </select></div>
+                                            </div>
+                                            <div class="row gx-2 d-flex">
+                                                <div class="col-2 text-end d-flex">
+                                                    <div class="input-group input-group-sm d-flex"><span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text">Status</span></div>
+                                                </div>
+                                                <div class="col-10 d-flex justify-content-md-start align-items-md-center"><span class="bg-light-subtle border rounded-0 flex-fill py-1 px-1" id="status-message-span">Text</span></div>
+                                            </div>
+                                            <div class="row d-flex" id="table-grid-row">
+                                                <div class="col" id="table-grid-column">
+                                                    <div class="border rounded-0" id="level-table-div">
+                                                        <div class="table-responsive d-inline-flex" id="class-table">
+                                                            <table class="table table-sm">
+                                                                <thead>
+                                                                    <tr>
+                                                                        <th class="fw-normal">Class</th>
+                                                                        <th class="fw-normal">Threshold</th>
+                                                                        <th></th>
+                                                                        <th></th>
+                                                                        <th></th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody id="level-table-body">
+                                                                    <tr>
+                                                                        <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
+                                                                        <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
+                                                                        <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
+                                                                        <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
+                                                                        <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
+                                                                        <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
+                                                                        <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
+                                                                        <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
+                                                                        <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
+                                                                        <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
+                                                                        <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
+                                                                        <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
+                                                                        <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
+                                                                        <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
+                                                                    </tr>
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="row d-flex">
+                                                <div class="col d-flex"><button class="btn btn-primary btn-sm" id="defaults-button" type="button">Set Defaults</button><label class="form-label d-flex">&nbsp; Reset classes to default values</label></div>
+                                            </div>
+                                            <div class="row d-flex">
+                                                <div class="col d-flex"><button class="btn btn-primary btn-sm d-flex" id="refresh-button" type="button">Refresh All&nbsp;</button><label class="form-label d-flex">&nbsp; Reload classes from mail server for all accounts</label></div>
+                                            </div>
+                                            <div class="row d-flex d-md-flex">
+                                                <div class="col d-flex justify-content-end">
+                                                    <div class="hstack gap-2 d-inline-flex float-end float-sm-end float-md-end float-lg-end float-xl-end float-xxl-end"><button class="btn btn-primary btn-sm" id="apply-button" type="button">Apply</button><button class="btn btn-primary btn-sm" id="cancel-button" type="button">Cancel</button><button class="btn btn-primary btn-sm" id="ok-button" type="button">&nbsp; Ok&nbsp;&nbsp;</button></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="tab-pane" role="tabpanel" id="tab-options">
+                                        <div class="vstack gap-2">
+                                            <div></div>
+                                            <div class="row">
+                                                <div class="col">
+                                                    <div class="form-check"><input class="form-check-input" type="checkbox" id="options-auto-delete-checkbox"><label class="form-check-label" for="options-auto-delete-checkbox">Automatically Delete Control Messages</label></div>
+                                                </div>
+                                            </div>
+                                            <div class="row">
+                                                <div class="col">
+                                                    <div class="form-check"><input class="form-check-input" type="checkbox" id="options-show-advanced-checkbox"><label class="form-check-label" for="options-show-advanced-checkbox">Enable Advanced Tab</label></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="tab-pane" role="tabpanel" id="tab-advanced">
+                                        <div class="vstack gap-2">
+                                            <div></div>
+                                            <div class="row">
+                                                <div class="col">
+                                                    <div class="input-group"><span class="input-group-text">Selected Account</span><input class="form-control" type="text" id="advanced-selected-account-input" readonly=""></div>
+                                                </div>
+                                            </div>
+                                            <div class="row gx-1 row-cols-3 d-flex">
+                                                <div class="col-auto text-end d-flex">
+                                                    <div class="input-group d-flex"><span class="input-group-text" accesskey="c">Command</span></div>
+                                                </div>
+                                                <div class="col-auto d-flex"><select class="d-flex" id="advanced-command-select">
+                                                        <option value="list" selected="">list</option>
+                                                        <option value="delete">delete</option>
+                                                        <option value="set">set</option>
+                                                        <option value="reset">reset</option>
+                                                        <option value="version">version</option>
+                                                        <option value="help">help</option>
+                                                    </select></div>
+                                                <div class="col d-flex flex-fill"><input class="d-flex flex-fill" type="text" id="advanced-argument-input"></div>
+                                                <div class="col-auto d-flex"><button class="btn btn-primary d-flex" id="advanced-send-button" type="button" accesskey="s">Send</button></div>
+                                            </div>
+                                            <div class="row d-flex">
+                                                <div class="col-12 d-flex"><textarea class="flex-fill" id="advanced-output" readonly=""></textarea></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="tab-pane" role="tabpanel" id="tab-help">
+                                        <div class="vstack gap-2">
+                                            <div></div>
+                                            <div class="bg-light-subtle border rounded-0">
+                                                <p id="help-text" style="padding: 4px;">help text<br><br></p>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                    <div class="row" id="table-grid-row">
-                        <div class="col" id="table-grid-column">
-                            <div class="border rounded-0" id="level-table-div">
-                                <div class="table-responsive d-inline-flex" id="class-table">
-                                    <table class="table table-sm">
-                                        <thead>
-                                            <tr>
-                                                <th class="fw-normal">Class</th>
-                                                <th class="fw-normal">Threshold</th>
-                                                <th></th>
-                                                <th></th>
-                                                <th></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="level-table-body">
-                                            <tr>
-                                                <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
-                                                <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
-                                                <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
-                                                <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
-                                                <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
-                                            </tr>
-                                            <tr>
-                                                <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
-                                                <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
-                                                <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
-                                                <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
-                                                <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
-                                            </tr>
-                                            <tr>
-                                                <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
-                                                <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
-                                                <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
-                                                <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
-                                                <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
-                                            </tr>
-                                            <tr>
-                                                <td><input type="text" required="" minlength="1" pattern="[a-zA-Z0-9-_ ]*"></td>
-                                                <td><input type="text" required="" minlength="1" inputmode="numeric" pattern="[0-9\.-]*"></td>
-                                                <td><input class="form-range" type="range" min="-20.0" max="+20.0" step=".1"></td>
-                                                <td><button class="btn btn-primary btn-sm" type="button">Delete</button></td>
-                                                <td><button class="btn btn-primary btn-sm" type="button">+</button></td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col"><button class="btn btn-primary btn-sm" id="defaults-button" type="button">Set Defaults</button><label class="form-label">&nbsp; Reset classes to default values</label></div>
-                    </div>
-                    <div class="row">
-                        <div class="col"><button class="btn btn-primary btn-sm" id="refresh-button" type="button">Refresh All&nbsp;</button><label class="form-label">&nbsp; Reload classes from mail server for all accounts</label>
-                            <div class="hstack gap-2 d-inline-flex float-end float-sm-end float-md-end float-lg-end float-xl-end float-xxl-end"><button class="btn btn-primary btn-sm" id="apply-button" type="button">Apply</button><button class="btn btn-primary btn-sm" id="cancel-button" type="button">Cancel</button><button class="btn btn-primary btn-sm" id="ok-button" type="button">&nbsp; Ok&nbsp;&nbsp;</button></div>
                         </div>
                     </div>
                 </div>
