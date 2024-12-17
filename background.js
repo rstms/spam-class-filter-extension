@@ -132,10 +132,6 @@ async function handleSuspendCanceled() {
 
 async function focusEditorWindow() {
     try {
-        const tabs = await browser.tabs.query({ title: "Spam Filter Classes", type: "content" });
-        if (tabs.length > 0) {
-            await browser.windows.update(tabs[0].windowId, { focused: true });
-        }
         await browser.runtime.openOptionsPage();
         const port = await ports.get("editor");
         await requests.sendMessage(port, { id: "selectEditorTab", name: "classes" });
@@ -144,6 +140,7 @@ async function focusEditorWindow() {
     }
 }
 
+/*
 async function getSystemTheme() {
     try {
         const tabs = await browser.tabs.query({ type: "mail" });
@@ -158,6 +155,7 @@ async function getSystemTheme() {
         console.error(e);
     }
 }
+*/
 
 async function getClasses(message) {
     try {
@@ -374,7 +372,7 @@ browser.action.onClicked.addListener(handleIconClicked);
 browser.windows.onRemoved.addListener(handleWindowRemoved);
 browser.runtime.onConnect.addListener(handleConnect);
 
-requests.addHandler("getSystemTheme", getSystemTheme);
+//requests.addHandler("getSystemTheme", getSystemTheme);
 requests.addHandler("setClasses", setClasses);
 requests.addHandler("getClasses", getClasses);
 requests.addHandler("sendClasses", sendClasses);

@@ -27,14 +27,12 @@
     "type": "module"
   },
   "permissions": [
-      "menus",
       "accountsRead",
       "compose",
-      "compose.save",
       "compose.send",
+      "menus",
       "messagesDelete",
       "messagesRead",
-      "storage",
-      "tabs"
+      "storage"
   ]
 }
