@@ -33,14 +33,8 @@
       "compose.save",
       "compose.send",
       "messagesDelete",
-      "messagesImport",
-      "messagesMove",
       "messagesRead",
-      "addressBooks",
       "storage",
-      "theme",
-      "tabs",
-      "activeTab",
-      "scripting"
+      "tabs"
   ]
 }
