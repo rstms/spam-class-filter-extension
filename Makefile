@@ -19,6 +19,7 @@ shell:
 
 fmt: .prettier
 	chmod 0660 editor.html
+	sed -e '/<script>/,/<\/script>/d' -i editor.html
 	find assets -type f -exec chmod 0660 \{\} \;
 	docker run --rm -v "$$(pwd):/app" prettier --tab-width 4 --print-width 135 --write "**/*.js" --write "**/*.css" --write "**/*.html"
 

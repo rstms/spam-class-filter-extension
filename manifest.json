@@ -11,8 +11,7 @@
   },
   "options_ui": {
     "page": "editor.html",
-    "open_in_tab": false,
-    "browser_style": true
+    "open_in_tab": true
   },
   "background": {
     "scripts": ["background.js"],

@@ -1,5 +1,6 @@
 import * as requests from "./requests.js";
 import { differ } from "./common.js";
+import { initThemeSwitcher } from "./theme_switcher.js";
 
 /* globals browser, window, document, console, setTimeout, clearTimeout */
 const verbose = false;
@@ -786,3 +787,4 @@ addControl("helpNavLink", "help-navlink");
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);
 browser.runtime.onMessage.addListener(handleMessage);
+initThemeSwitcher();
