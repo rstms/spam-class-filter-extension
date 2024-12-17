@@ -22,12 +22,12 @@ fmt: .prettier
 	find assets -type f -exec chmod 0660 \{\} \;
 	docker run --rm -v "$$(pwd):/app" prettier --tab-width 4 --print-width 135 --write "**/*.js" --write "**/*.css" --write "**/*.html"
 
-.prettier: prettier/Dockerfile
-	cd prettier && $(docker) build . -t prettier
+.prettier: docker/prettier/Dockerfile
+	cd docker/prettier && $(docker) build . -t prettier
 	touch $@
 
-.eslint: eslint/Dockerfile eslint/entrypoint eslint/eslint.config.js
-	cd eslint && $(docker) build . -t eslint
+.eslint: docker/eslint/Dockerfile docker/eslint/entrypoint docker/eslint/eslint.config.js
+	cd docker/eslint && $(docker) build . -t eslint
 	touch $@
 
 release:
