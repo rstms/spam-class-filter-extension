@@ -3,6 +3,6 @@ limbo
 .eslint
 notes
 node_modules
-.zip
-.xpi
-dist
+*.zip
+testo
+*.xpi
