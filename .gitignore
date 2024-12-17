@@ -7,3 +7,4 @@ node_modules
 testo
 *.xpi
 dist
+exported
