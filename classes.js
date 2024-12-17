@@ -1,6 +1,10 @@
 import { sendEmailRequest } from "./email.js";
 import { differ } from "./common.js";
 
+const MIN_SCORE = -100.0;
+const MAX_SCORE = 100.0;
+const verbose = false;
+
 /* global console */
 
 export class Classes {
@@ -13,19 +17,19 @@ export class Classes {
         this.defaultLevels = [
             {
                 name: "ham",
-                score: 0,
+                score: "0",
             },
             {
                 name: "possible",
-                score: 3,
+                score: "3",
             },
             {
                 name: "probable",
-                score: 10,
+                score: "10",
             },
             {
                 name: "spam",
-                score: 999,
+                score: "999",
             },
         ];
     }
@@ -75,11 +79,16 @@ export class Classes {
     async get(account, force = false) {
         try {
             var levels = this.levels(account);
-            if (force || !Array.isArray(levels) || levels.lengh === 0) {
+            if (force || !Array.isArray(levels) || levels.length === 0) {
                 const result = await sendEmailRequest(account, "list", this.options);
-                levels = result.json.Classes;
+                const returned = result.json.Classes;
+                const validated = this.validateLevels(returned);
+                if (validated.error) {
+                    console.warn("server list return failed validation:", validated.error, returned);
+                }
                 delete this.classes.dirty[account.id];
-                this.classes.server[account.id] = levels;
+                this.classes.server[account.id] = validated.levels;
+                levels = validated.levels;
             }
             return levels;
         } catch (e) {
@@ -87,13 +96,25 @@ export class Classes {
         }
     }
 
-    set(account, levels) {
+    setLevels(account, levels) {
         try {
             if (!differ(levels, this.classes.server[account.id])) {
                 delete this.classes.dirty[account.id];
             } else {
                 this.classes.dirty[account.id] = levels;
             }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async set(account, levels) {
+        try {
+            const validated = this.validateLevels(levels);
+            if (validated.error) {
+                console.warn("set levels failed validation:", validated.error, levels);
+            }
+            this.setLevels(account, validated.levels);
             return this.validate(account);
         } catch (e) {
             console.error(e);
@@ -109,7 +130,7 @@ export class Classes {
         }
     }
 
-    async sendAllUpdates(accounts, force = false) {
+    async sendAll(accounts, force = false) {
         try {
             var classes = this.all();
             let ret = {
@@ -118,8 +139,8 @@ export class Classes {
                 message: "Classes updated successfully.",
             };
 
-            for (const [id, levels] of Object.entries(classes)) {
-                const result = await this.send(accounts[id], levels, force);
+            for (const id of Object.keys(classes)) {
+                const result = await this.send(accounts[id], force);
                 if (result.error) {
                     ret = {
                         success: false,
@@ -134,41 +155,27 @@ export class Classes {
         }
     }
 
-    async sendUpdate(account, force = false) {
+    validate(account, levels = undefined) {
         try {
-            var levels = this.levels(account);
-            const result = await this.send(account, levels, force);
-            if (result.error) {
-                return result;
+            if (levels === undefined) {
+                levels = this.levels(account);
             }
-            return this.validate(account);
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    throwInvalidLevels(levels) {
-        try {
-            const error = this.validateLevels(levels);
-            if (error) {
-                console.error("level validation failed:", error, levels);
-                throw new Error(`Level validation failed: ${error}`);
-            }
-            return error;
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    validate(account) {
-        try {
-            var levels = this.levels(account);
-            const message = this.validateLevels(levels);
-            return {
+            let ret = {
                 dirty: this.isDirty(account),
-                valid: message ? false : true,
-                message: message,
+                levels: levels,
+                message: "",
             };
+
+            const validated = this.validateLevels(ret.levels);
+            if (validated.error) {
+                ret.message = validated.error;
+                ret.valid = false;
+            } else {
+                ret.levels = validated.levels;
+                this.setLevels(account, validated.levels);
+                ret.valid = true;
+            }
+            return ret;
         } catch (e) {
             console.error(e);
         }
@@ -177,66 +184,144 @@ export class Classes {
     validateLevels(levels) {
         try {
             if (!Array.isArray(levels)) {
-                return "unexpected data type";
+                return { levels: levels, error: "unexpected data type" };
             }
             if (levels.length < 2) {
-                return "not enough levels";
+                return { levels: levels, error: "not enough levels" };
             }
-            var lastScore = 0;
-            var levelObj = {};
-            for (let i = 0; i < levels.length; i++) {
-                if (i > 0 && levels[i].score === lastScore) {
-                    return "duplicate threshold value";
+            var validLevels = [];
+            var lastScore = undefined;
+            var classObj = {};
+            var scoreObj = {};
+            for (const inputLevel of levels) {
+                const level = { name: inputLevel.name, score: inputLevel.score };
+                if (typeof level.name === "string") {
+                    level.name = level.name.trim();
+                    level.name = level.name.replace(/\s/g, "_");
+                } else {
+                    return { levels: levels, error: "unexpected class name type" };
                 }
-                if (i > 0 && levels[i].score < lastScore) {
-                    return "thresholds not in ascending order";
+
+                if (level.name.length === 0) {
+                    return { levels: levels, error: "missing class name" };
                 }
-                lastScore = levels[i].score;
-                levelObj[levels[i].name] = levels[i].score;
+
+                switch (typeof level.score) {
+                    case "number":
+                        level.score = String(parseFloat(level.score));
+                        break;
+                    case "string":
+                        break;
+                    default:
+                        return { levels: levels, error: "unexpected threshold type" };
+                }
+
+                level.score = level.score.trim();
+                if (level.score.length === 0) {
+                    return { levels: levels, error: "missing threshold value" };
+                }
+
+                if (!isFinite(level.score)) {
+                    return { levels: levels, error: "threshold value not a number" };
+                }
+
+                if (!/^[a-zA-Z]/.test(level.name)) {
+                    return { levels: levels, error: "class names must start with a letter" };
+                }
+
+                if (!/^[a-zA-Z0-9_-]+$/.test(level.name)) {
+                    return `illegal characters in class name: '${level.name}'`;
+                }
+
+                if (!/^(-|)(([0-9]+(\.|)[0-9]*)|([0-9]*(\.|)[0-9]+))$/.test(level.score)) {
+                    return `illegal characters in threshold: '${level.score}'`;
+                }
+
+                if (
+                    level.name !== "spam" &&
+                    (parseFloat(level.score) < parseFloat(MIN_SCORE) || parseFloat(level.score) > parseFloat(MAX_SCORE))
+                ) {
+                    return `threshold out of range: '${level.score}'`;
+                }
+
+                if (lastScore !== undefined && parseFloat(level.score) < lastScore) {
+                    return { levels: levels, error: "thresholds not in ascending order" };
+                }
+
+                classObj[level.name] = level.score;
+                scoreObj[level.score] = level.name;
+                validLevels.push({ name: level.name, score: level.score });
+                lastScore = parseFloat(level.name);
             }
-            if (!("spam" in levelObj)) {
-                return "missing spam class";
+            if (!("spam" in classObj)) {
+                return { levels: levels, error: "missing spam class" };
             }
-            if (levelObj["spam"] != 999) {
-                return "unexpected spam class threshold";
+            if (classObj["spam"] !== "999") {
+                return { levels: levels, error: "unexpected spam class threshold" };
             }
-            if (levels.length != Object.keys(levelObj).length) {
-                return "duplicate class name";
+            if (levels.length !== Object.keys(classObj).length) {
+                return { levels: levels, error: "duplicate class name" };
             }
-            return "";
+            if (levels.length !== Object.keys(scoreObj).length) {
+                return { levels: levels, error: "duplicate threshold value" };
+            }
+
+            if (levels.length !== validLevels.length) {
+                return { levels: levels, error: "validation mismatch" };
+            }
+
+            return { levels: validLevels, error: "" };
         } catch (e) {
             console.error(e);
         }
     }
 
-    async send(account, levels, force) {
+    async send(account, force) {
         try {
-            this.throwInvalidLevels(levels);
-            if (force || this.isDirty(account)) {
-                var values = [];
-                for (const level of levels) {
-                    values.push(`${level.name}=${level.score}`);
+            const levels = this.levels(account);
+            if (levels !== undefined) {
+                const validated = this.validate(account);
+                if (!validated.valid) {
+                    throw new Error(`Validation failed: ${validated.message}`);
                 }
-                const subject = "reset " + values.join(" ");
-                const result = await sendEmailRequest(account, subject, this.options);
-                const returned = result.json.Classes;
-                this.throwInvalidLevels(returned);
-                if (differ(levels, returned)) {
-                    throw new Error("reset result mismatch:", account.id, levels, returned);
+                if (force || this.isDirty(account)) {
+                    var values = [];
+                    for (const level of validated.levels) {
+                        values.push(`${level.name}=${level.score}`);
+                    }
+                    const subject = "reset " + values.join(" ");
+                    const result = await sendEmailRequest(account, subject, this.options);
+                    const returned = result.json.Classes;
+                    const validatedReturn = this.validateLevels(returned);
+                    if (validatedReturn.error) {
+                        console.debug("account:", account);
+                        console.debug("returned:", returned);
+                        console.error("failure: reset result failed validation:", validatedReturn.error);
+                        throw new Error(`reset result validation failed: ${validatedReturn.error}`);
+                    }
+                    if (differ(validated.levels, validatedReturn.levels)) {
+                        console.debug("account:", account);
+                        console.debug("validated.levels:", returned);
+                        console.debug("validatedReturn.levels:", validatedReturn.levels);
+                        throw new Error("reset result mismatch");
+                    }
+                    delete this.classes.dirty[account.id];
+                    this.classes.server[account.id] = validated.levels;
+                    return { success: true, error: false, message: "classes sent successfully" };
                 }
-                delete this.classes.dirty[account.id];
-                this.classes.server[account.id] = levels;
-                return { success: true, error: false, message: "classes sent successfully" };
             }
             return { success: true, error: false, message: "classes unchanged" };
         } catch (e) {
+            console.error(e);
             return { success: false, error: true, message: `${e}` };
         }
     }
 
     async sendCommand(account, subject) {
         try {
-            console.log("sendCommand:", account, subject);
+            if (verbose) {
+                console.log("sendCommand:", account, subject);
+            }
             return await sendEmailRequest(account, subject);
         } catch (e) {
             console.error(e);

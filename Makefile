@@ -1,7 +1,11 @@
 
 docker = env DOCKER_BUILD_OUTPUT=plain BUILDKIT_PROGRESS=plain docker
 
-default: fmt lint
+src = background.js classes.js common.js config.js editor.js email.js ports.js requests.js
+
+
+all: fmt lint $(src)
+
 
 lint: .eslint 
 	docker run --rm -v "$$(pwd):/app" eslint *.js
@@ -28,7 +32,7 @@ fmt: .prettier
 
 release:
 	rm -f release.zip
-	zip release.zip -r *.js *.html manifest.json VERSION assets
+	zip release.zip -r $(src) *.html manifest.json VERSION assets
 	( rm -rf testo && mkdir testo && cd testo && unzip ../release.zip ); find testo
 
 	# mv release.zip dist/spam-class-extension-$(shell cat VERSION).xpi

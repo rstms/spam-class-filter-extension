@@ -3,6 +3,7 @@ import { differ } from "./common.js";
 /* globals console, browser, setTimeout, clearTimeout */
 
 const STORAGE_UPDATE_TIMEOUT = 3000;
+const verbose = false;
 
 const DEFAULTS = {
     use_email_interface: true,
@@ -25,13 +26,17 @@ class ConfigBase {
 
     async reset() {
         try {
-            console.log("config clearing:", this.name);
+            if (verbose) {
+                console.log("config clearing:", this.name);
+            }
             const current = await this.storage.get();
             var result = "(already empty)";
             if (Object.keys(current).length !== 0) {
                 result = await this.storageSync("clear");
             }
-            console.log("config clear result:", this.name, result);
+            if (verbose) {
+                console.log("config clear result:", this.name, result);
+            }
         } catch (e) {
             console.error(e);
         }
@@ -39,13 +44,17 @@ class ConfigBase {
 
     async get(key) {
         try {
-            console.log("get:", this.name, key);
+            if (verbose) {
+                console.log("get:", this.name, key);
+            }
             var values = await this.storage.get([key]);
             if (this.name === "local" && Object.keys(values).length === 0) {
                 values = DEFAULTS;
             }
             const value = values[key];
-            console.log("get returning:", this.name, key, value);
+            if (verbose) {
+                console.log("get returning:", this.name, key, value);
+            }
             return value;
         } catch (e) {
             console.error(e);
@@ -54,7 +63,9 @@ class ConfigBase {
 
     async set(key, value) {
         try {
-            console.log("set:", this.name, key, value);
+            if (verbose) {
+                console.log("set:", this.name, key, value);
+            }
             const current = await this.get(key);
             if (!differ(current, value)) {
                 return;
@@ -90,37 +101,51 @@ class ConfigBase {
             try {
                 var name = this.name;
 
-                console.log("storageSync:", name, op, update);
+                if (verbose) {
+                    console.log("storageSync:", name, op, update);
+                }
                 var timer = setTimeout(() => {
                     throw new Error("storage update timeout");
                 }, STORAGE_UPDATE_TIMEOUT);
 
                 function handler(changes, areaName) {
                     for (const [key, { newValue, oldValue }] of Object.entries(changes)) {
-                        console.log("storage changed:", areaName, key, oldValue, newValue);
+                        if (verbose) {
+                            console.log("storage changed:", areaName, key, oldValue, newValue);
+                        }
                     }
                     browser.storage.onChanged.removeListener(handler);
                     clearTimeout(timer);
                     if (areaName !== name) {
                         throw new Error("unexpected storage change areaName");
                     }
-                    console.log("storageSync resolving:", name, changes);
+                    if (verbose) {
+                        console.log("storageSync resolving:", name, changes);
+                    }
                     resolve(changes);
                 }
 
                 browser.storage.onChanged.addListener(handler);
                 switch (op) {
                     case "set":
-                        console.log("sync: updating storage:", this.name, update);
+                        if (verbose) {
+                            console.log("sync: updating storage:", this.name, update);
+                        }
                         this.storage.set(update).then(() => {
-                            console.log("sync updated storage:", this.name, update);
+                            if (verbose) {
+                                console.log("sync updated storage:", this.name, update);
+                            }
                             return;
                         });
                         break;
                     case "clear":
-                        console.log("sync: clearing storage:", this.name);
+                        if (verbose) {
+                            console.log("sync: clearing storage:", this.name);
+                        }
                         this.storage.clear().then(() => {
-                            console.log("sync: cleared storage:", this.name);
+                            if (verbose) {
+                                console.log("sync: cleared storage:", this.name);
+                            }
                             return;
                         });
                         break;
@@ -173,13 +198,17 @@ class WindowPosition {
 
     async get(name, defaults = undefined) {
         try {
-            console.log("config.windowPosition.get:", name);
+            if (verbose) {
+                console.log("config.windowPosition.get:", name);
+            }
             var pos = this.addValues({}, defaults);
             const windowPos = await this.config.get("windowPos");
             if (typeof windowPos === "object") {
                 pos = this.addValues(pos, windowPos[name]);
             }
-            console.log("config.windowPosition.get returning:", name, pos);
+            if (verbose) {
+                console.log("config.windowPosition.get returning:", name, pos);
+            }
             return pos;
         } catch (e) {
             console.error(e);
@@ -188,7 +217,9 @@ class WindowPosition {
 
     async set(name, pos) {
         try {
-            console.log("config.windowPosition.set:", name, pos);
+            if (verbose) {
+                console.log("config.windowPosition.set:", name, pos);
+            }
             var windowPos = await this.config.get("windowPos");
             if (!windowPos) {
                 windowPos = {};

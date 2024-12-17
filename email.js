@@ -1,6 +1,7 @@
 import { domainPart } from "./common.js";
 
 /* globals messenger, console, setTimeout, clearTimeout  */
+const verbose = false;
 
 const EMAIL_REQUEST_TIMEOUT = 1024 * 10;
 
@@ -15,13 +16,19 @@ async function sendFilterControlMessage(account, subject) {
             subject: subject,
             isPlainText: true,
         };
-        console.log("sendFilterControlMessage:", msg);
+        if (verbose) {
+            console.log("sendFilterControlMessage:", msg);
+        }
         const comp = await messenger.compose.beginNew();
         const details = await messenger.compose.getComposeDetails(comp.id);
-        console.log("details:", details);
+        if (verbose) {
+            console.log("details:", details);
+        }
         await messenger.compose.setComposeDetails(comp.id, msg);
         const ret = await messenger.compose.sendMessage(comp.id);
-        console.log("messenger.compose.sendMessage returned:", ret);
+        if (verbose) {
+            console.log("messenger.compose.sendMessage returned:", ret);
+        }
         return ret;
     } catch (e) {
         console.error(e);
@@ -34,7 +41,9 @@ async function getMessageBody(message) {
         for (const part of fullMessage.parts) {
             if (part.contentType === "text/plain") {
                 const body = part.body;
-                console.log("body:", body);
+                if (verbose) {
+                    console.log("body:", body);
+                }
                 return body;
             }
         }
@@ -54,19 +63,25 @@ function safeParseJSON(body) {
 }
 
 export function sendEmailRequest(account, command, options = {}) {
-    //console.log("sendEmailRequest:", account, command);
+    if (verbose) {
+        console.log("sendEmailRequest:", account, command);
+    }
     return new Promise((resolve, reject) => {
         var timer = null;
         var handler = null;
         try {
             async function handleNewMailReceived(folder, messageList) {
                 try {
-                    console.log("handleNewMail[" + account.id + "] messages:", messageList.messages.length);
+                    if (verbose) {
+                        console.log("handleNewMail[" + account.id + "] messages:", messageList.messages.length);
+                    }
                     for (const message of messageList.messages) {
                         if (message.subject === "filterctl response" && message.folder.accountId === account.id) {
                             clearTimeout(timer);
                             messenger.messages.onNewMailReceived.removeListener(handler);
-                            console.log("filterctl response:", message);
+                            if (verbose) {
+                                console.log("filterctl response:", message);
+                            }
                             var response = {
                                 command: command,
                                 accountId: account.id,
@@ -74,7 +89,9 @@ export function sendEmailRequest(account, command, options = {}) {
                             };
                             if (options.autoDelete) {
                                 await messenger.messages.delete([message.id], true);
-                                console.log("deleted: ", message.id);
+                                if (verbose) {
+                                    console.log("deleted: ", message.id);
+                                }
                             }
                             response.json = safeParseJSON(response.body);
                             resolve(response);
@@ -98,7 +115,9 @@ export function sendEmailRequest(account, command, options = {}) {
                 if (options.autoDelete) {
                     const messageId = sent.messages[0].id;
                     messenger.messages.delete([messageId], true).then(() => {
-                        console.log("deleted: ", messageId);
+                        if (verbose) {
+                            console.log("deleted: ", messageId);
+                        }
                     });
                 }
             });

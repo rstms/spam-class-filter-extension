@@ -2,6 +2,7 @@ import * as requests from "./requests.js";
 import { differ } from "./common.js";
 
 /* globals browser, window, document, console, setTimeout, clearTimeout */
+const verbose = false;
 
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 16;
@@ -37,12 +38,11 @@ function getLevels() {
             let scoreElement = document.getElementById(`level-score-${i}`);
             let level = {
                 name: nameElement.value,
-                score: scoreElement.value,
             };
-            if (level.score === "infinite") {
-                level.score = 999;
+            if (level.name === "spam") {
+                level.score = "999";
             } else {
-                level.score = parseFloat(level.score);
+                level.score = String(parseFloat(scoreElement.value));
             }
             ret.push(level);
             i += 1;
@@ -54,7 +54,9 @@ function getLevels() {
 
 async function onTableChange(event) {
     try {
-        console.log("table change:", event);
+        if (verbose) {
+            console.log("table change:", event);
+        }
         await updateClasses();
     } catch (e) {
         console.error(e);
@@ -63,7 +65,9 @@ async function onTableChange(event) {
 
 async function onCellDelete(event) {
     try {
-        console.log("cell delete");
+        if (verbose) {
+            console.log("cell delete");
+        }
         const row = parseInt(event.srcElement.getAttribute("data-row"));
         var levels = getLevels();
         levels.splice(row, 1);
@@ -76,7 +80,9 @@ async function onCellDelete(event) {
 
 async function onSliderMoved(event) {
     try {
-        console.log("slider moved");
+        if (verbose) {
+            console.log("slider moved");
+        }
         const row = parseInt(event.srcElement.getAttribute("data-row"));
         let score = document.getElementById(`level-score-${row}`);
         score.value = event.srcElement.value;
@@ -88,7 +94,9 @@ async function onSliderMoved(event) {
 
 async function onScoreChanged(event) {
     try {
-        console.log("score changed");
+        if (verbose) {
+            console.log("score changed");
+        }
         const row = parseInt(event.srcElement.getAttribute("data-row"));
         const slider = document.getElementById(`level-slider-${row}`);
         slider.value = `${event.srcElement.value}`;
@@ -100,7 +108,9 @@ async function onScoreChanged(event) {
 
 async function onNameChanged() {
     try {
-        console.log("name changed");
+        if (verbose) {
+            console.log("name changed");
+        }
         await updateClasses();
     } catch (e) {
         console.error(e);
@@ -131,16 +141,18 @@ function newLevelName(levels) {
 async function onCellInsert(event) {
     try {
         const row = parseInt(event.srcElement.getAttribute("data-row"));
-        console.log("cellInsert:", event, row);
+        if (verbose) {
+            console.log("cellInsert:", event, row);
+        }
         let levels = getLevels();
-        let newScore = levels[row].score;
-        let nextScore = levels[row + 1].score;
+        let newScore = parseFloat(levels[row].score);
+        let nextScore = parseFloat(levels[row + 1].score);
         if (nextScore === 999) {
             newScore += 1;
         } else {
             newScore += (nextScore - newScore) / 2;
         }
-        levels.splice(row + 1, 0, { name: newLevelName(levels), score: newScore });
+        levels.splice(row + 1, 0, { name: newLevelName(levels), score: String(newScore) });
         await requests.sendMessage(port, { id: "setClasses", accountId: accountId(), levels: levels });
         await populateRows(levels);
     } catch (e) {
@@ -151,35 +163,17 @@ async function onCellInsert(event) {
 function appendCell(row, index, id, control, text, disabled) {
     try {
         const cell = document.createElement("td");
-        let range = false;
-        if (control === "range") {
-            control = "input";
-            range = true;
-        }
         const element = document.createElement(control);
-        switch (control) {
-            case "input":
-                if (range) {
-                    element.classList.add("form-range");
-                    element.classList.add("flex-fill");
-                    element.setAttribute("type", "range");
-                    element.setAttribute("min", "-20.0");
-                    element.setAttribute("max", "20.0");
-                    element.setAttribute("step", ".1");
-                    element.value = text;
-                } else {
-                    element.value = text;
-                }
-                break;
-            case "button":
-                element.classList.add("btn");
-                element.classList.add("btn-primary");
-                element.classList.add("btn-sm");
-                element.textContent = text;
-                break;
-            default:
-                element.textContent = text;
-                break;
+        if (control === "button") {
+            element.textContent = text;
+        } else {
+            element.value = text;
+        }
+        for (const [key, value] of Object.entries(cellTemplate[id].attributes)) {
+            element.setAttribute(key, value);
+        }
+        for (const value of cellTemplate[id].classes) {
+            element.classList.add(value);
         }
         element.id = id + "-" + index;
         element.setAttribute("data-row", index);
@@ -194,24 +188,86 @@ function appendCell(row, index, id, control, text, disabled) {
     }
 }
 
-async function fixSpamLevel(levels) {
-    console.log("fixSpamLevel:", levels);
-    let ret = [];
-    for (const level of levels) {
-        if (level.name != "spam" && level.score < 999) {
-            ret.push(level);
+var cellTemplate = null;
+
+async function initCellTemplate() {
+    let cells = {
+        "level-name": { id: "cell-class-input" },
+        "level-score": { id: "cell-score-input" },
+        "level-slider": { id: "cell-score-slider" },
+        "level-delete": { id: "cell-add-button" },
+        "level-insert": { id: "cell-delete-button" },
+    };
+    for (const key of Object.keys(cells)) {
+        const el = document.getElementById(cells[key].id);
+        if (verbose) {
+            console.log("cell:", key, el);
+        }
+        cells[key].attributes = {};
+        cells[key].classes = [];
+        for (const name of el.getAttributeNames()) {
+            switch (name) {
+                case "id":
+                    break;
+                case "class":
+                    break;
+                default:
+                    cells[key].attributes[name] = el.getAttribute(name);
+                    break;
+            }
+        }
+        for (const elClass of el.classList) {
+            cells[key].classes.push(elClass);
         }
     }
-    ret.push({ name: "spam", score: 999 });
-    console.log("fixSpamLevel ret:", ret);
-    return ret;
+    cells["level-name"].attributes.rstmsKeyFilter = "name";
+    cells["level-score"].attributes.rstmsKeyFilter = "score";
+    //cells["level-slider"].classes.push("flex-fill");
+    cellTemplate = cells;
+    if (verbose) {
+        console.log("cellTemplate:", cellTemplate);
+    }
+}
+
+async function onInputKeypress(event) {
+    const key = String.fromCharCode(event.which);
+    const element = event.srcElement;
+    const mode = element.getAttribute("rstmsKeyFilter");
+    if (mode) {
+        const value = element.value.trim();
+        switch (mode) {
+            case "name":
+                if (value.length == 0) {
+                    if (!/^[a-zA-Z]$/.test(key)) {
+                        event.preventDefault();
+                    }
+                } else {
+                    if (!/^[a-zA-Z0-9_.-]$/.test(key)) {
+                        event.preventDefault();
+                    }
+                }
+                break;
+            case "score":
+                if (!/^[0-9.-]$/.test(key)) {
+                    event.preventDefault();
+                }
+                break;
+        }
+    }
 }
 
 async function populateRows() {
     try {
-        //console.log("table body:", tableBody.innerHTML);
-        console.log("BEGIN populateRows");
-        const levels = await fixSpamLevel(await getClasses(accountId()));
+        if (verbose) {
+            console.log("BEGIN populateRows");
+        }
+        const levels = await getClasses(accountId());
+        if (!cellTemplate) {
+            if (verbose) {
+                console.log(controls.tableBody.innerHTML);
+            }
+            initCellTemplate();
+        }
         controls.tableBody.innerHTML = "";
         var index = 0;
         for (const level of levels) {
@@ -225,13 +281,15 @@ async function populateRows() {
                 score = "infinite";
                 sliderValue = "20.0";
             }
-            appendCell(row, index, "level-name", "input", name, disabled);
+            const nameControl = appendCell(row, index, "level-name", "input", name, disabled);
             const scoreControl = appendCell(row, index, "level-score", "input", score, disabled);
-            const sliderControl = appendCell(row, index, "level-slider", "range", sliderValue, disabled);
+            const sliderControl = appendCell(row, index, "level-slider", "input", sliderValue, disabled);
             if (!disabled) {
-                scoreControl.addEventListener("name", onNameChanged);
+                nameControl.addEventListener("keypress", onInputKeypress);
+                nameControl.addEventListener("change", onNameChanged);
                 sliderControl.addEventListener("input", onSliderMoved);
                 scoreControl.addEventListener("change", onScoreChanged);
+                scoreControl.addEventListener("keypress", onInputKeypress);
             }
             let deleteDisabled = disabled | (levels.length <= MIN_LEVELS);
             const deleteButton = appendCell(row, index, "level-delete", "button", "delete", deleteDisabled);
@@ -256,7 +314,9 @@ async function populateRows() {
         }
 
         await updateClasses();
-        console.log("END populateRows");
+        if (verbose) {
+            console.log("END populateRows");
+        }
     } catch (e) {
         console.error(e);
     }
@@ -309,7 +369,9 @@ async function updateStatus(state = undefined) {
             };
         }
 
-        console.log("updateStatus:", state);
+        if (verbose) {
+            console.log("updateStatus:", state);
+        }
 
         let parts = [];
 
@@ -430,7 +492,9 @@ async function onAdvancedSend() {
 
 async function populateAccountSelect() {
     try {
-        console.log("BEGIN populateAccountSelect");
+        if (verbose) {
+            console.log("BEGIN populateAccountSelect");
+        }
         const accounts = await requests.sendMessage(port, "getAccounts");
         controls.accountSelect.innerHTML = "";
         accountNames = {};
@@ -448,7 +512,9 @@ async function populateAccountSelect() {
         }
         const selectedAccountId = await requests.sendMessage(port, "getSelectedAccountId");
         await setSelectedAccount(selectedAccountId);
-        console.log("END populateAccountSelect");
+        if (verbose) {
+            console.log("END populateAccountSelect");
+        }
     } catch (e) {
         console.error(e);
     }
@@ -456,6 +522,7 @@ async function populateAccountSelect() {
 
 async function setSelectedAccount(id) {
     try {
+        console.log("setSelectedAccountId:", id, accountNames[id]);
         controls.accountSelect.selectedIndex = accountIndex[id];
         controls.advancedSelectedAccount.value = accountNames[id];
     } catch (e) {
@@ -573,8 +640,16 @@ async function handleSelectEditorTab(message) {
     try {
         switch (message.name) {
             case "classes":
-                console.log("selecting classes tab");
-                controls.classesNavLink.show();
+                controls.classesNavLink.click();
+                break;
+            case "options":
+                controls.optionsNavLink.click();
+                break;
+            case "advanced":
+                controls.advancedNavLink.click();
+                break;
+            case "help":
+                controls.helpNavLink.click();
                 break;
             default:
                 console.warn("selectEditorTab: unexpected tab name:", message.name);
@@ -587,7 +662,9 @@ requests.addHandler("selectEditorTab", handleSelectEditorTab);
 
 async function handleMessage(message, sender) {
     try {
-        console.log("editor received:", message);
+        if (verbose) {
+            console.log("editor received:", message);
+        }
         if (await requests.resolveResponses(message)) {
             return;
         }
@@ -673,6 +750,9 @@ addControl("optionsShowAdvancedTab", "options-show-advanced-checkbox", "change",
 addControl("advancedTab", "tab-advanced");
 addControl("advancedTabLink", "tab-advanced-link");
 addControl("classesNavLink", "classes-navlink");
+addControl("optionsNavLink", "options-navlink");
+addControl("advancedNavLink", "advanced-navlink");
+addControl("helpNavLink", "help-navlink");
 
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);

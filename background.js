@@ -6,6 +6,8 @@ import { domainPart } from "./common.js";
 
 /* globals browser, console */
 
+const verbose = false;
+
 var editor = null;
 var editorWindowResolve = null;
 
@@ -29,17 +31,15 @@ export async function initializeAccounts() {
         accounts = {};
         const accountList = await browser.accounts.list();
         const domains = await config.local.get("domain");
-        //console.log("accounts.GetAll domains:", domains);
         for (const account of accountList) {
             if (account.type === "imap") {
                 const domain = domainPart(account.identities[0].email);
-                //console.log("accounts.GetAll checking domain:", domain);
                 if (domains[domain]) {
                     accounts[account.id] = account;
                 }
             }
         }
-        selectedAccount = defaultAccount;
+        selectedAccount = defaultAccount();
     } catch (e) {
         console.error(e);
     }
@@ -149,7 +149,9 @@ async function getSystemTheme() {
         const tabs = await browser.tabs.query({ type: "mail" });
         for (const tab of tabs) {
             const theme = await browser.theme.getCurrent(tab.id);
-            console.log("tab theme:", tab, theme);
+            if (verbose) {
+                console.log("tab theme:", tab, theme);
+            }
         }
         return {};
     } catch (e) {
@@ -159,7 +161,9 @@ async function getSystemTheme() {
 
 async function getClasses(message) {
     try {
-        console.log("getClasses:", message);
+        if (verbose) {
+            console.log("getClasses:", message);
+        }
         let levels = await classes.get(accounts[message.accountId]);
         return levels;
     } catch (e) {
@@ -180,7 +184,7 @@ async function sendClasses(message) {
     try {
         let validationResult = await classes.set(accounts[message.accountId], message.levels);
         if (validationResult.valid) {
-            validationResult = await await classes.sendUpdate(accounts[message.accountId]);
+            validationResult = await await classes.send(accounts[message.accountId]);
         }
         return validationResult;
     } catch (e) {
@@ -190,7 +194,7 @@ async function sendClasses(message) {
 
 async function sendAllClasses(message) {
     try {
-        return await classes.sendAllUpdates(accounts, message.force);
+        return await classes.sendAll(accounts, message.force);
     } catch (e) {
         console.error(e);
     }
@@ -204,17 +208,11 @@ async function getEditorWindowId() {
     }
 }
 
-async function setComposePosition(message) {
-    try {
-        classes.setComposePosition(message.position);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 async function editorWindowLoaded(message) {
     try {
-        console.log("editorWindowLoaded");
+        if (verbose) {
+            console.log("editorWindowLoaded");
+        }
         editorWindowResolve(message.position);
     } catch (e) {
         console.error(e);
@@ -267,7 +265,7 @@ async function refreshAll() {
 
 async function handleMessage(message, sender) {
     try {
-        console.log("background received:", message);
+        console.debug("background received:", message);
         // resolve responses to our request messages
         if (await requests.resolveResponses(message)) {
             return;
@@ -310,7 +308,7 @@ async function handleDisconnect(port) {
 
 async function handleConnect(port) {
     try {
-        console.log("background got connection:", port);
+        console.debug("background got connection:", port);
         ports.add(port);
         port.onMessage.addListener(handleMessage);
         port.onDisconnect.addListener(handleDisconnect);
@@ -338,8 +336,7 @@ async function handleSuspend() {
     try {
         const port = await ports.get("editor", ports.NO_WAIT);
         if (port) {
-            console.log("background suspending, disconnecting port");
-            port.disconnect();
+            console.log("background suspending, disconnecting port", port.disconnect());
         }
     } catch (e) {
         console.error(e);
@@ -383,7 +380,6 @@ requests.addHandler("getClasses", getClasses);
 requests.addHandler("sendClasses", sendClasses);
 requests.addHandler("sendAllClasses", sendAllClasses);
 requests.addHandler("getEditorWindowId", getEditorWindowId);
-requests.addHandler("setComposePosition", setComposePosition);
 requests.addHandler("editorWindowLoaded", editorWindowLoaded);
 requests.addHandler("loadWindowPosition", loadWindowPosition);
 requests.addHandler("getAccounts", getAccounts);
