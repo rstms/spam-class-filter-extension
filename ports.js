@@ -4,35 +4,36 @@ import { generateUUID } from "./common.js";
 
 const PORT_CONNECT_TIMEOUT = 3000;
 
-export const NO_WAIT = true;
-export const WAIT = false;
+export const WAIT = 0;
+export const NO_WAIT = 1;
+export const WAIT_FOREVER = 2;
 
 export var connectedPorts = {};
 
 var portWaiters = {};
 
-export function get(name, noWait = false, timeout = null) {
+export function get(name, waitMode = WAIT, timeout = PORT_CONNECT_TIMEOUT) {
     return new Promise((resolve, reject) => {
         try {
-            if (noWait || connectedPorts[name]) {
+            if (waitMode === NO_WAIT) {
                 resolve(connectedPorts[name]);
+            } else {
+                const id = generateUUID();
+                var timer = null;
+                if (waitMode === WAIT && timeout !== 0) {
+                    timer = setTimeout(() => {
+                        delete portWaiters[id];
+                        reject(new Error("port connection timeout", name));
+                    }, timeout);
+                }
+                portWaiters[id] = {
+                    id: id,
+                    name: name,
+                    resolve: resolve,
+                    reject: reject,
+                    timer: timer,
+                };
             }
-            const id = generateUUID();
-            if (!timeout) {
-                timeout = PORT_CONNECT_TIMEOUT;
-            }
-            var timer = setTimeout(() => {
-                delete portWaiters[id];
-                reject(new Error("port connection timeout", name));
-            }, timeout);
-            portWaiters[id] = {
-                id: id,
-                name: name,
-                resolve: resolve,
-                reject: reject,
-                timer: timer,
-            };
-            return;
         } catch (e) {
             reject(e);
         }

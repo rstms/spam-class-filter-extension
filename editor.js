@@ -8,10 +8,11 @@ const MIN_LEVELS = 2;
 const MAX_LEVELS = 16;
 const STATUS_PENDING_TIMEOUT = 5120;
 var statusPendingTimer;
+var backgroundSuspended = false;
 
 var accountNames = {};
 var accountIndex = {};
-var port;
+var port = null;
 var controls = {};
 
 var helpContent = `
@@ -71,7 +72,7 @@ async function onCellDelete(event) {
         const row = parseInt(event.srcElement.getAttribute("data-row"));
         var levels = getLevels();
         levels.splice(row, 1);
-        await requests.sendMessage(port, { id: "setClasses", accountId: accountId(), levels: levels });
+        await sendMessage({ id: "setClassLevels", accountId: accountId(), levels: levels });
         await populateRows(levels);
     } catch (e) {
         console.error(e);
@@ -153,7 +154,7 @@ async function onCellInsert(event) {
             newScore += (nextScore - newScore) / 2;
         }
         levels.splice(row + 1, 0, { name: newLevelName(levels), score: String(newScore) });
-        await requests.sendMessage(port, { id: "setClasses", accountId: accountId(), levels: levels });
+        await sendMessage({ id: "setClassLevels", accountId: accountId(), levels: levels });
         await populateRows(levels);
     } catch (e) {
         console.error(e);
@@ -327,8 +328,8 @@ async function updateClasses(sendToServer = false) {
         const id = accountId();
 
         await setStatusPending("sending classes...");
-        let state = await requests.sendMessage(port, {
-            id: sendToServer ? "sendClasses" : "setClasses",
+        let state = await sendMessage({
+            id: sendToServer ? "sendClassLevels" : "setClassLevels",
             accountId: id,
             levels: getLevels(),
             name: accountNames[id],
@@ -410,7 +411,7 @@ async function updateStatus(state = undefined) {
 async function saveChanges() {
     try {
         await setStatusPending("sending changed classes...");
-        const state = await requests.sendMessage(port, { id: "sendAllClasses", force: false });
+        const state = await sendMessage({ id: "sendAllClassLevels", force: false });
         await updateStatus(state);
         return state;
     } catch (e) {
@@ -448,7 +449,7 @@ async function onOk() {
 
 async function onDefaults() {
     try {
-        const levels = await requests.sendMessage(port, { id: "setDefaultLevels", accountId: accountId() });
+        const levels = await sendMessage({ id: "setDefaultLevels", accountId: accountId() });
         await populateRows(levels);
     } catch (e) {
         console.error(e);
@@ -458,7 +459,7 @@ async function onDefaults() {
 async function onRefresh() {
     try {
         await setStatusPending("requesting all classes...");
-        await requests.sendMessage(port, "refreshAll");
+        await sendMessage("refreshAll");
         const levels = await getClasses(accountId());
         await populateRows(levels);
     } catch (e) {
@@ -474,7 +475,7 @@ async function onAdvancedSend() {
             command: controls.advancedCommand.value,
             argument: controls.advancedArgument.value,
         };
-        const result = await requests.sendMessage(port, message);
+        const result = await sendMessage(message);
 
         const output = controls.advancedOutput;
         output.style.height = "0px";
@@ -495,7 +496,7 @@ async function populateAccountSelect() {
         if (verbose) {
             console.log("BEGIN populateAccountSelect");
         }
-        const accounts = await requests.sendMessage(port, "getAccounts");
+        const accounts = await sendMessage("getAccounts");
         controls.accountSelect.innerHTML = "";
         accountNames = {};
         var i = 0;
@@ -510,7 +511,7 @@ async function populateAccountSelect() {
             controls.accountSelect.appendChild(option);
             i++;
         }
-        const selectedAccountId = await requests.sendMessage(port, "getSelectedAccountId");
+        const selectedAccountId = await sendMessage("getSelectedAccountId");
         await setSelectedAccount(selectedAccountId);
         if (verbose) {
             console.log("END populateAccountSelect");
@@ -535,7 +536,7 @@ async function setAdvancedTabVisible(visible) {
         controls.advancedTab.hidden = !visible;
         controls.advancedTabLink.hidden = !visible;
         controls.optionsShowAdvancedTab.checked = visible;
-        await requests.sendMessage(port, { id: "setConfigValue", key: "advancedTabVisible", value: visible });
+        await sendMessage({ id: "setConfigValue", key: "advancedTabVisible", value: visible });
     } catch (e) {
         console.error(e);
     }
@@ -568,7 +569,8 @@ async function onAccountSelectChange(event) {
 
 async function populateOptions() {
     try {
-        controls.optionsAutoDelete.checked = await requests.sendMessage(port, { id: "getConfigValue", key: "autoDelete" });
+        controls.optionsAutoDelete.checked = await sendMessage({ id: "getConfigValue", key: "autoDelete" });
+        await setAdvancedTabVisible(await sendMessage({ id: "getConfigValue", key: "advancedTabVisible" }));
     } catch (e) {
         console.error(e);
     }
@@ -578,24 +580,19 @@ var hasLoaded = false;
 
 async function handleLoad() {
     try {
-        console.log("onLoad BEGIN");
+        console.debug("editor page loading");
 
         if (hasLoaded) {
             throw new Error("redundant load event");
         }
         hasLoaded = true;
-
-        await connectToBackground();
-
         controls.helpText.innerHTML = helpContent;
         await populateOptions();
-        const visible = await await requests.sendMessage(port, { id: "getConfigValue", key: "advancedTabVisible" });
-        await setAdvancedTabVisible(visible);
         await populateAccountSelect();
         const levels = await getClasses(accountId());
         await populateRows(levels);
 
-        console.log("onLoad END");
+        console.debug("editor page loaded");
     } catch (e) {
         console.error(e);
     }
@@ -604,7 +601,7 @@ async function handleLoad() {
 async function getClasses(accountId) {
     try {
         await setStatusPending("requesting classes...");
-        return await requests.sendMessage(port, { id: "getClasses", accountId: accountId });
+        return await sendMessage({ id: "getClassLevels", accountId: accountId });
     } catch (e) {
         console.error(e);
     }
@@ -634,8 +631,6 @@ async function handleSelectAccount(message) {
     }
 }
 
-requests.addHandler("selectAccount", handleSelectAccount);
-
 async function handleSelectEditorTab(message) {
     try {
         switch (message.name) {
@@ -658,13 +653,25 @@ async function handleSelectEditorTab(message) {
         console.error(e);
     }
 }
-requests.addHandler("selectEditorTab", handleSelectEditorTab);
 
 async function handleMessage(message, sender) {
     try {
-        if (verbose) {
-            console.log("editor received:", message);
+        console.log("editor received:", message.id);
+        console.debug("editor received message:", message, sender);
+        switch (message.id) {
+            case "backgroundActivated":
+                await connectToBackground();
+                break;
         }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handlePortMessage(message, sender) {
+    try {
+        console.log("editor port received:", message.id);
+        console.debug("editor port received message:", message);
         if (await requests.resolveResponses(message)) {
             return;
         }
@@ -675,16 +682,31 @@ async function handleMessage(message, sender) {
             case "ping":
                 sender.postMessage({ id: "pong", src: "editor" });
                 break;
+            case "backgroundSuspending":
+                backgroundSuspended = true;
+                break;
         }
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handlePortDisconnect() {
+async function handlePortDisconnect(event) {
     try {
-        console.log("port disconnected; closing");
-        window.close();
+        console.log("background port disconnected:", event);
+        console.log("backgroundSuspended:", backgroundSuspended);
+        port = null;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function sendMessage(message) {
+    try {
+        if (port === null) {
+            await connectToBackground();
+        }
+        return await requests.sendMessage(port, message);
     } catch (e) {
         console.error(e);
     }
@@ -692,12 +714,16 @@ async function handlePortDisconnect() {
 
 async function connectToBackground() {
     try {
-        console.log("connectToBackground");
-        const background = await browser.runtime.getBackgroundPage();
-        console.log("background:", background);
-        port = await browser.runtime.connect({ name: "editor" });
-        port.onMessage.addListener(handleMessage);
-        port.onDisconnect.addListener(handlePortDisconnect);
+        if (port === null) {
+            console.log("requesting background page...");
+            const background = await browser.runtime.getBackgroundPage();
+            console.log("connecting to background page:", background);
+            port = await browser.runtime.connect({ name: "editor" });
+            console.log("connected background port:", port);
+            backgroundSuspended = false;
+            port.onMessage.addListener(handlePortMessage);
+            port.onDisconnect.addListener(handlePortDisconnect);
+        }
         //port.postMessage({ id: "ping", src: "editor" });
     } catch (e) {
         console.error(e);
@@ -720,12 +746,15 @@ function addControl(name, elementId, eventName = null, handler = null) {
 }
 
 async function onAutoDeleteChange() {
-    await requests.sendMessage(port, { id: "setConfigValue", key: "autoDelete", value: controls.optionsAutoDelete.checked });
+    await sendMessage({ id: "setConfigValue", key: "autoDelete", value: controls.optionsAutoDelete.checked });
 }
 
 async function onShowAdvancedTabChange() {
     await setAdvancedTabVisible(controls.optionsShowAdvancedTab.checked);
 }
+
+requests.addHandler("selectAccount", handleSelectAccount);
+requests.addHandler("selectEditorTab", handleSelectEditorTab);
 
 addControl("applyButton", "apply-button", "click", onApply);
 addControl("okButton", "ok-button", "click", onOk);
@@ -756,3 +785,4 @@ addControl("helpNavLink", "help-navlink");
 
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);
+browser.runtime.onMessage.addListener(handleMessage);

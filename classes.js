@@ -8,12 +8,24 @@ const verbose = false;
 /* global console */
 
 export class Classes {
-    constructor() {
-        this.options = {};
-        this.classes = {
-            dirty: {},
-            server: {},
-        };
+    constructor(state, options, accounts) {
+        if (typeof state !== "object") {
+            state = {};
+        }
+
+        if (!("options" in state)) {
+            state.options = {};
+        }
+
+        if (!("classes" in state)) {
+            state.classes = {
+                dirty: {},
+                server: {},
+            };
+        }
+
+        this.options = state.options;
+        this.classes = state.classes;
         this.defaultLevels = [
             {
                 name: "ham",
@@ -32,6 +44,17 @@ export class Classes {
                 score: "999",
             },
         ];
+        for (const [key, value] of Object.entries(options)) {
+            this.options[key] = value;
+        }
+        this.accounts = accounts;
+    }
+
+    state() {
+        return {
+            options: this.options,
+            classes: this.classes,
+        };
     }
 
     all() {

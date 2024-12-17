@@ -3,7 +3,7 @@ import { differ } from "./common.js";
 /* globals console, browser, setTimeout, clearTimeout */
 
 const STORAGE_UPDATE_TIMEOUT = 3000;
-const verbose = false;
+const verbose = true;
 
 const DEFAULTS = {
     use_email_interface: true,
@@ -27,7 +27,7 @@ class ConfigBase {
     async reset() {
         try {
             if (verbose) {
-                console.log("config clearing:", this.name);
+                console.debug("config clearing:", this.name);
             }
             const current = await this.storage.get();
             var result = "(already empty)";
@@ -35,7 +35,7 @@ class ConfigBase {
                 result = await this.storageSync("clear");
             }
             if (verbose) {
-                console.log("config clear result:", this.name, result);
+                console.debug("config clear result:", this.name, result);
             }
         } catch (e) {
             console.error(e);
@@ -45,7 +45,7 @@ class ConfigBase {
     async get(key) {
         try {
             if (verbose) {
-                console.log("get:", this.name, key);
+                console.debug("get:", this.name, key);
             }
             var values = await this.storage.get([key]);
             if (this.name === "local" && Object.keys(values).length === 0) {
@@ -53,7 +53,7 @@ class ConfigBase {
             }
             const value = values[key];
             if (verbose) {
-                console.log("get returning:", this.name, key, value);
+                console.debug("get returning:", this.name, key, value);
             }
             return value;
         } catch (e) {
@@ -64,7 +64,7 @@ class ConfigBase {
     async set(key, value) {
         try {
             if (verbose) {
-                console.log("set:", this.name, key, value);
+                console.debug("set:", this.name, key, value);
             }
             const current = await this.get(key);
             if (!differ(current, value)) {
@@ -81,13 +81,13 @@ class ConfigBase {
                     throw new Error("unexpected storage change key");
                 }
                 if (differ(current, oldValue)) {
-                    console.log("current:", current);
-                    console.log("oldValue:", oldValue);
+                    console.debug("current:", current);
+                    console.debug("oldValue:", oldValue);
                     throw new Error("unexpected storage change oldValue");
                 }
                 if (differ(value, newValue)) {
-                    console.log("value:", value);
-                    console.log("newValue:", newValue);
+                    console.debug("value:", value);
+                    console.debug("newValue:", newValue);
                     throw new Error("unexpected storage change newValue");
                 }
             }
@@ -102,16 +102,19 @@ class ConfigBase {
                 var name = this.name;
 
                 if (verbose) {
-                    console.log("storageSync:", name, op, update);
+                    console.debug("storageSync:", name, op, update);
                 }
                 var timer = setTimeout(() => {
+                    console.debug("name:", name);
+                    console.debug("op:", op);
+                    console.debug("update:", update);
                     throw new Error("storage update timeout");
                 }, STORAGE_UPDATE_TIMEOUT);
 
                 function handler(changes, areaName) {
                     for (const [key, { newValue, oldValue }] of Object.entries(changes)) {
                         if (verbose) {
-                            console.log("storage changed:", areaName, key, oldValue, newValue);
+                            console.debug("storage changed:", areaName, key, oldValue, newValue);
                         }
                     }
                     browser.storage.onChanged.removeListener(handler);
@@ -120,7 +123,7 @@ class ConfigBase {
                         throw new Error("unexpected storage change areaName");
                     }
                     if (verbose) {
-                        console.log("storageSync resolving:", name, changes);
+                        console.debug("storageSync resolving:", name, changes);
                     }
                     resolve(changes);
                 }
@@ -129,22 +132,22 @@ class ConfigBase {
                 switch (op) {
                     case "set":
                         if (verbose) {
-                            console.log("sync: updating storage:", this.name, update);
+                            console.debug("sync: updating storage:", this.name, update);
                         }
                         this.storage.set(update).then(() => {
                             if (verbose) {
-                                console.log("sync updated storage:", this.name, update);
+                                console.debug("sync updated storage:", this.name, update);
                             }
                             return;
                         });
                         break;
                     case "clear":
                         if (verbose) {
-                            console.log("sync: clearing storage:", this.name);
+                            console.debug("sync: clearing storage:", this.name);
                         }
                         this.storage.clear().then(() => {
                             if (verbose) {
-                                console.log("sync: cleared storage:", this.name);
+                                console.debug("sync: cleared storage:", this.name);
                             }
                             return;
                         });
@@ -199,7 +202,7 @@ class WindowPosition {
     async get(name, defaults = undefined) {
         try {
             if (verbose) {
-                console.log("config.windowPosition.get:", name);
+                console.debug("config.windowPosition.get:", name);
             }
             var pos = this.addValues({}, defaults);
             const windowPos = await this.config.get("windowPos");
@@ -207,7 +210,7 @@ class WindowPosition {
                 pos = this.addValues(pos, windowPos[name]);
             }
             if (verbose) {
-                console.log("config.windowPosition.get returning:", name, pos);
+                console.debug("config.windowPosition.get returning:", name, pos);
             }
             return pos;
         } catch (e) {
@@ -218,7 +221,7 @@ class WindowPosition {
     async set(name, pos) {
         try {
             if (verbose) {
-                console.log("config.windowPosition.set:", name, pos);
+                console.debug("config.windowPosition.set:", name, pos);
             }
             var windowPos = await this.config.get("windowPos");
             if (!windowPos) {

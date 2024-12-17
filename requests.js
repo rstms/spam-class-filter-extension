@@ -2,8 +2,11 @@ import { generateUUID } from "./common.js";
 
 /* global console, setTimeout, clearTimeout */
 
-//const DEFAULT_TIMEOUT = 30 * 1024;
-const DEFAULT_TIMEOUT = 0;
+const verbose = false;
+
+const DEFAULT_TIMEOUT = 30 * 1024;
+//const DEFAULT_TIMEOUT = 0;
+const NO_TIMEOUT = 0;
 
 var pendingRequests = {};
 var registeredHandlers = {};
@@ -22,7 +25,7 @@ class Request {
                 this.resolvePromise = resolve;
                 this.rejectPromise = reject;
                 this.port = port;
-                if (timeout !== 0) {
+                if (timeout !== NO_TIMEOUT) {
                     this.timer = setTimeout(() => {
                         this.reject(new Error("request timeout:", this));
                     }, timeout);
@@ -53,7 +56,9 @@ class Request {
             if ("result" in message) {
                 result = message.result;
             }
-            console.debug("resolving response:", result);
+            if (verbose) {
+                console.debug("resolving response:", result);
+            }
             this.resolvePromise(result);
         } catch (e) {
             this.rejectPromise(e);
@@ -67,7 +72,9 @@ export async function sendMessage(port, message, timeout = undefined) {
         if (typeof message === "string") {
             message = { id: message };
         }
-        console.debug("sendMessage:", port, message, timeout);
+        if (verbose) {
+            console.debug("sendMessage:", port, message, timeout);
+        }
         return await request.post(port, message, timeout);
     } catch (e) {
         console.error(e);
@@ -100,9 +107,13 @@ export async function resolveRequests(message, sender, handlers = {}) {
                 handler = handlers[message.id];
             }
             if (handler) {
-                console.debug("resolveRequests: calling handler:", message.id);
+                if (verbose) {
+                    console.debug("resolveRequests: calling handler:", message.id);
+                }
                 const result = await handler(message, sender);
-                console.debug("resolveRequests: handler returned:", result);
+                if (verbose) {
+                    console.debug("resolveRequests: handler returned:", result);
+                }
                 await respond(sender, message, result);
                 return true;
             }
