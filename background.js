@@ -45,14 +45,6 @@ export async function initializeAccounts() {
     }
 }
 
-async function handleIconClicked() {
-    try {
-        await focusEditorWindow();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 async function handleMenuClick(info) {
     try {
         switch (info.menuItemId) {
@@ -368,7 +360,6 @@ browser.runtime.onSuspend.addListener(handleSuspend);
 browser.runtime.onSuspendCanceled.addListener(handleSuspendCanceled);
 
 browser.menus.onClicked.addListener(handleMenuClick);
-browser.action.onClicked.addListener(handleIconClicked);
 browser.windows.onRemoved.addListener(handleWindowRemoved);
 browser.runtime.onConnect.addListener(handleConnect);
 

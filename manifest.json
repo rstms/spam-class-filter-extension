@@ -9,14 +9,6 @@
       "strict_min_version": "128.0"
     }
   },
-  "action": {
-    "default_title": "Spam Filter Classes",
-    "default_icon": {
-	"16": "./assets/images/filter.svg",
-	"48": "./assets/images/filter.svg",
-	"128": "./assets/images/filter.svg"
-    }
-  },
   "options_ui": {
     "page": "editor.html",
     "open_in_tab": true,
