@@ -34,8 +34,7 @@ release:
 	rm -f release.zip
 	zip release.zip -r $(src) *.html manifest.json VERSION assets
 	( rm -rf testo && mkdir testo && cd testo && unzip ../release.zip ); find testo
-
-	# mv release.zip dist/spam-class-extension-$(shell cat VERSION).xpi
+	mv release.zip dist/spam-class-extension-$(shell cat VERSION).xpi
 
 clean:
 	rm -f .eslint
