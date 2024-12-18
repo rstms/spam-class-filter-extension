@@ -47,7 +47,7 @@ release: all
 	@$(gitclean) || { [ -n "$(dirty)" ] && echo "allowing dirty release"; }
 	rm -f release.zip
 	zip release.zip -r $(package_files)
-	( rm -rf testo && mkdir testo && cd testo && unzip ../release.zip; find testo
+	( rm -rf testo && mkdir testo && cd testo && unzip ../release.zip ); find testo
 	mv release.zip $(release_file)
 
 
