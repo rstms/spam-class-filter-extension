@@ -1,5 +1,8 @@
 
+# thunderbird extension makefile
+
 docker = env DOCKER_BUILD_OUTPUT=plain BUILDKIT_PROGRESS=plain docker
+gitclean = if git status --porcelain | grep '^.*$$'; then echo git status is dirty; false; else echo git status is clean; true; fi
 
 src = $(wildcard *.js)
 html = $(wildcard *.html)
