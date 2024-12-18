@@ -41,13 +41,16 @@ fmt: .prettier
 	cd docker/eslint && $(docker) build . -t eslint
 	touch $@
 
-release_zipball = dist/spam-class-extension-$(shell cat VERSION).xpi
+release_file = dist/spam-class-extension-$(shell cat VERSION).xpi
 
 release: all
 	@$(gitclean) || { [ -n "$(dirty)" ] && echo "allowing dirty release"; }
-	rm -f $(release_zipball)
-	zip $(release_zipball) -r $(package_files)
-	( rm -rf testo && mkdir testo && cd testo && unzip ../$(release_zipball) ); find testo
+	rm -f release.zip
+	zip release.zip -r $(package_files)
+	( rm -rf testo && mkdir testo && cd testo && unzip ../release.zip; find testo
+	mv release.zip $(release_file)
+
+
 	#@$(if $(update),gh release delete -y v$(version),)
 	#gh release create v$(version) --notes "v$(version)"
 
