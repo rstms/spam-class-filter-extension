@@ -61,4 +61,4 @@ clean:
 	docker rmi prettier || true
 	rm -rf node_modules
 	rm -rf testo
-	rm release.zip
+	rm -f release.zip
