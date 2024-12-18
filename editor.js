@@ -5,6 +5,8 @@ import { initThemeSwitcher } from "./theme_switcher.js";
 /* globals browser, window, document, console, setTimeout, clearTimeout */
 const verbose = false;
 
+initThemeSwitcher();
+
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 16;
 const STATUS_PENDING_TIMEOUT = 5120;
@@ -784,7 +786,7 @@ addControl("optionsNavLink", "options-navlink");
 addControl("advancedNavLink", "advanced-navlink");
 addControl("helpNavLink", "help-navlink");
 
+browser.runtime.onMessage.addListener(handleMessage);
+
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);
-browser.runtime.onMessage.addListener(handleMessage);
-initThemeSwitcher();

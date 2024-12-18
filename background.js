@@ -167,7 +167,7 @@ async function initialize(mode) {
                 await config.local.set("autoDelete", true);
                 await config.local.set("optInApproved", false);
                 await config.local.set("advancedTabVisible", false);
-                await config.local.set("spamClassesEditorTheme", "auto");
+                await config.local.set("preferredTheme", "auto");
                 break;
         }
         await getClasses();
