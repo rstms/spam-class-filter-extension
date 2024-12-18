@@ -7,6 +7,7 @@ gitclean = if git status --porcelain | grep '^.*$$'; then echo git status is dir
 src = $(wildcard *.js)
 html = $(wildcard *.html)
 package_files = manifest.json VERSION LICENSE README.md $(src) $(html) assets
+version != cat VERSION
 
 all: fmt lint assets $(html) $(src) 
 
@@ -41,7 +42,7 @@ fmt: .prettier
 	cd docker/eslint && $(docker) build . -t eslint
 	touch $@
 
-release_file = spam-class-extension-$(shell cat VERSION).xpi
+release_file = spam-class-extension-$(version).xpi
 
 release: all
 	@$(gitclean) || { [ -n "$(dirty)" ] && echo "allowing dirty release"; }
