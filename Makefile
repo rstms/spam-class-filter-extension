@@ -1,10 +1,11 @@
 
 docker = env DOCKER_BUILD_OUTPUT=plain BUILDKIT_PROGRESS=plain docker
 
-src = background.js classes.js common.js config.js editor.js email.js ports.js requests.js
+src = $(wildcard *.js)
+html = $(wildcard *.html)
+package_files = manifest.json VERSION LICENSE README.md $(src) $(html) assets
 
-
-all: fmt lint assets editor.html $(src) 
+all: fmt lint assets $(html) $(src) 
 
 assets: exported/assets
 	rm -rf assets
@@ -39,7 +40,7 @@ fmt: .prettier
 
 release: all
 	rm -f release.zip
-	zip release.zip -r $(src) *.html manifest.json VERSION assets
+	zip release.zip -r $(package_files)
 	( rm -rf testo && mkdir testo && cd testo && unzip ../release.zip ); find testo
 	mv release.zip dist/spam-class-extension-$(shell cat VERSION).xpi
 
