@@ -75,7 +75,8 @@ export class Classes {
     levels(account) {
         try {
             var classes = this.all();
-            return classes[account.id];
+            const ret = classes[account.id];
+            return ret;
         } catch (e) {
             console.error(e);
         }
@@ -307,7 +308,7 @@ export class Classes {
                 if (!validated.valid) {
                     throw new Error(`Validation failed: ${validated.message}`);
                 }
-                if (force || this.isDirty(account)) {
+                if (force || validated.dirty) {
                     var values = [];
                     for (const level of validated.levels) {
                         values.push(`${level.name}=${level.score}`);

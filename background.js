@@ -10,7 +10,23 @@ var classesState = null;
 var accountsState = null;
 
 const menuId = "rstms-spam-filter-classes-menu";
-const OPTIONS_TITLE = "Spam Filter Classes";
+const EDITOR_TITLE = "Spam Filter Classes";
+
+var menusCreated = false;
+async function initMenus() {
+    try {
+        if (!menusCreated) {
+            await browser.menus.create({
+                id: menuId,
+                title: "Spam Class Thresholds",
+                contexts: ["tools_menu", "folder_pane"],
+            });
+            menusCreated = true;
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
 
 function defaultAccount(accounts) {
     try {
@@ -94,6 +110,10 @@ async function handleMenuClick(info) {
     try {
         switch (info.menuItemId) {
             case menuId:
+                if (!(await config.local.get("optInApproved"))) {
+                    await browser.runtime.openOptionsPage();
+                    return;
+                }
                 var sendAccountId = false;
                 if (info.selectedFolders && info.selectedFolders.length > 0) {
                     const id = info.selectedFolders[0].accountId;
@@ -113,11 +133,11 @@ async function handleMenuClick(info) {
     }
 }
 
-async function findOptionsTab() {
+async function findEditorTab() {
     try {
         const tabs = await browser.tabs.query({ type: "content" });
         for (const tab of tabs) {
-            if (tab.title === OPTIONS_TITLE) {
+            if (tab.title === EDITOR_TITLE) {
                 return tab;
             }
         }
@@ -131,18 +151,21 @@ async function focusEditorWindow(sendAccountId) {
     try {
         console.log("focusEditorWindow");
 
-        var optionsTab = await findOptionsTab();
-        console.log("editor tab:", optionsTab);
+        var editorTab = await findEditorTab();
+        console.log("editor tab:", editorTab);
         var port = await ports.get("editor", ports.NO_WAIT);
         console.log("editor port:", port);
 
-        await browser.runtime.openOptionsPage();
-
-        if (optionsTab) {
-            // editor was already open, assume we're coming back from being suspended
-            console.log("sending activated notification");
-            browser.runtime.sendMessage({ id: "backgroundActivated" });
-            console.log("activated notificaton sent");
+        if (editorTab) {
+            await browser.tabs.update(editorTab.id, { active: true });
+            if (!port) {
+                // editor is open but port is null; assume we're coming back from being suspended
+                console.log("sending activated notification");
+                browser.runtime.sendMessage({ id: "backgroundActivated" });
+                console.log("activated notificaton sent");
+            }
+        } else {
+            await browser.tabs.create({ url: "./editor.html" });
         }
 
         if (!port) {
@@ -150,6 +173,7 @@ async function focusEditorWindow(sendAccountId) {
             port = await ports.get("editor", ports, ports.WAIT_FOREVER);
             console.log("detected editor port connection");
         }
+
         await requests.sendMessage(port, { id: "selectEditorTab", name: "classes" });
         if (sendAccountId) {
             await requests.sendMessage(port, { id: "selectAccount", accountId: sendAccountId });
@@ -171,6 +195,7 @@ async function initialize(mode) {
                 break;
         }
         await getClasses();
+        initMenus();
     } catch (e) {
         console.error(e);
     }
@@ -312,8 +337,8 @@ async function refreshAll() {
 
 async function handlePortMessage(message, sender) {
     try {
-        console.log("background received:", message.id);
-        console.debug("background received message:", message);
+        console.log("background port received:", message.id);
+        console.debug("background port received message:", message);
         // resolve responses to our request messages
         if (await requests.resolveResponses(message)) {
             return;
@@ -421,11 +446,5 @@ browser.runtime.onSuspend.addListener(handleSuspend);
 browser.runtime.onSuspendCanceled.addListener(handleSuspendCanceled);
 browser.menus.onClicked.addListener(handleMenuClick);
 browser.runtime.onConnect.addListener(handleConnect);
-
-browser.menus.create({
-    id: menuId,
-    title: "Spam Class Thresholds",
-    contexts: ["tools_menu", "folder_pane"],
-});
 
 console.log("background page loaded");

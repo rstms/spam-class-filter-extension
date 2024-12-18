@@ -1,0 +1,28 @@
+<!doctype html>
+
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="color-scheme" content="dark light" />
+    </head>
+
+    <body>
+        <p>
+            This extension will use your email accounts to send and receive brief email messages to the address filterctl@DOMAIN (where
+            DOMAIN is the domain of your email account). It will then delete these messages from your Sent and Inbox folders.
+        </p>
+        <p>Actions requiring your authorization:</p>
+        <ul>
+            <li>Send email to filterctl@DOMAIN</li>
+            <li>Delete the message from your Sent folder (optional)</li>
+            <li>Monitor your Inbox for the reply message (from filterctl@DOMAIN)</li>
+            <li>Read the reply message</li>
+            <li>Delete the reply email from your Inbox. (optional)</li>
+        </ul>
+        <form>
+            <label for="opt-in-checkbox">I authorize these actions</label>
+            <input type="checkbox" id="opt-in-checkbox" />
+        </form>
+        <script src="options.js"></script>
+    </body>
+</html>
