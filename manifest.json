@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": "Matt Krueger <mkrueger@rstms.net>",
   "name": "Spam Filter Class Control",
   "browser_specific_settings": {
