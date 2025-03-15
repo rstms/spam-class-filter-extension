@@ -4,9 +4,9 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
         <title>Spam Filter Classes</title>
-        <script type="module" src="editor.js"></script>
         <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css?h=2a67f89353a72f7ee4500027c27d0b66" />
-        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=19bcc99943e8be3a8813523a93caa367" />
+        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=49b37d0518ee12932f322d800019a56e" />
+        <script type="module" src="editor.js"></script>
     </head>
 
     <body>
@@ -26,12 +26,22 @@
                                         <ul class="nav nav-pills" role="tablist">
                                             <li class="nav-item" role="presentation" id="tab-classes-link">
                                                 <a
-                                                    class="nav-link active"
+                                                    class="nav-link"
                                                     role="tab"
                                                     data-bs-toggle="pill"
                                                     id="classes-navlink"
                                                     href="#tab-classes"
                                                     >Classes</a
+                                                >
+                                            </li>
+                                            <li class="nav-item" role="presentation" id="tab-books-link">
+                                                <a
+                                                    class="nav-link active"
+                                                    role="tab"
+                                                    data-bs-toggle="pill"
+                                                    id="books-navlink"
+                                                    href="#tab-books"
+                                                    >Filter Books</a
                                                 >
                                             </li>
                                             <li class="nav-item" role="presentation" id="tab-options-link">
@@ -61,7 +71,7 @@
                                             </li>
                                         </ul>
                                         <div class="tab-content">
-                                            <div class="tab-pane active" role="tabpanel" id="tab-classes">
+                                            <div class="tab-pane" role="tabpanel" id="tab-classes">
                                                 <div class="vstack gap-2 d-flex">
                                                     <div></div>
                                                     <div class="row gx-2 d-flex">
@@ -74,7 +84,7 @@
                                                             </div>
                                                         </div>
                                                         <div class="col-10 d-flex">
-                                                            <select class="d-flex flex-fill" id="account-select">
+                                                            <select class="d-flex flex-fill" id="classes-account-select">
                                                                 <optgroup label="This is a group">
                                                                     <option value="12" selected="">This is item 1</option>
                                                                     <option value="13">This is item 2</option>
@@ -95,7 +105,7 @@
                                                         <div class="col-10 d-flex justify-content-md-start align-items-md-center">
                                                             <span
                                                                 class="bg-light-subtle border rounded-0 flex-fill py-1 px-1"
-                                                                id="status-message-span"
+                                                                id="classes-status-message-span"
                                                                 >Text</span
                                                             >
                                                         </div>
@@ -343,24 +353,192 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div class="tab-pane" role="tabpanel" id="tab-options">
-                                                <div class="vstack gap-2">
+                                            <div class="tab-pane active" role="tabpanel" id="tab-books">
+                                                <div class="vstack gap-2 d-flex">
                                                     <div></div>
-                                                    <div class="row">
-                                                        <div class="col">
-                                                            <div class="form-check">
-                                                                <input
-                                                                    class="form-check-input"
-                                                                    type="checkbox"
-                                                                    id="options-auto-delete-checkbox"
-                                                                /><label class="form-check-label" for="options-auto-delete-checkbox"
-                                                                    >Automatically Delete Control Messages</label
+                                                    <div class="row gx-2 d-flex">
+                                                        <div class="col-2 d-flex">
+                                                            <div class="input-group input-group-sm d-flex">
+                                                                <span
+                                                                    class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                                                    >Account</span
                                                                 >
                                                             </div>
                                                         </div>
+                                                        <div class="col-10 d-flex">
+                                                            <select class="d-flex flex-fill" id="books-account-select">
+                                                                <optgroup label="This is a group">
+                                                                    <option value="12" selected="">This is item 1</option>
+                                                                    <option value="13">This is item 2</option>
+                                                                    <option value="14">This is item 3</option>
+                                                                </optgroup>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div class="row gx-2 d-flex">
+                                                        <div class="col-2 text-end d-flex">
+                                                            <div class="input-group input-group-sm d-flex">
+                                                                <span
+                                                                    class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                                                    >Status</span
+                                                                >
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-10 d-flex justify-content-md-start align-items-md-center">
+                                                            <span
+                                                                class="bg-light-subtle border rounded-0 flex-fill py-1 px-1"
+                                                                id="books-status-message-span"
+                                                                >Text</span
+                                                            >
+                                                        </div>
                                                     </div>
                                                     <div class="row">
-                                                        <div class="col">
+                                                        <div class="col align-self-stretch">
+                                                            <div
+                                                                class="hstack gap-2 border rounded-0 border-2"
+                                                                id="books-edit-row-stack"
+                                                            >
+                                                                <div class="vstack gap-1 border rounded-0">
+                                                                    <div></div>
+                                                                    <label class="form-label m-auto" id="books-label"
+                                                                        >Address Books</label
+                                                                    >
+                                                                    <div></div>
+                                                                    <div class="hstack gap-3">
+                                                                        <div></div>
+                                                                        <div class="vstack" id="books-stack">
+                                                                            <button class="btn btn-secondary text-start" type="button">
+                                                                                Button</button
+                                                                            ><button
+                                                                                class="btn btn-secondary text-start"
+                                                                                type="button"
+                                                                            >
+                                                                                Button</button
+                                                                            ><button
+                                                                                class="btn btn-secondary text-start"
+                                                                                type="button"
+                                                                            >
+                                                                                Button</button
+                                                                            ><button
+                                                                                class="btn btn-secondary text-start"
+                                                                                type="button"
+                                                                            >
+                                                                                Button</button
+                                                                            ><button
+                                                                                class="btn btn-secondary text-start"
+                                                                                type="button"
+                                                                            >
+                                                                                Button</button
+                                                                            ><button
+                                                                                class="btn btn-secondary text-start"
+                                                                                type="button"
+                                                                            >
+                                                                                Button</button
+                                                                            ><button
+                                                                                class="btn btn-secondary text-start"
+                                                                                type="button"
+                                                                            >
+                                                                                Button</button
+                                                                            ><button
+                                                                                class="btn btn-secondary text-start"
+                                                                                type="button"
+                                                                            >
+                                                                                Button
+                                                                            </button>
+                                                                        </div>
+                                                                        <div></div>
+                                                                    </div>
+                                                                    <div class="flex-grow-1"></div>
+                                                                    <div class="hstack gap-1">
+                                                                        <input
+                                                                            class="flex-grow-1"
+                                                                            type="text"
+                                                                            id="book-input"
+                                                                        /><button
+                                                                            class="btn btn-primary btn-sm"
+                                                                            id="book-add-button"
+                                                                            type="button"
+                                                                        >
+                                                                            Add</button
+                                                                        ><button
+                                                                            class="btn btn-primary btn-sm"
+                                                                            id="book-delete-button"
+                                                                            type="button"
+                                                                        >
+                                                                            Delete
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="vstack gap-1 border rounded-0">
+                                                                    <div></div>
+                                                                    <label class="form-label m-auto" id="addresses-label"
+                                                                        >Sender Addresses</label
+                                                                    >
+                                                                    <div></div>
+                                                                    <div class="hstack gap-3">
+                                                                        <div></div>
+                                                                        <div class="vstack" id="addresses-stack">
+                                                                            <button class="btn btn-secondary text-start" type="button">
+                                                                                Button
+                                                                            </button>
+                                                                        </div>
+                                                                        <div></div>
+                                                                    </div>
+                                                                    <div class="flex-grow-1"></div>
+                                                                    <div class="hstack gap-1">
+                                                                        <input
+                                                                            class="flex-grow-1"
+                                                                            type="text"
+                                                                            id="address-input"
+                                                                        /><button
+                                                                            class="btn btn-primary btn-sm"
+                                                                            id="address-add-button"
+                                                                            type="button"
+                                                                        >
+                                                                            Add</button
+                                                                        ><button
+                                                                            class="btn btn-primary btn-sm"
+                                                                            id="address-delete-button"
+                                                                            type="button"
+                                                                        >
+                                                                            Delete
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="row d-flex d-md-flex">
+                                                        <div class="col d-flex justify-content-end">
+                                                            <div
+                                                                class="hstack gap-2 d-inline-flex float-end float-sm-end float-md-end float-lg-end float-xl-end float-xxl-end"
+                                                            >
+                                                                <button
+                                                                    class="btn btn-primary btn-sm"
+                                                                    id="apply-button-1"
+                                                                    type="button"
+                                                                >
+                                                                    Apply</button
+                                                                ><button
+                                                                    class="btn btn-primary btn-sm"
+                                                                    id="cancel-button-1"
+                                                                    type="button"
+                                                                >
+                                                                    Cancel</button
+                                                                ><button class="btn btn-primary btn-sm" id="ok-button-1" type="button">
+                                                                    &nbsp; Ok&nbsp;&nbsp;
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="tab-pane m-auto" role="tabpanel" id="tab-options">
+                                                <div class="vstack gap-2 border rounded-0">
+                                                    <div></div>
+                                                    <div class="vstack gap-1">
+                                                        <div class="hstack gap-2">
+                                                            <div></div>
                                                             <div class="form-check">
                                                                 <input
                                                                     class="form-check-input"
@@ -371,10 +549,23 @@
                                                                 >
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    <div class="row">
-                                                        <div class="col">
-                                                            <div class="hstack">
+                                                        <div class="hstack gap-2">
+                                                            <div></div>
+                                                            <div class="form-check">
+                                                                <input
+                                                                    class="form-check-input"
+                                                                    type="checkbox"
+                                                                    id="options-auto-delete-checkbox"
+                                                                /><label class="form-check-label" for="options-auto-delete-checkbox"
+                                                                    >Automatically Delete Control Messages</label
+                                                                >
+                                                            </div>
+                                                        </div>
+                                                        <div></div>
+                                                        <div class="hstack gap-2">
+                                                            <div></div>
+                                                            <div class="hstack gap-1">
+                                                                <div></div>
                                                                 <div
                                                                     class="theme-switcher dropdown ps-0 ms-0"
                                                                     id="theme-switcher-control"
@@ -486,14 +677,7 @@
                                                             </div>
                                                         </div>
                                                         <div class="col-auto d-flex">
-                                                            <select class="d-flex" id="advanced-command-select">
-                                                                <option value="list" selected="">list</option>
-                                                                <option value="delete">delete</option>
-                                                                <option value="set">set</option>
-                                                                <option value="reset">reset</option>
-                                                                <option value="version">version</option>
-                                                                <option value="help">help</option>
-                                                            </select>
+                                                            <select class="d-flex" id="advanced-command-select"></select>
                                                         </div>
                                                         <div class="col d-flex flex-fill">
                                                             <input class="d-flex flex-fill" type="text" id="advanced-argument-input" />
@@ -519,8 +703,12 @@
                                             <div class="tab-pane" role="tabpanel" id="tab-help">
                                                 <div class="vstack gap-2">
                                                     <div></div>
-                                                    <div class="bg-light-subtle border rounded-0">
-                                                        <p id="help-text" style="padding: 4px">help text<br /><br /></p>
+                                                    <div class="row">
+                                                        <div class="col">
+                                                            <div class="bg-light-subtle border rounded-0">
+                                                                <p id="help-text" style="padding: 4px">Refreshing help...</p>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>

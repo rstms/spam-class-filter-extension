@@ -3,14 +3,18 @@ import { config } from "./config.js";
 import * as requests from "./requests.js";
 import * as ports from "./ports.js";
 import { domainPart } from "./common.js";
+import { sendEmailRequest } from "./email.js";
 
 /* globals browser, console */
 
 var classesState = null;
 var accountsState = null;
 
+const STARTUP_OPT_IN_APPROVED = true;
+
 const menuId = "rstms-spam-filter-classes-menu";
 const EDITOR_TITLE = "Spam Filter Classes";
+const addressBookFilterMenuId = "rstms-address-book-filter-menu";
 
 var menusCreated = false;
 async function initMenus() {
@@ -21,6 +25,12 @@ async function initMenus() {
                 title: "Spam Class Thresholds",
                 contexts: ["tools_menu", "folder_pane"],
             });
+            await browser.menus.create({
+                id: addressBookFilterMenuId,
+                title: "Add Address Book Filter",
+                contexts: ["message_list"],
+            });
+
             menusCreated = true;
         }
     } catch (e) {
@@ -147,6 +157,17 @@ async function findEditorTab() {
     }
 }
 
+async function getEditorPort(wait) {
+    try {
+        console.log("awaiting editor port connection...");
+        var port = await ports.get("editor", ports, wait);
+        console.log("detected editor port connection");
+        return port;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function focusEditorWindow(sendAccountId) {
     try {
         console.log("focusEditorWindow");
@@ -169,9 +190,7 @@ async function focusEditorWindow(sendAccountId) {
         }
 
         if (!port) {
-            console.log("awaiting editor port connection...");
-            port = await ports.get("editor", ports, ports.WAIT_FOREVER);
-            console.log("detected editor port connection");
+            port = await getEditorPort();
         }
 
         await requests.sendMessage(port, { id: "selectEditorTab", name: "classes" });
@@ -189,7 +208,7 @@ async function initialize(mode) {
         switch (mode) {
             case "installed":
                 await config.local.set("autoDelete", true);
-                await config.local.set("optInApproved", false);
+                await config.local.set("optInApproved", STARTUP_OPT_IN_APPROVED);
                 await config.local.set("advancedTabVisible", false);
                 await config.local.set("preferredTheme", "auto");
                 break;
@@ -236,23 +255,6 @@ async function handleSuspendCanceled() {
         console.error(e);
     }
 }
-
-/*
-async function getSystemTheme() {
-    try {
-        const tabs = await browser.tabs.query({ type: "mail" });
-        for (const tab of tabs) {
-            const theme = await browser.theme.getCurrent(tab.id);
-            if (verbose) {
-                console.log("tab theme:", tab, theme);
-            }
-        }
-        return {};
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
 
 async function getClassLevels(message) {
     try {
@@ -427,6 +429,28 @@ async function setConfigValue(message) {
     }
 }
 
+async function handleSendFilterctlCommand(message) {
+    try {
+        const accounts = await getAccounts();
+        const accountId = message.accountId;
+        var account = null;
+        if (accountId) {
+            account = accounts[accountId];
+        } else {
+            account = await getSelectedAccount();
+        }
+        console.log("sendFilterctlCommand:", message, account);
+        var response = null;
+        if (account) {
+            response = await sendEmailRequest(account, message.command);
+        }
+        console.log("sendFilterctlCommandReturning:", response);
+        return response;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 //requests.addHandler("getSystemTheme", getSystemTheme);
 requests.addHandler("setClassLevels", setClassLevels);
 requests.addHandler("getClassLevels", getClassLevels);
@@ -439,6 +463,7 @@ requests.addHandler("refreshAll", refreshAll);
 requests.addHandler("sendCommand", sendCommand);
 requests.addHandler("setConfigValue", setConfigValue);
 requests.addHandler("getConfigValue", getConfigValue);
+requests.addHandler("sendFilterctlCommand", handleSendFilterctlCommand);
 
 browser.runtime.onStartup.addListener(handleStartup);
 browser.runtime.onInstalled.addListener(handleInstalled);

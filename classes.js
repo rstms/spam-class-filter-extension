@@ -104,8 +104,12 @@ export class Classes {
         try {
             var levels = this.levels(account);
             if (force || !Array.isArray(levels) || levels.length === 0) {
-                const result = await sendEmailRequest(account, "list", this.options);
-                const returned = result.json.Classes;
+                const result = await sendEmailRequest(account, "classes", this.options);
+                console.log("classes result", result);
+                if (!result) {
+                    return { levels: null, valid: false, message: "classes request failed; please contact support" };
+                }
+                const returned = result.Classes;
                 const validated = this.validateLevels(returned);
                 if (validated.error) {
                     console.warn("server list return failed validation:", validated.error, returned);
@@ -315,7 +319,9 @@ export class Classes {
                     }
                     const subject = "reset " + values.join(" ");
                     const result = await sendEmailRequest(account, subject, this.options);
-                    const returned = result.json.Classes;
+                    console.log("result", result);
+                    const returned = result.Classes;
+                    console.log("returned classes", returned);
                     const validatedReturn = this.validateLevels(returned);
                     if (validatedReturn.error) {
                         console.debug("account:", account);

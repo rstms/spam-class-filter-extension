@@ -3,7 +3,7 @@ import { differ } from "./common.js";
 /* globals console, browser, setTimeout, clearTimeout */
 
 const STORAGE_UPDATE_TIMEOUT = 3000;
-const verbose = true;
+const verbose = false;
 
 const DEFAULTS = {
     use_email_interface: true,
@@ -15,6 +15,7 @@ const DEFAULTS = {
         "greenbluffllc.com": false,
         "harborstreetventures.com": false,
         "citybestmanagement.com": false,
+        "mailcapsule.io": true,
     },
 };
 

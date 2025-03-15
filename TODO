@@ -1,0 +1,9 @@
+add list of domains to options page
+debug generalized use of filterctl command request/response 
+use filterctl usage command to populate help 
+use filterctl dump command to populate books tab
+use filterctl restore command to save books changes
+use filterctl passwd command to facilitate opening carddav address book
+add ui element to top level menubar
+add message list menu to forward email to filterctl+BOOKNAME
+add hotkeys to forward message to filterctl+BOOKNAME

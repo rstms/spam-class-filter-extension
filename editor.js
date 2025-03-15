@@ -12,23 +12,32 @@ const MAX_LEVELS = 16;
 const STATUS_PENDING_TIMEOUT = 5120;
 var statusPendingTimer;
 var backgroundSuspended = false;
+var helpPopulated = false;
+var activeTab = null;
+
+const advancedCommandNames = [
+    "addrs",
+    "books",
+    "classes",
+    "classify",
+    "delete",
+    "mkaddr",
+    "mkbook",
+    "passwd",
+    "reset",
+    "rmaddr",
+    "rmbook",
+    "rmbook",
+    "scan",
+    "set",
+    "usage",
+    "version",
+];
 
 var accountNames = {};
 var accountIndex = {};
 var port = null;
 var controls = {};
-
-var helpContent = `
-The mail server's spam classifier adds an 'X-Spam-Score' header to each incoming message. This header value is a decimal number generally ranging between -20.0 and +20.0.  
-<br><br>
-Higher scores indicate more spam characteristics.
-<br><br>
-After scoring, the rspam-classes filter adds an 'X-Spam-Class' header.  This header's value is set to the name of the class with the lowest threshold that is greater than the message score.  The class names are text that can be easily matched in a filtering rule.
-<br><br>
-Each message's spam score is compared to the thresholds of each class and The lowest (least spammy) class is assigned.  In other words, a message must have a score below a class threshold value to be assigned to that class.
-<br><br>
-This class editor exchanges data with the mail server by automatically sendng email messages to the special email address 'filterctl@SELECTED_ACCOUNT_DOMAIN'.  Each message sent will trigger a reply message.  By default these control messages are deleted from the Inbox and Sent mail folders.  There is an option to toggle automatic deletion of these messages.
-`;
 
 function getLevels() {
     try {
@@ -478,17 +487,60 @@ async function onAdvancedSend() {
             command: controls.advancedCommand.value,
             argument: controls.advancedArgument.value,
         };
-        const result = await sendMessage(message);
+        const response = await sendMessage(message);
+        console.log("response:", response);
 
         const output = controls.advancedOutput;
         output.style.height = "0px";
 
-        if (result == undefined) {
+        if (response == undefined) {
             output.value = "Error: server communication failed";
         } else {
-            output.value = result.body;
+            output.value = JSON.stringify(response, null, 2);
         }
         output.style.height = `${output.scrollHeight}px`;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function populateHelp() {
+    try {
+        const message = {
+            id: "sendFilterctlCommand",
+            command: "usage",
+            accountId: accountId(),
+        };
+        const result = await sendMessage(message);
+        console.log("editor.populateHelp: response:", result);
+        if (result) {
+            var text = "";
+            for (var line of result.Help) {
+                //console.log("line: ", "'" + line + "'");
+                line = line.replace(/^\s*/, "");
+                line = line.replace(/\s*$/, "");
+                line = line.replace(/^###+\s*/g, "<b>");
+                line = line.replace(/^#+\s*/g, "<br><br><b>");
+                line = line.replace(/\s*#+$/g, "</b><br>");
+                text += " " + line + "\n";
+                //console.log("line: ", "'" + line + "'");
+                //console.log("---");
+            }
+            //console.debug(text);
+            controls.helpText.innerHTML = text;
+            helpPopulated = true;
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function addAccountSelectRow(control, i, id, accounts) {
+    try {
+        const option = document.createElement("option");
+        option.setAttribute("data-account-id", id);
+        option.textContent = accounts[id].name;
+        control.appendChild(option);
     } catch (e) {
         console.error(e);
     }
@@ -501,17 +553,16 @@ async function populateAccountSelect() {
         }
         const accounts = await sendMessage("getAccounts");
         controls.accountSelect.innerHTML = "";
+        controls.booksAccountSelect.innerHTML = "";
         accountNames = {};
         var i = 0;
         for (let id of Object.keys(accounts)) {
-            const option = document.createElement("option");
-            option.setAttribute("data-account-id", id);
             accountNames[id] = accounts[id].name;
             accountNames[i] = accounts[id].name;
             accountIndex[id] = i;
             accountIndex[i] = id;
-            option.textContent = accounts[id].name;
-            controls.accountSelect.appendChild(option);
+            addAccountSelectRow(controls.accountSelect, i, id, accounts);
+            addAccountSelectRow(controls.booksAccountSelect, i, id, accounts);
             i++;
         }
         const selectedAccountId = await sendMessage("getSelectedAccountId");
@@ -524,10 +575,24 @@ async function populateAccountSelect() {
     }
 }
 
+async function populateAdvancedCommandSelect() {
+    try {
+        controls.advancedCommand.innerHTML = "";
+        for (let command of advancedCommandNames) {
+            const option = document.createElement("option");
+            option.textContent = command;
+            controls.advancedCommand.appendChild(option);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function setSelectedAccount(id) {
     try {
         console.log("setSelectedAccountId:", id, accountNames[id]);
         controls.accountSelect.selectedIndex = accountIndex[id];
+        controls.booksAccountSelect.selectedIndex = accountIndex[id];
         controls.advancedSelectedAccount.value = accountNames[id];
     } catch (e) {
         console.error(e);
@@ -558,12 +623,35 @@ function accountId() {
 async function onAccountSelectChange(event) {
     try {
         console.log("account select changed:", event);
+        const index = controls.accountSelect.selectedIndex;
+        await onAccountSelectIndexChanged(index);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onBooksAccountSelectChange(event) {
+    try {
+        console.log("books account select changed:", event);
+        const index = controls.booksAccountSelect.selectedIndex;
+        await onAccountSelectIndexChanged(index);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onAccountSelectIndexChanged(index) {
+    try {
+        console.log("account select index changed:", index);
+        controls.accountSelect.selectedIndex = index;
+        controls.booksAccountSelect.selectedIndex = index;
         const id = accountId();
         console.log("accountId:", id);
         console.log("index:", accountIndex[id]);
         console.log("name:", accountNames[id]);
         const levels = await getClasses(id);
         controls.advancedSelectedAccount.value = accountNames[id];
+        controls.booksAccountSelect.value = accountNames[id];
         await populateRows(levels);
     } catch (e) {
         console.error(e);
@@ -589,12 +677,11 @@ async function handleLoad() {
             throw new Error("redundant load event");
         }
         hasLoaded = true;
-        controls.helpText.innerHTML = helpContent;
         await populateOptions();
         await populateAccountSelect();
+        await populateAdvancedCommandSelect();
         const levels = await getClasses(accountId());
         await populateRows(levels);
-
         console.debug("editor page loaded");
     } catch (e) {
         console.error(e);
@@ -629,6 +716,35 @@ async function handleSelectAccount(message) {
             await onAccountSelectChange(message);
         }
         return accountId();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleTabShow(tab) {
+    try {
+        console.log("handleTabShow:", tab);
+        switch (tab.srcElement) {
+            case controls.classesNavLink:
+                activeTab = "classes";
+                break;
+            case controls.booksNavLink:
+                activeTab = "books";
+                break;
+            case controls.optionsNavLink:
+                activeTab = "options";
+                break;
+            case controls.advancedNavLink:
+                activeTab = "advanced";
+                break;
+            case controls.helpNavLink:
+                activeTab = "help";
+                if (!helpPopulated) {
+                    await populateHelp();
+                }
+                break;
+        }
+        console.log("active tab:", activeTab);
     } catch (e) {
         console.error(e);
     }
@@ -759,34 +875,75 @@ async function onShowAdvancedTabChange() {
 requests.addHandler("selectAccount", handleSelectAccount);
 requests.addHandler("selectEditorTab", handleSelectEditorTab);
 
+// classes tab controls
+addControl("accountSelect", "classes-account-select", "change", onAccountSelectChange);
+addControl("statusMessage", "classes-status-message-span");
+addControl("classTable", "class-table", "change", onTableChange);
+addControl("tableBody", "level-table-body");
+addControl("tableGridRow", "table-grid-row");
+addControl("tableGridColumn", "table-grid-column");
+addControl("defaultsButton", "defaults-button", "click", onDefaults);
+addControl("refreshButton", "refresh-button", "click", onRefresh);
+
+// books tab controls
+addControl("booksAccountSelect", "books-account-select", "change", onBooksAccountSelectChange);
+addControl("booksStatusMessage", "books-status-message-span");
+addControl("booksEditRow", "books-edit-row-stack");
+
+addControl("booksLabel", "books-label");
+addControl("booksStack", "books-stack");
+addControl("booksInput", "book-input");
+addControl("booksAddButton", "book-add-button");
+addControl("booksDeleteButton", "book-delete-button");
+
+addControl("addressessLabel", "addresses-label");
+addControl("addressesStack", "addresses-stack");
+addControl("addressesInput", "address-input");
+addControl("addressesAddButton", "address-add-button");
+addControl("addressesDeleteButton", "address-delete-button");
+
+// options tab controls
+addControl("optionsAutoDelete", "options-auto-delete-checkbox", "change", onAutoDeleteChange);
+addControl("optionsShowAdvancedTab", "options-show-advanced-checkbox", "change", onShowAdvancedTabChange);
+
+// advanced tab controls
+addControl("advancedSelectedAccount", "advanced-selected-account-input");
+addControl("advancedCommand", "advanced-command-select");
+addControl("advancedArgument", "advanced-argument-input");
+addControl("advancedSendButton", "advanced-send-button", "click", onAdvancedSend);
+addControl("advancedOutput", "advanced-output");
+
+// help tab controls
+addControl("helpText", "help-text");
+
+// common editor controls
 addControl("applyButton", "apply-button", "click", onApply);
 addControl("okButton", "ok-button", "click", onOk);
 addControl("cancelButton", "cancel-button", "click", onCancel);
-addControl("defaultsButton", "defaults-button", "click", onDefaults);
-addControl("refreshButton", "refresh-button", "click", onRefresh);
-addControl("accountSelect", "account-select", "change", onAccountSelectChange);
-addControl("tableBody", "level-table-body");
-addControl("statusMessage", "status-message-span");
-addControl("applyButton", "apply-button");
-addControl("helpText", "help-text");
-addControl("tableGridRow", "table-grid-row");
-addControl("tableGridColumn", "table-grid-column");
-addControl("classTable", "class-table", "change", onTableChange);
-addControl("advancedCommand", "advanced-command-select");
-addControl("advancedArgument", "advanced-argument-input");
-addControl("advancedOutput", "advanced-output");
-addControl("advancedSendButton", "advanced-send-button", "click", onAdvancedSend);
-addControl("optionsAutoDelete", "options-auto-delete-checkbox", "change", onAutoDeleteChange);
-addControl("advancedSelectedAccount", "advanced-selected-account-input");
-addControl("optionsShowAdvancedTab", "options-show-advanced-checkbox", "change", onShowAdvancedTabChange);
+
+// tabs
+addControl("classesTab", "tab-classes");
+addControl("booksTab", "tab-books");
+addControl("optionsTab", "tab-options");
 addControl("advancedTab", "tab-advanced");
-addControl("advancedTabLink", "tab-advanced-link");
-addControl("classesNavLink", "classes-navlink");
-addControl("optionsNavLink", "options-navlink");
-addControl("advancedNavLink", "advanced-navlink");
-addControl("helpNavLink", "help-navlink");
+addControl("helpTab", "tab-help");
+
+// navlinks
+addControl("advancedTabLink", "tab-advanced-link", "shown.bs.tab", handleTabShow);
+addControl("classesNavLink", "classes-navlink", "shown.bs.tab", handleTabShow);
+addControl("booksNavLink", "books-navlink", "shown.bs.tab", handleTabShow);
+addControl("optionsNavLink", "options-navlink", "shown.bs.tab", handleTabShow);
+addControl("advancedNavLink", "advanced-navlink", "shown.bs.tab", handleTabShow);
+addControl("helpNavLink", "help-navlink", "shown.bs.tab", handleTabShow);
 
 browser.runtime.onMessage.addListener(handleMessage);
 
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);
+
+// attach event to tab show event
+//controls.classesNavLink.addEventListener("shown.bs.tab", handleTabShow);
+//controls.booksNavLink.addEventListener("shown.bs.tab", handleTabShow);
+//controls.optionsNavLink.addEventListener("shown.bs.tab", handleTabShow);
+//controls.advancedNavLink.addEventListener("shown.bs.tab", handleTabShow);
+//controls.helpNavLink.addEventListener("shown.bs.tab", handleTabShow);
