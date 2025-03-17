@@ -12,27 +12,9 @@ const MAX_LEVELS = 16;
 const STATUS_PENDING_TIMEOUT = 5120;
 var statusPendingTimer;
 var backgroundSuspended = false;
-var helpPopulated = false;
+var usagePopulated = false;
 var activeTab = null;
-
-const advancedCommandNames = [
-    "addrs",
-    "books",
-    "classes",
-    "classify",
-    "delete",
-    "mkaddr",
-    "mkbook",
-    "passwd",
-    "reset",
-    "rmaddr",
-    "rmbook",
-    "rmbook",
-    "scan",
-    "set",
-    "usage",
-    "version",
-];
+var commandUsage = {};
 
 var accountNames = {};
 var accountIndex = {};
@@ -346,14 +328,14 @@ async function updateClasses(sendToServer = false) {
             levels: getLevels(),
             name: accountNames[id],
         });
-        return await updateStatus(state);
+        return await updateClassesStatus(state);
     } catch (e) {
         console.error(e);
     }
 }
 
 async function statusPendingTimeout() {
-    await updateStatus({ error: true, message: "Pending operation timed out." });
+    await updateClassesStatus({ error: true, message: "Pending operation timed out." });
 }
 
 async function setStatusPending(message) {
@@ -362,13 +344,13 @@ async function setStatusPending(message) {
             clearTimeout(statusPendingTimer);
         }
         statusPendingTimer = setTimeout(statusPendingTimeout, STATUS_PENDING_TIMEOUT);
-        await updateStatus({ message: message, disable: true });
+        await updateClassesStatus({ message: message, disable: true });
     } catch (e) {
         console.error(e);
     }
 }
 
-async function updateStatus(state = undefined) {
+async function updateClassesStatus(state = undefined) {
     try {
         if (statusPendingTimer) {
             clearTimeout(statusPendingTimer);
@@ -383,7 +365,7 @@ async function updateStatus(state = undefined) {
         }
 
         if (verbose) {
-            console.log("updateStatus:", state);
+            console.log("updateClassesStatus:", state);
         }
 
         let parts = [];
@@ -412,9 +394,9 @@ async function updateStatus(state = undefined) {
         }
         controls.statusMessage.innerHTML = parts.join(" ");
 
-        controls.applyButton.disabled = state.disable;
+        controls.classesApplyButton.disabled = state.disable;
         controls.accountSelect.disabled = state.disable;
-        controls.okButton.disabled = state.disable;
+        controls.classesOkButton.disabled = state.disable;
     } catch (e) {
         console.error(e);
     }
@@ -424,11 +406,11 @@ async function saveChanges() {
     try {
         await setStatusPending("sending changed classes...");
         const state = await sendMessage({ id: "sendAllClassLevels", force: false });
-        await updateStatus(state);
+        await updateClassesStatus(state);
         return state;
     } catch (e) {
         console.error(e);
-        await updateStatus({ error: true, message: "Pending operation failed." });
+        await updateClassesStatus({ error: true, message: "Pending operation failed." });
     }
 }
 
@@ -471,7 +453,7 @@ async function onDefaults() {
 async function onRefresh() {
     try {
         await setStatusPending("requesting all classes...");
-        await sendMessage("refreshAll");
+        await sendMessage("refreshAllClassLevels");
         const levels = await getClasses(accountId());
         await populateRows(levels);
     } catch (e) {
@@ -487,49 +469,127 @@ async function onAdvancedSend() {
             command: controls.advancedCommand.value,
             argument: controls.advancedArgument.value,
         };
+        setAdvancedOutput(JSON.stringify(message, null, 2) + "\n\nAwaiting filterctl response...");
         const response = await sendMessage(message);
-        console.log("response:", response);
-
-        const output = controls.advancedOutput;
-        output.style.height = "0px";
-
-        if (response == undefined) {
-            output.value = "Error: server communication failed";
-        } else {
-            output.value = JSON.stringify(response, null, 2);
+        if (verbose) {
+            console.debug("response:", response);
         }
-        output.style.height = `${output.scrollHeight}px`;
+        if (response == undefined) {
+            setAdvancedOutput("Error: server communication failed");
+        } else {
+            setAdvancedOutput(JSON.stringify(response, null, 2));
+        }
     } catch (e) {
         console.error(e);
     }
 }
 
-async function populateHelp() {
+function setAdvancedOutput(text) {
+    try {
+        const output = controls.advancedOutput;
+        output.style.height = "0px";
+        output.value = text;
+        output.style.height = `${output.scrollHeight + 10}px`;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function requestUsage() {
     try {
         const message = {
-            id: "sendFilterctlCommand",
-            command: "usage",
+            id: "sendCommand",
             accountId: accountId(),
+            command: "usage",
         };
-        const result = await sendMessage(message);
-        console.log("editor.populateHelp: response:", result);
-        if (result) {
-            var text = "";
-            for (var line of result.Help) {
-                //console.log("line: ", "'" + line + "'");
-                line = line.replace(/^\s*/, "");
-                line = line.replace(/\s*$/, "");
-                line = line.replace(/^###+\s*/g, "<b>");
-                line = line.replace(/^#+\s*/g, "<br><br><b>");
-                line = line.replace(/\s*#+$/g, "</b><br>");
-                text += " " + line + "\n";
-                //console.log("line: ", "'" + line + "'");
-                //console.log("---");
-            }
-            //console.debug(text);
-            controls.helpText.innerHTML = text;
-            helpPopulated = true;
+
+        if (verbose) {
+            console.log("requesting usage:", message);
         }
+        const response = await sendMessage(message);
+        if (verbose) {
+            console.log("usageResponse:", response);
+        }
+        return response;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function populateUsageControls() {
+    try {
+        if (!usagePopulated) {
+            usagePopulated = true;
+            const response = await requestUsage();
+            if (response) {
+                await populateHelpText(response.Help);
+                await populateAdvancedCommandSelect(response.Commands);
+            } else {
+                usagePopulated = false;
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function populateHelpText(helpLines) {
+    try {
+        var text = "";
+        for (var line of helpLines) {
+            //console.log("line: ", "'" + line + "'");
+            line = line.replace(/^\s*/, "");
+            line = line.replace(/\s*$/, "");
+            line = line.replace(/^###+\s*/g, "<b>");
+            line = line.replace(/^#+\s*/g, "<br><br><b>");
+            line = line.replace(/\s*#+$/g, "</b><br>");
+            text += " " + line + "\n";
+            //console.log("line: ", "'" + line + "'");
+            //console.log("---");
+        }
+        //console.debug(text);
+        controls.helpText.innerHTML = text;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function populateAdvancedCommandSelect(commandLines) {
+    try {
+        enableAdvancedCommandControls(false);
+        controls.advancedCommand.innerHTML = "";
+        if (verbose) {
+            console.log("Commands:", commandLines);
+        }
+        var flag = false;
+        commandUsage = {};
+        var command = null;
+        var usage = [];
+        for (var line of commandLines) {
+            if (line.substr(0, 4) === "----") {
+                flag = true;
+            } else {
+                if (flag) {
+                    if (command) {
+                        commandUsage[command] = usage;
+                    }
+                    usage = [];
+                    console.log("line:", line);
+                    command = line.split(" ")[0];
+                    if (command.length) {
+                        const option = document.createElement("option");
+                        option.textContent = command;
+                        controls.advancedCommand.appendChild(option);
+                    } else {
+                        command = null;
+                    }
+                    flag = false;
+                }
+                usage.push(line);
+            }
+        }
+        console.log("commandUsage:", commandUsage);
+        enableAdvancedCommandControls(true);
     } catch (e) {
         console.error(e);
     }
@@ -567,6 +627,8 @@ async function populateAccountSelect() {
         }
         const selectedAccountId = await sendMessage("getSelectedAccountId");
         await setSelectedAccount(selectedAccountId);
+        controls.accountSelect.disabled = false;
+        controls.booksAccountSelect.disabled = false;
         if (verbose) {
             console.log("END populateAccountSelect");
         }
@@ -575,14 +637,108 @@ async function populateAccountSelect() {
     }
 }
 
-async function populateAdvancedCommandSelect() {
+function enableTab(name, enabled) {
     try {
-        controls.advancedCommand.innerHTML = "";
-        for (let command of advancedCommandNames) {
-            const option = document.createElement("option");
-            option.textContent = command;
-            controls.advancedCommand.appendChild(option);
+        var tab = null;
+        var link = null;
+        var navlink = null;
+        switch (name) {
+            case "classes":
+                tab = controls.classesTab;
+                link = controls.classesTabLink;
+                navlink = controls.classesNavLink;
+                break;
+            case "books":
+                tab = controls.booksTab;
+                link = controls.booksTabLink;
+                navlink = controls.booksNavLink;
+                break;
+            case "options":
+                tab = controls.optionsTab;
+                link = controls.optionsTabLink;
+                navlink = controls.optionsNavLink;
+                break;
+            case "advanced":
+                tab = controls.advancedTab;
+                link = controls.advancedTabLink;
+                navlink = controls.advancedNavLink;
+                break;
+            case "help":
+                tab = controls.helpTab;
+                link = controls.helpTabLink;
+                navlink = controls.helpNavLink;
+                break;
+            default:
+                throw new Error("unknown tab: " + name);
         }
+        link.disabled = !enabled;
+        if (enabled) {
+            delete navlink.classList.remove("disabled");
+        } else {
+            navlink.classList.add("disabled");
+        }
+        console.log(enabled ? "enabled tab: " : "disabled tab:", tab, link, navlink);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function enableAdvancedCommandControls(enabled) {
+    try {
+        controls.advancedCommand.disabled = !enabled;
+        controls.advancedArgument.disabled = !enabled;
+        controls.advancedSendButton.disabled = !enabled;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function enableBooksTabControls(enabled) {
+    try {
+        await enableBooksControls(enabled);
+        await enableAddressesControls(enabled);
+        if (!enabled) {
+            await enableBooksButtons(false, false, false);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function enableBooksButtons(apply, cancel, ok) {
+    try {
+        controls.booksApplyButton.disabled = !apply;
+        controls.booksCancelButton.disabled = !cancel;
+        controls.booksOkButton.disabled = !ok;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function enableBooksControls(enabled) {
+    try {
+        controls.booksAddButton.disabled = !enabled;
+        controls.booksDeleteButton.disabled = !enabled;
+        controls.booksInput.disabled = !enabled;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function enableAddressesControls(enabled) {
+    try {
+        controls.addressesAddButton.disabled = !enabled;
+        controls.addressesDeleteButton.disabled = !enabled;
+        controls.addressesInput.disabled = !enabled;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function populateBooks() {
+    try {
+        console.log("populateBooks");
+        await enableBooksTabControls(false);
     } catch (e) {
         console.error(e);
     }
@@ -658,6 +814,20 @@ async function onAccountSelectIndexChanged(index) {
     }
 }
 
+async function onAdvancedCommandChange(event) {
+    try {
+        console.log("advanced command select changed:", event);
+        const index = controls.advancedCommand.selectedIndex;
+        const command = controls.advancedCommand.value;
+        console.log("advancedCommand:", index, command);
+        controls.advancedOutput.innerHTML = "";
+        var lines = commandUsage[command];
+        console.log(lines);
+        setAdvancedOutput(lines.join("\n"));
+    } catch (e) {
+        console.error(e);
+    }
+}
 async function populateOptions() {
     try {
         controls.optionsAutoDelete.checked = await sendMessage({ id: "getConfigValue", key: "autoDelete" });
@@ -669,7 +839,7 @@ async function populateOptions() {
 
 var hasLoaded = false;
 
-async function handleLoad() {
+async function onLoad() {
     try {
         console.debug("editor page loading");
 
@@ -677,12 +847,36 @@ async function handleLoad() {
             throw new Error("redundant load event");
         }
         hasLoaded = true;
+        controls.accountSelect.disabled = true;
+        controls.booksAccountSelect.disabled = true;
+
+        await enableTab("books", false);
+        await enableTab("advanced", false);
+        await enableTab("help", false);
+
+        await enableAdvancedCommandControls(false);
+        await enableBooksTabControls(false);
         await populateOptions();
         await populateAccountSelect();
-        await populateAdvancedCommandSelect();
         const levels = await getClasses(accountId());
         await populateRows(levels);
+
+        await enableTab("books", true);
+        await enableTab("advanced", true);
+        await enableTab("help", true);
+
         console.debug("editor page loaded");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onUnload() {
+    try {
+        if (port) {
+            port.disconnect();
+            port = null;
+        }
     } catch (e) {
         console.error(e);
     }
@@ -692,17 +886,6 @@ async function getClasses(accountId) {
     try {
         await setStatusPending("requesting classes...");
         return await sendMessage({ id: "getClassLevels", accountId: accountId });
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleUnload() {
-    try {
-        if (port) {
-            port.disconnect();
-            port = null;
-        }
     } catch (e) {
         console.error(e);
     }
@@ -730,18 +913,18 @@ async function handleTabShow(tab) {
                 break;
             case controls.booksNavLink:
                 activeTab = "books";
+                populateBooks();
                 break;
             case controls.optionsNavLink:
                 activeTab = "options";
                 break;
             case controls.advancedNavLink:
                 activeTab = "advanced";
+                await populateUsageControls();
                 break;
             case controls.helpNavLink:
                 activeTab = "help";
-                if (!helpPopulated) {
-                    await populateHelp();
-                }
+                await populateUsageControls();
                 break;
         }
         console.log("active tab:", activeTab);
@@ -884,6 +1067,9 @@ addControl("tableGridRow", "table-grid-row");
 addControl("tableGridColumn", "table-grid-column");
 addControl("defaultsButton", "defaults-button", "click", onDefaults);
 addControl("refreshButton", "refresh-button", "click", onRefresh);
+addControl("classesApplyButton", "classes-apply-button", "click", onApply);
+addControl("classesOkButton", "classes-ok-button", "click", onOk);
+addControl("classesCancelButton", "classes-cancel-button", "click", onCancel);
 
 // books tab controls
 addControl("booksAccountSelect", "books-account-select", "change", onBooksAccountSelectChange);
@@ -902,24 +1088,23 @@ addControl("addressesInput", "address-input");
 addControl("addressesAddButton", "address-add-button");
 addControl("addressesDeleteButton", "address-delete-button");
 
+addControl("booksApplyButton", "books-apply-button", "click", onApply);
+addControl("booksOkButton", "books-ok-button", "click", onOk);
+addControl("booksCancelButton", "books-cancel-button", "click", onCancel);
+
 // options tab controls
 addControl("optionsAutoDelete", "options-auto-delete-checkbox", "change", onAutoDeleteChange);
 addControl("optionsShowAdvancedTab", "options-show-advanced-checkbox", "change", onShowAdvancedTabChange);
 
 // advanced tab controls
 addControl("advancedSelectedAccount", "advanced-selected-account-input");
-addControl("advancedCommand", "advanced-command-select");
+addControl("advancedCommand", "advanced-command-select", "change", onAdvancedCommandChange);
 addControl("advancedArgument", "advanced-argument-input");
 addControl("advancedSendButton", "advanced-send-button", "click", onAdvancedSend);
 addControl("advancedOutput", "advanced-output");
 
 // help tab controls
 addControl("helpText", "help-text");
-
-// common editor controls
-addControl("applyButton", "apply-button", "click", onApply);
-addControl("okButton", "ok-button", "click", onOk);
-addControl("cancelButton", "cancel-button", "click", onCancel);
 
 // tabs
 addControl("classesTab", "tab-classes");
@@ -928,8 +1113,14 @@ addControl("optionsTab", "tab-options");
 addControl("advancedTab", "tab-advanced");
 addControl("helpTab", "tab-help");
 
+// tablinks
+addControl("classesTabLink", "tab-classes-link");
+addControl("booksTabLink", "tab-books-link");
+addControl("optionsTabLink", "tab-options-link");
+addControl("advancedTabLink", "tab-advanced-link");
+addControl("helpTabLink", "tab-help-link");
+
 // navlinks
-addControl("advancedTabLink", "tab-advanced-link", "shown.bs.tab", handleTabShow);
 addControl("classesNavLink", "classes-navlink", "shown.bs.tab", handleTabShow);
 addControl("booksNavLink", "books-navlink", "shown.bs.tab", handleTabShow);
 addControl("optionsNavLink", "options-navlink", "shown.bs.tab", handleTabShow);
@@ -938,12 +1129,5 @@ addControl("helpNavLink", "help-navlink", "shown.bs.tab", handleTabShow);
 
 browser.runtime.onMessage.addListener(handleMessage);
 
-window.addEventListener("load", handleLoad);
-window.addEventListener("beforeunload", handleUnload);
-
-// attach event to tab show event
-//controls.classesNavLink.addEventListener("shown.bs.tab", handleTabShow);
-//controls.booksNavLink.addEventListener("shown.bs.tab", handleTabShow);
-//controls.optionsNavLink.addEventListener("shown.bs.tab", handleTabShow);
-//controls.advancedNavLink.addEventListener("shown.bs.tab", handleTabShow);
-//controls.helpNavLink.addEventListener("shown.bs.tab", handleTabShow);
+window.addEventListener("load", onLoad);
+window.addEventListener("beforeunload", onUnload);

@@ -1,4 +1,4 @@
-import { Classes } from "./classes.js";
+import { FilterClasses, FilterBooks } from "./classes.js";
 import { config } from "./config.js";
 import * as requests from "./requests.js";
 import * as ports from "./ports.js";
@@ -8,9 +8,11 @@ import { sendEmailRequest } from "./email.js";
 /* globals browser, console */
 
 var classesState = null;
+var filterBooksState = null;
 var accountsState = null;
 
 const STARTUP_OPT_IN_APPROVED = true;
+const STARTUP_ADVANCED_TAB_VISIBLE = true;
 
 const menuId = "rstms-spam-filter-classes-menu";
 const EDITOR_TITLE = "Spam Filter Classes";
@@ -27,7 +29,7 @@ async function initMenus() {
             });
             await browser.menus.create({
                 id: addressBookFilterMenuId,
-                title: "Add Address Book Filter",
+                title: "Add To Address Book Filter",
                 contexts: ["message_list"],
             });
 
@@ -47,7 +49,7 @@ function defaultAccount(accounts) {
     }
 }
 
-export async function getAccounts() {
+async function getAccounts() {
     try {
         if (accountsState === null) {
             accountsState = {};
@@ -91,33 +93,9 @@ async function setSelectedAccount(account) {
     }
 }
 
-export async function getClasses() {
-    try {
-        if (classesState === null) {
-            const state = await config.session.get("classState");
-            const options = {
-                autoDelete: await config.local.get("autoDelete"),
-            };
-            const accounts = await getAccounts();
-            classesState = new Classes(state, options, accounts);
-        }
-        return classesState;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-export async function saveClasses(classes) {
-    try {
-        classesState = classes;
-        await config.session.set("classState", classes.state());
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 async function handleMenuClick(info) {
     try {
+        console.log("menu click:", info);
         switch (info.menuItemId) {
             case menuId:
                 if (!(await config.local.get("optInApproved"))) {
@@ -137,6 +115,8 @@ async function handleMenuClick(info) {
                 }
                 await focusEditorWindow(sendAccountId);
                 break;
+            case addressBookFilterMenuId:
+                console.log("add to address book filter");
         }
     } catch (e) {
         console.error(e);
@@ -209,11 +189,12 @@ async function initialize(mode) {
             case "installed":
                 await config.local.set("autoDelete", true);
                 await config.local.set("optInApproved", STARTUP_OPT_IN_APPROVED);
-                await config.local.set("advancedTabVisible", false);
+                await config.local.set("advancedTabVisible", STARTUP_ADVANCED_TAB_VISIBLE);
                 await config.local.set("preferredTheme", "auto");
                 break;
         }
-        await getClasses();
+        await getFilterClasses();
+        await getFilterBooks();
         initMenus();
     } catch (e) {
         console.error(e);
@@ -256,10 +237,45 @@ async function handleSuspendCanceled() {
     }
 }
 
+async function loadFilterClasses(force = false) {
+    try {
+        const accounts = await getAccounts();
+        const classes = await getFilterClasses();
+        for (const account of Object.values(accounts)) {
+            await classes.get(account, force);
+        }
+        await saveFilterClasses(classes);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getFilterClasses() {
+    try {
+        if (classesState === null) {
+            const state = await config.session.get("filterClassesState");
+            const accounts = await getAccounts();
+            classesState = new FilterClasses(state, accounts);
+        }
+        return classesState;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function saveFilterClasses(classes) {
+    try {
+        classesState = classes;
+        await config.session.set("filterClassesState", classes.state());
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function getClassLevels(message) {
     try {
         const accounts = await getAccounts();
-        const classes = await getClasses();
+        const classes = await getFilterClasses();
         const levels = await classes.get(accounts[message.accountId]);
         return levels;
     } catch (e) {
@@ -270,9 +286,9 @@ async function getClassLevels(message) {
 async function setClassLevels(message) {
     try {
         const accounts = await getAccounts();
-        const classes = await getClasses();
+        const classes = await getFilterClasses();
         const validationResult = await classes.set(accounts[message.accountId], message.levels);
-        await saveClasses(classes);
+        await saveFilterClasses(classes);
         return validationResult;
     } catch (e) {
         console.error(e);
@@ -282,12 +298,12 @@ async function setClassLevels(message) {
 async function sendClassLevels(message) {
     try {
         const accounts = await getAccounts();
-        const classes = await getClasses();
+        const classes = await getFilterClasses();
         let validationResult = await classes.set(accounts[message.accountId], message.levels);
         if (validationResult.valid) {
             validationResult = await await classes.send(accounts[message.accountId]);
         }
-        await saveClasses(classes);
+        await saveFilterClasses(classes);
         return validationResult;
     } catch (e) {
         console.error(e);
@@ -297,10 +313,111 @@ async function sendClassLevels(message) {
 async function sendAllClassLevels(message) {
     try {
         const accounts = await getAccounts();
-        const classes = await getClasses();
+        const classes = await getFilterClasses();
         const result = await classes.sendAll(accounts, message.force);
-        await saveClasses(classes);
+        await saveFilterClasses(classes);
         return result;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function refreshAllClassLevels() {
+    try {
+        await loadFilterClasses(true);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getFilterBooks() {
+    try {
+        if (filterBooksState === null) {
+            const state = await config.session.get("filterBooksState");
+            const accounts = await getAccounts();
+            filterBooksState = new FilterBooks(state, accounts);
+        }
+        return filterBooksState;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function loadFilterBooks(force = false) {
+    try {
+        const accounts = await getAccounts();
+        const books = await getFilterBooks();
+        for (const account of Object.values(accounts)) {
+            await books.get(account, force);
+        }
+        await saveFilterBooks(books);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function saveFilterBooks(filterBooks) {
+    try {
+        filterBooksState = filterBooks;
+        await config.session.set("filterBooksState", filterBooks.state());
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getAccountAddressBooks(message) {
+    try {
+        const accounts = await getAccounts();
+        const filterBooks = await getFilterBooks();
+        const books = await filterBooks.get(accounts[message.accountId]);
+        return books;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function setAccountAddressBooks(message) {
+    try {
+        const accounts = await getAccounts();
+        const filterBooks = await getFilterBooks();
+        const validationResult = await filterBooks.set(accounts[message.accountId], message.books);
+        await saveFilterBooks(filterBooks);
+        return validationResult;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function sendAccountAddressBooks(message) {
+    try {
+        const accounts = await getAccounts();
+        const filterBooks = await getFilterBooks();
+        let validationResult = await filterBooks.set(accounts[message.accountId], message.books);
+        if (validationResult.valid) {
+            validationResult = await filterBooks.send(accounts[message.accountId]);
+        }
+        await saveFilterBooks(filterBooks);
+        return validationResult;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function sendAllAddressBooks(message) {
+    try {
+        const accounts = await getAccounts();
+        const filterBooks = await getFilterBooks();
+        const result = await filterBooks.sendAll(accounts, message.force);
+        await saveFilterBooks(filterBooks);
+        return result;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function refreshAllAddressBooks() {
+    try {
+        await loadFilterBooks(true);
     } catch (e) {
         console.error(e);
     }
@@ -320,18 +437,10 @@ async function getSelectedAccountId() {
 async function setDefaultLevels(message) {
     try {
         const accounts = await getAccounts();
-        const classes = await getClasses();
-        const result = await classes.setDefaultLevels(accounts[message.accountId]);
-        await saveClasses(classes);
+        const classes = await getFilterClasses();
+        const result = await classes.setDefaultItems(accounts[message.accountId]);
+        await saveFilterClasses(classes);
         return result;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function refreshAll() {
-    try {
-        await loadClasses(true);
     } catch (e) {
         console.error(e);
     }
@@ -359,19 +468,6 @@ async function handlePortMessage(message, sender) {
     }
 }
 
-async function loadClasses(force = false) {
-    try {
-        const accounts = await getAccounts();
-        const classes = await getClasses();
-        for (const account of Object.values(accounts)) {
-            await classes.get(account, force);
-        }
-        await saveClasses(classes);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 async function handleDisconnect(port) {
     try {
         console.log("background got disconnect:", port);
@@ -394,15 +490,17 @@ async function handleConnect(port) {
 
 async function sendCommand(message) {
     try {
-        const accounts = await getAccounts();
-        const classes = await getClasses();
-        let parts = [message.command.trim()];
-        if (message.argument.trim()) {
-            parts.push(message.argument.trim());
+        var id = message.accountId;
+        if (!id) {
+            id = await getSelectedAccountId();
         }
-        const subject = parts.join(" ");
+        const accounts = await getAccounts();
         const account = accounts[message.accountId];
-        return await classes.sendCommand(account, subject);
+        var command = message.command.trim();
+        if (message.argument) {
+            command += " " + message.argument.trim();
+        }
+        return await sendEmailRequest(account, command, message.body);
     } catch (e) {
         console.error(e);
     }
@@ -419,51 +517,29 @@ async function getConfigValue(message) {
 async function setConfigValue(message) {
     try {
         await config.local.set(message.key, message.value);
-        if (message.key === "autoDelete") {
-            const classes = await getClasses();
-            classes.options.autoDelete = message.value;
-            await saveClasses(classes);
-        }
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handleSendFilterctlCommand(message) {
-    try {
-        const accounts = await getAccounts();
-        const accountId = message.accountId;
-        var account = null;
-        if (accountId) {
-            account = accounts[accountId];
-        } else {
-            account = await getSelectedAccount();
-        }
-        console.log("sendFilterctlCommand:", message, account);
-        var response = null;
-        if (account) {
-            response = await sendEmailRequest(account, message.command);
-        }
-        console.log("sendFilterctlCommandReturning:", response);
-        return response;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-//requests.addHandler("getSystemTheme", getSystemTheme);
 requests.addHandler("setClassLevels", setClassLevels);
 requests.addHandler("getClassLevels", getClassLevels);
 requests.addHandler("sendClassLevels", sendClassLevels);
 requests.addHandler("sendAllClassLevels", sendAllClassLevels);
+requests.addHandler("refreshAllClassLevels", refreshAllClassLevels);
+
+requests.addHandler("setAccountAddressBooks", setAccountAddressBooks);
+requests.addHandler("getAccountAddressBooks", getAccountAddressBooks);
+requests.addHandler("sendAccountAddressBooks", sendAccountAddressBooks);
+requests.addHandler("sendAllAddressBooks", sendAllAddressBooks);
+requests.addHandler("refreshAllAddressBooks", refreshAllAddressBooks);
+
 requests.addHandler("getAccounts", getAccounts);
 requests.addHandler("getSelectedAccountId", getSelectedAccountId);
 requests.addHandler("setDefaultLevels", setDefaultLevels);
-requests.addHandler("refreshAll", refreshAll);
 requests.addHandler("sendCommand", sendCommand);
 requests.addHandler("setConfigValue", setConfigValue);
 requests.addHandler("getConfigValue", getConfigValue);
-requests.addHandler("sendFilterctlCommand", handleSendFilterctlCommand);
 
 browser.runtime.onStartup.addListener(handleStartup);
 browser.runtime.onInstalled.addListener(handleInstalled);

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "version": "0.1.13",
   "author": "Matt Krueger <mkrueger@rstms.net>",
-  "name": "Spam Filter Class Control",
+  "name": "Mail Filter Control Panel",
   "browser_specific_settings": {
     "gecko": {
       "id": "spam-filter-class-extension@rstms.net",
@@ -15,6 +15,10 @@
   "background": {
     "scripts": ["background.js"],
     "type": "module"
+  },
+  "action": {
+      "default_title": "MailFilter",
+      "type": "menu"
   },
   "permissions": [
       "accountsRead",

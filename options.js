@@ -1,9 +1,10 @@
-/* globals browser, document */
+/* globals browser, document, console */
 
 const optInCheckboxId = "#opt-in-checkbox";
 const optInKey = "optInApproved";
 
 async function saveOptions(e) {
+    console.log("opt in clicked");
     const settings = {};
     settings[optInKey] = document.querySelector(optInCheckboxId).checked;
     await browser.storage.local.set(settings);

@@ -5,11 +5,12 @@ docker = env DOCKER_BUILD_OUTPUT=plain BUILDKIT_PROGRESS=plain docker
 gitclean = if git status --porcelain | grep '^.*$$'; then echo git status is dirty; false; else echo git status is clean; true; fi
 
 src = $(wildcard *.js)
-html = $(wildcard *.html)
+html = options.html editor.html
 package_files = manifest.json VERSION LICENSE README.md $(src) $(html) assets
 version != cat VERSION
 
-all: fmt lint assets $(html) $(src) 
+all: $(html) $(src) fmt lint assets
+	touch manifest.json
 
 assets: exported/assets
 	rm -rf assets
@@ -17,6 +18,9 @@ assets: exported/assets
 	mv exported/assets/* assets
 
 editor.html: exported/editor.html
+	sed '/<script>/,/<\/script>/d' $< >$@
+
+options.html: exported/options.html
 	sed '/<script>/,/<\/script>/d' $< >$@
 
 lint: .eslint 
@@ -31,6 +35,7 @@ shell:
 
 fmt: .prettier
 	chmod 0660 editor.html
+	chmod 0660 options.html
 	find assets -type f -exec chmod 0660 \{\} \;
 	docker run --rm -v "$$(pwd):/app" prettier --tab-width 4 --print-width 135 --write "**/*.js" --write "**/*.css" --write "**/*.html"
 
