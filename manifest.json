@@ -17,7 +17,8 @@
     "type": "module"
   },
   "action": {
-      "default_title": "MailFilter",
+      "default_title": "Mail Filter",
+      "default_icon": "funnel.svg",
       "type": "menu"
   },
   "permissions": [

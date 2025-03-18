@@ -1,595 +1,96 @@
 import * as requests from "./requests.js";
-import { differ } from "./common.js";
 import { initThemeSwitcher } from "./theme_switcher.js";
+import { selectedAccountId } from "./common.js";
+import { config } from "./config.js";
+import { ClassesTab } from "./classes_tab.js";
+import { BooksTab } from "./books_tab.js";
+import { OptionsTab } from "./options_tab.js";
+import { AdvancedTab } from "./advanced_tab.js";
+import { HelpTab } from "./help_tab.js";
 
-/* globals browser, window, document, console, setTimeout, clearTimeout */
-const verbose = false;
+/* globals messenger, window, document, console */
+const verbose = true;
 
 initThemeSwitcher();
 
-const MIN_LEVELS = 2;
-const MAX_LEVELS = 16;
-const STATUS_PENDING_TIMEOUT = 5120;
-var statusPendingTimer;
+var hasLoaded = false;
 var backgroundSuspended = false;
 var usagePopulated = false;
 var activeTab = null;
-var commandUsage = {};
 
 var accountNames = {};
 var accountIndex = {};
+
 var port = null;
+
 var controls = {};
 
-function getLevels() {
-    try {
-        let ret = [];
-        let i = 0;
-        while (true) {
-            let nameElement = document.getElementById(`level-name-${i}`);
-            if (!nameElement) {
-                return ret;
-            }
-            let scoreElement = document.getElementById(`level-score-${i}`);
-            let level = {
-                name: nameElement.value,
-            };
-            if (level.name === "spam") {
-                level.score = "999";
-            } else {
-                level.score = String(parseFloat(scoreElement.value));
-            }
-            ret.push(level);
-            i += 1;
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
+var tab = {
+    classes: new ClassesTab(sendMessage, {
+        InputKeypress: onClassesInputKeypress,
+        NameChanged: onClasessNameChanged,
+        SliderMoved: onClassesSliderMoved,
+        ScoreChanged: onClassesScoreChanged,
+        CellDelete: onClassesCellDelete,
+        CellInsert: onClassesCellInsert,
+    }),
+    books: new BooksTab(sendMessage),
+    options: new OptionsTab(sendMessage, { DomainCheckboxChange: onOptionsDomainCheckboxChange }),
+    advanced: new AdvancedTab(sendMessage),
+    help: new HelpTab(sendMessage),
+};
 
-async function onTableChange(event) {
+////////////////////////////////////////////////////////////////////////////////
+//
+//  selected account init
+//
+////////////////////////////////////////////////////////////////////////////////
+
+async function populateAccountSelect() {
     try {
         if (verbose) {
-            console.log("table change:", event);
-        }
-        await updateClasses();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onCellDelete(event) {
-    try {
-        if (verbose) {
-            console.log("cell delete");
-        }
-        const row = parseInt(event.srcElement.getAttribute("data-row"));
-        var levels = getLevels();
-        levels.splice(row, 1);
-        await sendMessage({ id: "setClassLevels", accountId: accountId(), levels: levels });
-        await populateRows(levels);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onSliderMoved(event) {
-    try {
-        if (verbose) {
-            console.log("slider moved");
-        }
-        const row = parseInt(event.srcElement.getAttribute("data-row"));
-        let score = document.getElementById(`level-score-${row}`);
-        score.value = event.srcElement.value;
-        await updateClasses();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onScoreChanged(event) {
-    try {
-        if (verbose) {
-            console.log("score changed");
-        }
-        const row = parseInt(event.srcElement.getAttribute("data-row"));
-        const slider = document.getElementById(`level-slider-${row}`);
-        slider.value = `${event.srcElement.value}`;
-        await updateClasses();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onNameChanged() {
-    try {
-        if (verbose) {
-            console.log("name changed");
-        }
-        await updateClasses();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function newLevelName(levels) {
-    try {
-        let i = 0;
-        while (true) {
-            let name = `class${i}`;
-            let found = false;
-            for (let level of levels) {
-                if (level.name === name) {
-                    found = true;
-                }
-            }
-            if (!found) {
-                return name;
-            }
-            i += 1;
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onCellInsert(event) {
-    try {
-        const row = parseInt(event.srcElement.getAttribute("data-row"));
-        if (verbose) {
-            console.log("cellInsert:", event, row);
-        }
-        let levels = getLevels();
-        let newScore = parseFloat(levels[row].score);
-        let nextScore = parseFloat(levels[row + 1].score);
-        if (nextScore === 999) {
-            newScore += 1;
-        } else {
-            newScore += (nextScore - newScore) / 2;
-        }
-        levels.splice(row + 1, 0, { name: newLevelName(levels), score: String(newScore) });
-        await sendMessage({ id: "setClassLevels", accountId: accountId(), levels: levels });
-        await populateRows(levels);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function appendCell(row, index, id, control, text, disabled) {
-    try {
-        const cell = document.createElement("td");
-        const element = document.createElement(control);
-        if (control === "button") {
-            element.textContent = text;
-        } else {
-            element.value = text;
-        }
-        for (const [key, value] of Object.entries(cellTemplate[id].attributes)) {
-            element.setAttribute(key, value);
-        }
-        for (const value of cellTemplate[id].classes) {
-            element.classList.add(value);
-        }
-        element.id = id + "-" + index;
-        element.setAttribute("data-row", index);
-        if (disabled) {
-            element.disabled = true;
-        }
-        cell.appendChild(element);
-        row.appendChild(cell);
-        return element;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-var cellTemplate = null;
-
-async function initCellTemplate() {
-    let cells = {
-        "level-name": { id: "cell-class-input" },
-        "level-score": { id: "cell-score-input" },
-        "level-slider": { id: "cell-score-slider" },
-        "level-delete": { id: "cell-add-button" },
-        "level-insert": { id: "cell-delete-button" },
-    };
-    for (const key of Object.keys(cells)) {
-        const el = document.getElementById(cells[key].id);
-        if (verbose) {
-            console.log("cell:", key, el);
-        }
-        cells[key].attributes = {};
-        cells[key].classes = [];
-        for (const name of el.getAttributeNames()) {
-            switch (name) {
-                case "id":
-                    break;
-                case "class":
-                    break;
-                default:
-                    cells[key].attributes[name] = el.getAttribute(name);
-                    break;
-            }
-        }
-        for (const elClass of el.classList) {
-            cells[key].classes.push(elClass);
-        }
-    }
-    cells["level-name"].attributes.rstmsKeyFilter = "name";
-    cells["level-score"].attributes.rstmsKeyFilter = "score";
-    //cells["level-slider"].classes.push("flex-fill");
-    cellTemplate = cells;
-    if (verbose) {
-        console.log("cellTemplate:", cellTemplate);
-    }
-}
-
-async function onInputKeypress(event) {
-    const key = String.fromCharCode(event.which);
-    const element = event.srcElement;
-    const mode = element.getAttribute("rstmsKeyFilter");
-    if (mode) {
-        const value = element.value.trim();
-        switch (mode) {
-            case "name":
-                if (value.length == 0) {
-                    if (!/^[a-zA-Z]$/.test(key)) {
-                        event.preventDefault();
-                    }
-                } else {
-                    if (!/^[a-zA-Z0-9_.-]$/.test(key)) {
-                        event.preventDefault();
-                    }
-                }
-                break;
-            case "score":
-                if (!/^[0-9.-]$/.test(key)) {
-                    event.preventDefault();
-                }
-                break;
-        }
-    }
-}
-
-async function populateRows() {
-    try {
-        if (verbose) {
-            console.log("BEGIN populateRows");
-        }
-        const levels = await getClasses(accountId());
-        if (!cellTemplate) {
-            if (verbose) {
-                console.log(controls.tableBody.innerHTML);
-            }
-            initCellTemplate();
-        }
-        controls.tableBody.innerHTML = "";
-        var index = 0;
-        for (const level of levels) {
-            const row = document.createElement("tr");
-            let name = level.name;
-            let score = level.score;
-            let disabled = false;
-            let sliderValue = `${score}`;
-            if (index === levels.length - 1) {
-                disabled = true;
-                score = "infinite";
-                sliderValue = "20.0";
-            }
-            const nameControl = appendCell(row, index, "level-name", "input", name, disabled);
-            const scoreControl = appendCell(row, index, "level-score", "input", score, disabled);
-            const sliderControl = appendCell(row, index, "level-slider", "input", sliderValue, disabled);
-            if (!disabled) {
-                nameControl.addEventListener("keypress", onInputKeypress);
-                nameControl.addEventListener("change", onNameChanged);
-                sliderControl.addEventListener("input", onSliderMoved);
-                scoreControl.addEventListener("change", onScoreChanged);
-                scoreControl.addEventListener("keypress", onInputKeypress);
-            }
-            let deleteDisabled = disabled | (levels.length <= MIN_LEVELS);
-            const deleteButton = appendCell(row, index, "level-delete", "button", "delete", deleteDisabled);
-            if (!deleteDisabled) {
-                deleteButton.addEventListener("click", onCellDelete);
-            }
-            let addDisabled = disabled | (levels.length >= MAX_LEVELS);
-            const insertButton = appendCell(row, index, "level-insert", "button", "+", addDisabled);
-            if (!addDisabled) {
-                insertButton.addEventListener("click", onCellInsert);
-            }
-            controls.tableBody.appendChild(row);
-            index += 1;
+            console.log("BEGIN populateAccountSelect");
         }
 
-        // check that editedLevels returns the same data we set
-        const controlLevels = getLevels();
-        if (differ(levels, controlLevels)) {
-            console.log("getClasses:", levels);
-            console.log("controlLevels:", controlLevels);
-            throw new Error("editedLevels() return differs from background getClasses() return");
+        // disable the select controls while updating
+        tab.classes.controls.accountSelect.disabled = true;
+        tab.books.controls.accountSelect.disabled = true;
+
+        // clear account select contents
+        tab.classes.controls.accountSelect.innerHTML = "";
+        tab.books.controls.accountSelect.innerHTML = "";
+        tab.advanced.controls.selectedAccount.value = "";
+
+        // get the accounts from the background page
+        const accounts = await sendMessage("getAccounts");
+
+        // initialize the select control dropdown lists
+        accountNames = {};
+        var i = 0;
+        for (let id of Object.keys(accounts)) {
+            accountNames[id] = accounts[id].name;
+            accountNames[i] = accounts[id].name;
+            accountIndex[id] = i;
+            accountIndex[i] = id;
+            addAccountSelectRow(tab.classes.controls.accountSelect, i, id, accounts);
+            addAccountSelectRow(tab.books.controls.accountSelect, i, id, accounts);
+            i++;
         }
 
-        await updateClasses();
-        if (verbose) {
-            console.log("END populateRows");
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
+        // get the selected account ID from the background page and update
+        const selectedAccountId = await sendMessage("getSelectedAccountId");
+        await setSelectedAccount(selectedAccountId);
 
-async function updateClasses(sendToServer = false) {
-    try {
-        const id = accountId();
+        tab.classes.accountNames = accountNames;
+        tab.books.accountNames = accountNames;
 
-        await setStatusPending("sending classes...");
-        let state = await sendMessage({
-            id: sendToServer ? "sendClassLevels" : "setClassLevels",
-            accountId: id,
-            levels: getLevels(),
-            name: accountNames[id],
-        });
-        return await updateClassesStatus(state);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function statusPendingTimeout() {
-    await updateClassesStatus({ error: true, message: "Pending operation timed out." });
-}
-
-async function setStatusPending(message) {
-    try {
-        if (statusPendingTimer) {
-            clearTimeout(statusPendingTimer);
-        }
-        statusPendingTimer = setTimeout(statusPendingTimeout, STATUS_PENDING_TIMEOUT);
-        await updateClassesStatus({ message: message, disable: true });
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function updateClassesStatus(state = undefined) {
-    try {
-        if (statusPendingTimer) {
-            clearTimeout(statusPendingTimer);
-            statusPendingTimer = null;
-        }
-
-        if (state == undefined) {
-            state = {
-                error: true,
-                message: "unknown error",
-            };
-        }
+        // enable the select controls
+        tab.classes.controls.accountSelect.disabled = false;
+        tab.books.controls.accountSelect.disabled = false;
 
         if (verbose) {
-            console.log("updateClassesStatus:", state);
+            console.log("END populateAccountSelect");
         }
-
-        let parts = [];
-
-        if (state.error) {
-            parts.push("Error");
-        } else {
-            if (state.dirty) {
-                if (state.valid) {
-                    parts.push("Unsaved Validated Changes");
-                } else {
-                    parts.push("Validatation Failed");
-                    state.disable = true;
-                }
-            } else if (state.dirty === false) {
-                parts.push("Unchanged");
-            }
-        }
-
-        if (state.message) {
-            let prefix = "";
-            if (parts.length > 0) {
-                prefix = ": ";
-            }
-            parts.push(prefix + state.message.trim());
-        }
-        controls.statusMessage.innerHTML = parts.join(" ");
-
-        controls.classesApplyButton.disabled = state.disable;
-        controls.accountSelect.disabled = state.disable;
-        controls.classesOkButton.disabled = state.disable;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function saveChanges() {
-    try {
-        await setStatusPending("sending changed classes...");
-        const state = await sendMessage({ id: "sendAllClassLevels", force: false });
-        await updateClassesStatus(state);
-        return state;
-    } catch (e) {
-        console.error(e);
-        await updateClassesStatus({ error: true, message: "Pending operation failed." });
-    }
-}
-
-async function onApply() {
-    try {
-        await saveChanges();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onCancel() {
-    try {
-        window.close();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onOk() {
-    try {
-        let state = await saveChanges();
-        if (typeof state === "object" && state.success) {
-            window.close();
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onDefaults() {
-    try {
-        const levels = await sendMessage({ id: "setDefaultLevels", accountId: accountId() });
-        await populateRows(levels);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onRefresh() {
-    try {
-        await setStatusPending("requesting all classes...");
-        await sendMessage("refreshAllClassLevels");
-        const levels = await getClasses(accountId());
-        await populateRows(levels);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onAdvancedSend() {
-    try {
-        const message = {
-            id: "sendCommand",
-            accountId: accountId(),
-            command: controls.advancedCommand.value,
-            argument: controls.advancedArgument.value,
-        };
-        setAdvancedOutput(JSON.stringify(message, null, 2) + "\n\nAwaiting filterctl response...");
-        const response = await sendMessage(message);
-        if (verbose) {
-            console.debug("response:", response);
-        }
-        if (response == undefined) {
-            setAdvancedOutput("Error: server communication failed");
-        } else {
-            setAdvancedOutput(JSON.stringify(response, null, 2));
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function setAdvancedOutput(text) {
-    try {
-        const output = controls.advancedOutput;
-        output.style.height = "0px";
-        output.value = text;
-        output.style.height = `${output.scrollHeight + 10}px`;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function requestUsage() {
-    try {
-        const message = {
-            id: "sendCommand",
-            accountId: accountId(),
-            command: "usage",
-        };
-
-        if (verbose) {
-            console.log("requesting usage:", message);
-        }
-        const response = await sendMessage(message);
-        if (verbose) {
-            console.log("usageResponse:", response);
-        }
-        return response;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function populateUsageControls() {
-    try {
-        if (!usagePopulated) {
-            usagePopulated = true;
-            const response = await requestUsage();
-            if (response) {
-                await populateHelpText(response.Help);
-                await populateAdvancedCommandSelect(response.Commands);
-            } else {
-                usagePopulated = false;
-            }
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function populateHelpText(helpLines) {
-    try {
-        var text = "";
-        for (var line of helpLines) {
-            //console.log("line: ", "'" + line + "'");
-            line = line.replace(/^\s*/, "");
-            line = line.replace(/\s*$/, "");
-            line = line.replace(/^###+\s*/g, "<b>");
-            line = line.replace(/^#+\s*/g, "<br><br><b>");
-            line = line.replace(/\s*#+$/g, "</b><br>");
-            text += " " + line + "\n";
-            //console.log("line: ", "'" + line + "'");
-            //console.log("---");
-        }
-        //console.debug(text);
-        controls.helpText.innerHTML = text;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function populateAdvancedCommandSelect(commandLines) {
-    try {
-        enableAdvancedCommandControls(false);
-        controls.advancedCommand.innerHTML = "";
-        if (verbose) {
-            console.log("Commands:", commandLines);
-        }
-        var flag = false;
-        commandUsage = {};
-        var command = null;
-        var usage = [];
-        for (var line of commandLines) {
-            if (line.substr(0, 4) === "----") {
-                flag = true;
-            } else {
-                if (flag) {
-                    if (command) {
-                        commandUsage[command] = usage;
-                    }
-                    usage = [];
-                    console.log("line:", line);
-                    command = line.split(" ")[0];
-                    if (command.length) {
-                        const option = document.createElement("option");
-                        option.textContent = command;
-                        controls.advancedCommand.appendChild(option);
-                    } else {
-                        command = null;
-                    }
-                    flag = false;
-                }
-                usage.push(line);
-            }
-        }
-        console.log("commandUsage:", commandUsage);
-        enableAdvancedCommandControls(true);
     } catch (e) {
         console.error(e);
     }
@@ -606,36 +107,64 @@ function addAccountSelectRow(control, i, id, accounts) {
     }
 }
 
-async function populateAccountSelect() {
+////////////////////////////////////////////////////////////////////////////////
+//
+//  selected account control functions
+//
+////////////////////////////////////////////////////////////////////////////////
+
+async function setSelectedAccount(id) {
     try {
-        if (verbose) {
-            console.log("BEGIN populateAccountSelect");
-        }
-        const accounts = await sendMessage("getAccounts");
-        controls.accountSelect.innerHTML = "";
-        controls.booksAccountSelect.innerHTML = "";
-        accountNames = {};
-        var i = 0;
-        for (let id of Object.keys(accounts)) {
-            accountNames[id] = accounts[id].name;
-            accountNames[i] = accounts[id].name;
-            accountIndex[id] = i;
-            accountIndex[i] = id;
-            addAccountSelectRow(controls.accountSelect, i, id, accounts);
-            addAccountSelectRow(controls.booksAccountSelect, i, id, accounts);
-            i++;
-        }
-        const selectedAccountId = await sendMessage("getSelectedAccountId");
-        await setSelectedAccount(selectedAccountId);
-        controls.accountSelect.disabled = false;
-        controls.booksAccountSelect.disabled = false;
-        if (verbose) {
-            console.log("END populateAccountSelect");
-        }
+        console.log("setSelectedAccountId:", id, accountNames[id]);
+        tab.classes.controls.accountSelect.selectedIndex = accountIndex[id];
+        tab.books.controls.accountSelect.selectedIndex = accountIndex[id];
+        tab.advanced.controls.selectedAccount.value = accountNames[id];
+        tab.advanced.selectedAccountId = id;
     } catch (e) {
         console.error(e);
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//  selected account event handlers
+//
+////////////////////////////////////////////////////////////////////////////////
+
+async function onAccountSelectChange(sender) {
+    try {
+        const index = sender.target.selectedIndex;
+        if (verbose) {
+            console.log("account select index changed:", index, sender.target.id);
+        }
+        console.assert(
+            sender.target === tab.classes.controls.accountSelect || sender.target === tab.books.controls.accountSelect,
+            "unexpected event sender:",
+            sender,
+        );
+        const id = selectedAccountId(sender.target);
+        if (verbose) {
+            console.debug("accountId:", id);
+            console.debug("index:", accountIndex[id]);
+            console.debug("name:", accountNames[id]);
+        }
+        tab.classes.controls.accountSelect.selectedIndex = index;
+        tab.books.controls.accountSelect.selectedIndex = index;
+        tab.advanced.controls.selectedAccount.value = accountNames[id];
+        tab.advanced.selectedAccountId = id;
+        tab.books.controls.accountSelect.value = accountNames[id];
+        const levels = await tab.classes.getClasses(id);
+        await tab.classes.populate(levels);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//  tab management
+//
+////////////////////////////////////////////////////////////////////////////////
 
 function enableTab(name, enabled) {
     try {
@@ -677,246 +206,28 @@ function enableTab(name, enabled) {
         } else {
             navlink.classList.add("disabled");
         }
-        console.log(enabled ? "enabled tab: " : "disabled tab:", tab, link, navlink);
+        console.log(enabled ? "enabled tab: " : "disabled tab:", tab.id, link.id, navlink.id);
     } catch (e) {
         console.error(e);
     }
 }
 
-function enableAdvancedCommandControls(enabled) {
+async function onTabShow(sender) {
     try {
-        controls.advancedCommand.disabled = !enabled;
-        controls.advancedArgument.disabled = !enabled;
-        controls.advancedSendButton.disabled = !enabled;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function enableBooksTabControls(enabled) {
-    try {
-        await enableBooksControls(enabled);
-        await enableAddressesControls(enabled);
-        if (!enabled) {
-            await enableBooksButtons(false, false, false);
+        if (verbose) {
+            console.log("handleTabShow:", sender);
         }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function enableBooksButtons(apply, cancel, ok) {
-    try {
-        controls.booksApplyButton.disabled = !apply;
-        controls.booksCancelButton.disabled = !cancel;
-        controls.booksOkButton.disabled = !ok;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function enableBooksControls(enabled) {
-    try {
-        controls.booksAddButton.disabled = !enabled;
-        controls.booksDeleteButton.disabled = !enabled;
-        controls.booksInput.disabled = !enabled;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function enableAddressesControls(enabled) {
-    try {
-        controls.addressesAddButton.disabled = !enabled;
-        controls.addressesDeleteButton.disabled = !enabled;
-        controls.addressesInput.disabled = !enabled;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function populateBooks() {
-    try {
-        console.log("populateBooks");
-        await enableBooksTabControls(false);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function setSelectedAccount(id) {
-    try {
-        console.log("setSelectedAccountId:", id, accountNames[id]);
-        controls.accountSelect.selectedIndex = accountIndex[id];
-        controls.booksAccountSelect.selectedIndex = accountIndex[id];
-        controls.advancedSelectedAccount.value = accountNames[id];
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function setAdvancedTabVisible(visible) {
-    try {
-        controls.advancedTab.hidden = !visible;
-        controls.advancedTabLink.hidden = !visible;
-        controls.optionsShowAdvancedTab.checked = visible;
-        await sendMessage({ id: "setConfigValue", key: "advancedTabVisible", value: visible });
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function accountId() {
-    try {
-        const index = controls.accountSelect.selectedIndex;
-        const selectedOption = controls.accountSelect.options[index];
-        return selectedOption.getAttribute("data-account-id");
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onAccountSelectChange(event) {
-    try {
-        console.log("account select changed:", event);
-        const index = controls.accountSelect.selectedIndex;
-        await onAccountSelectIndexChanged(index);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onBooksAccountSelectChange(event) {
-    try {
-        console.log("books account select changed:", event);
-        const index = controls.booksAccountSelect.selectedIndex;
-        await onAccountSelectIndexChanged(index);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onAccountSelectIndexChanged(index) {
-    try {
-        console.log("account select index changed:", index);
-        controls.accountSelect.selectedIndex = index;
-        controls.booksAccountSelect.selectedIndex = index;
-        const id = accountId();
-        console.log("accountId:", id);
-        console.log("index:", accountIndex[id]);
-        console.log("name:", accountNames[id]);
-        const levels = await getClasses(id);
-        controls.advancedSelectedAccount.value = accountNames[id];
-        controls.booksAccountSelect.value = accountNames[id];
-        await populateRows(levels);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onAdvancedCommandChange(event) {
-    try {
-        console.log("advanced command select changed:", event);
-        const index = controls.advancedCommand.selectedIndex;
-        const command = controls.advancedCommand.value;
-        console.log("advancedCommand:", index, command);
-        controls.advancedOutput.innerHTML = "";
-        var lines = commandUsage[command];
-        console.log(lines);
-        setAdvancedOutput(lines.join("\n"));
-    } catch (e) {
-        console.error(e);
-    }
-}
-async function populateOptions() {
-    try {
-        controls.optionsAutoDelete.checked = await sendMessage({ id: "getConfigValue", key: "autoDelete" });
-        await setAdvancedTabVisible(await sendMessage({ id: "getConfigValue", key: "advancedTabVisible" }));
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-var hasLoaded = false;
-
-async function onLoad() {
-    try {
-        console.debug("editor page loading");
-
-        if (hasLoaded) {
-            throw new Error("redundant load event");
-        }
-        hasLoaded = true;
-        controls.accountSelect.disabled = true;
-        controls.booksAccountSelect.disabled = true;
-
-        await enableTab("books", false);
-        await enableTab("advanced", false);
-        await enableTab("help", false);
-
-        await enableAdvancedCommandControls(false);
-        await enableBooksTabControls(false);
-        await populateOptions();
-        await populateAccountSelect();
-        const levels = await getClasses(accountId());
-        await populateRows(levels);
-
-        await enableTab("books", true);
-        await enableTab("advanced", true);
-        await enableTab("help", true);
-
-        console.debug("editor page loaded");
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onUnload() {
-    try {
-        if (port) {
-            port.disconnect();
-            port = null;
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function getClasses(accountId) {
-    try {
-        await setStatusPending("requesting classes...");
-        return await sendMessage({ id: "getClassLevels", accountId: accountId });
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleSelectAccount(message) {
-    try {
-        console.log("selectAccount:", message);
-        if (!controls.accountSelect.disabled) {
-            await setSelectedAccount(message.accountId);
-            await onAccountSelectChange(message);
-        }
-        return accountId();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleTabShow(tab) {
-    try {
-        console.log("handleTabShow:", tab);
-        switch (tab.srcElement) {
+        switch (sender.srcElement) {
             case controls.classesNavLink:
                 activeTab = "classes";
                 break;
             case controls.booksNavLink:
                 activeTab = "books";
-                populateBooks();
+                await tab.books.populate();
                 break;
             case controls.optionsNavLink:
                 activeTab = "options";
+                await tab.options.populate();
                 break;
             case controls.advancedNavLink:
                 activeTab = "advanced";
@@ -928,6 +239,82 @@ async function handleTabShow(tab) {
                 break;
         }
         console.log("active tab:", activeTab);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function setAdvancedTabVisible(visible = undefined) {
+    try {
+        if (visible === undefined) {
+            visible = await config.local.get("advancedTabVisible");
+        }
+        controls.advancedTab.hidden = !visible;
+        controls.advancedTabLink.hidden = !visible;
+        tab.options.controls.advancedTabVisible.checked = visible;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//  populate advanced / help controls
+//
+////////////////////////////////////////////////////////////////////////////////
+
+async function populateUsageControls() {
+    try {
+        if (!usagePopulated) {
+            usagePopulated = true;
+            const response = await requestUsage();
+            if (response) {
+                await tab.help.populate(response.Help);
+                await tab.advanced.populate(response.Commands);
+            } else {
+                usagePopulated = false;
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function requestUsage() {
+    try {
+        const message = {
+            id: "sendCommand",
+            accountId: tab.classes.accountId(),
+            command: "usage",
+        };
+
+        if (verbose) {
+            console.log("requesting usage:", message);
+        }
+        const response = await sendMessage(message);
+        if (verbose) {
+            console.log("usageResponse:", response);
+        }
+        return response;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//  requests RPC handlers and connection management
+//
+////////////////////////////////////////////////////////////////////////////////
+
+async function handleSelectAccount(message) {
+    try {
+        console.log("selectAccount:", message);
+        if (!tab.classes.controls.accountSelect.disabled) {
+            await setSelectedAccount(message.accountId);
+            await onAccountSelectChange(message);
+        }
+        return tab.classes.accountId();
     } catch (e) {
         console.error(e);
     }
@@ -1018,9 +405,9 @@ async function connectToBackground() {
     try {
         if (port === null) {
             console.log("requesting background page...");
-            const background = await browser.runtime.getBackgroundPage();
+            const background = await messenger.runtime.getBackgroundPage();
             console.log("connecting to background page:", background);
-            port = await browser.runtime.connect({ name: "editor" });
+            port = await messenger.runtime.connect({ name: "editor" });
             console.log("connected background port:", port);
             backgroundSuspended = false;
             port.onMessage.addListener(handlePortMessage);
@@ -1032,13 +419,122 @@ async function connectToBackground() {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+//  DOM element connection and event handlers
+//
+////////////////////////////////////////////////////////////////////////////////
+
+async function onLoad() {
+    try {
+        console.debug("editor page loading");
+
+        if (hasLoaded) {
+            throw new Error("redundant load event");
+        }
+        hasLoaded = true;
+
+        await enableTab("classes", true);
+        await enableTab("books", false);
+        await enableTab("options", false);
+        await enableTab("advanced", false);
+        await enableTab("help", false);
+
+        // set advanced tab visible state from the local.storage config
+        await setAdvancedTabVisible();
+
+        tab.classes.controls.accountSelect.disabled = true;
+        await tab.classes.enableControls(false);
+
+        tab.books.controls.accountSelect.disabled = true;
+        await tab.books.enableControls(false);
+
+        await populateAccountSelect();
+
+        await enableTab("advanced", true);
+        await enableTab("help", true);
+
+        await tab.options.populate();
+        await enableTab("options", true);
+
+        await tab.classes.populate();
+
+        await enableTab("classes", true);
+        await enableTab("books", true);
+
+        console.debug("editor page loaded");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onUnload() {
+    try {
+        if (port) {
+            port.disconnect();
+            port = null;
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onStorageChange(changes, areaName) {
+    if (areaName == "local") {
+        const change = changes.advancedTabVisible;
+        if (change !== undefined) {
+            await setAdvancedTabVisible(change.newValue ? true : false);
+        }
+    }
+}
+
+async function onCancelClick() {
+    try {
+        window.close();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onOkClick(sender) {
+    try {
+        var state = undefined;
+        switch (sender.target) {
+            case tab.classes.okButton:
+                state = await tab.classes.saveChanges();
+                break;
+            case tab.books.okButton:
+                state = await tab.books.saveChanges();
+                break;
+        }
+        if (typeof state === "object" && state.success) {
+            window.close();
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 function addControl(name, elementId, eventName = null, handler = null) {
+    try {
+        return addTabControl(undefined, name, elementId, eventName, handler);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function addTabControl(tab, name, elementId, eventName = null, handler = null) {
     try {
         var element = document.getElementById(elementId);
         if (!element) {
             throw new Error(`addControl: ${elementId} not found`);
         }
-        controls[name] = element;
+        if (tab !== undefined) {
+            tab.controls[name] = element;
+        } else {
+            controls[name] = element;
+        }
+
         if (eventName) {
             element.addEventListener(eventName, handler);
         }
@@ -1047,64 +543,148 @@ function addControl(name, elementId, eventName = null, handler = null) {
     }
 }
 
-async function onAutoDeleteChange() {
-    await sendMessage({ id: "setConfigValue", key: "autoDelete", value: controls.optionsAutoDelete.checked });
+async function onOptionsDomainCheckboxChange(sender) {
+    try {
+        await tab.options.onDomainCheckboxChange(sender);
+    } catch (e) {
+        console.error(e);
+    }
 }
 
-async function onShowAdvancedTabChange() {
-    await setAdvancedTabVisible(controls.optionsShowAdvancedTab.checked);
+async function onClassesInputKeypress(sender) {
+    try {
+        await tab.classes.onInputKeypress(sender);
+    } catch (e) {
+        console.error(e);
+    }
 }
 
-requests.addHandler("selectAccount", handleSelectAccount);
-requests.addHandler("selectEditorTab", handleSelectEditorTab);
+async function onClasessNameChanged() {
+    try {
+        await tab.classes.onNameChanged();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onClassesSliderMoved(sender) {
+    try {
+        await tab.classes.onSliderMoved(sender);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onClassesScoreChanged(sender) {
+    try {
+        await tab.classes.onScoreChanged(sender);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onClassesCellDelete(sender) {
+    try {
+        await tab.classes.onCellDelete(sender);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onClassesCellInsert(sender) {
+    try {
+        await tab.classes.onCellInsert(sender);
+    } catch (e) {
+        console.error(e);
+    }
+}
 
 // classes tab controls
-addControl("accountSelect", "classes-account-select", "change", onAccountSelectChange);
-addControl("statusMessage", "classes-status-message-span");
-addControl("classTable", "class-table", "change", onTableChange);
-addControl("tableBody", "level-table-body");
-addControl("tableGridRow", "table-grid-row");
-addControl("tableGridColumn", "table-grid-column");
-addControl("defaultsButton", "defaults-button", "click", onDefaults);
-addControl("refreshButton", "refresh-button", "click", onRefresh);
-addControl("classesApplyButton", "classes-apply-button", "click", onApply);
-addControl("classesOkButton", "classes-ok-button", "click", onOk);
-addControl("classesCancelButton", "classes-cancel-button", "click", onCancel);
+addTabControl(tab.classes, "accountSelect", "classes-account-select", "change", onAccountSelectChange);
+addTabControl(tab.classes, "statusMessage", "classes-status-message-span");
+addTabControl(tab.classes, "classTable", "class-table", "change", (sender) => {
+    tab.classes.onTableChange(sender);
+});
+addTabControl(tab.classes, "tableBody", "level-table-body");
+addTabControl(tab.classes, "tableGridRow", "table-grid-row");
+addTabControl(tab.classes, "tableGridColumn", "table-grid-column");
+addTabControl(tab.classes, "defaultsButton", "defaults-button", "click", () => {
+    tab.classes.onDefaultsClick();
+});
+addTabControl(tab.classes, "refreshButton", "refresh-button", "click", () => {
+    tab.classes.onRefreshClick();
+});
+addTabControl(tab.classes, "applyButton", "classes-apply-button", "click", () => {
+    tab.classes.onApplyClick();
+});
+addTabControl(tab.classes, "okButton", "classes-ok-button", "click", onOkClick);
+addTabControl(tab.classes, "cancelButton", "classes-cancel-button", "click", onCancelClick);
 
 // books tab controls
-addControl("booksAccountSelect", "books-account-select", "change", onBooksAccountSelectChange);
-addControl("booksStatusMessage", "books-status-message-span");
-addControl("booksEditRow", "books-edit-row-stack");
+addTabControl(tab.books, "accountSelect", "books-account-select", "change", onAccountSelectChange);
+addTabControl(tab.books, "statusMessage", "books-status-message-span");
+addTabControl(tab.books, "editRow", "books-edit-row-stack");
 
-addControl("booksLabel", "books-label");
-addControl("booksStack", "books-stack");
-addControl("booksInput", "book-input");
-addControl("booksAddButton", "book-add-button");
-addControl("booksDeleteButton", "book-delete-button");
+addTabControl(tab.books, "booksLabel", "books-label");
+addTabControl(tab.books, "booksStack", "books-stack");
+addTabControl(tab.books, "booksInput", "book-input");
+addTabControl(tab.books, "booksAddButton", "book-add-button", "click", () => {
+    tab.books.onBooksAdd();
+});
+addTabControl(tab.books, "booksDeleteButton", "book-delete-button", "click", () => {
+    tab.books.onBooksDelete();
+});
 
-addControl("addressessLabel", "addresses-label");
-addControl("addressesStack", "addresses-stack");
-addControl("addressesInput", "address-input");
-addControl("addressesAddButton", "address-add-button");
-addControl("addressesDeleteButton", "address-delete-button");
+addTabControl(tab.books, "addrsLabel", "addresses-label");
+addTabControl(tab.books, "addrsStack", "addresses-stack");
+addTabControl(tab.books, "addrsInput", "address-input");
+addTabControl(tab.books, "addrsAddButton", "address-add-button", "click", () => {
+    tab.books.onAddrsAddClick();
+});
+addTabControl(tab.books, "addrsDeleteButton", "address-delete-button", "click", () => {
+    tab.books.onAddrsDeleteClick();
+});
 
-addControl("booksApplyButton", "books-apply-button", "click", onApply);
-addControl("booksOkButton", "books-ok-button", "click", onOk);
-addControl("booksCancelButton", "books-cancel-button", "click", onCancel);
+addTabControl(tab.books, "applyButton", "books-apply-button", "click", () => {
+    tab.books.onApplyClick();
+});
+addTabControl(tab.books, "okButton", "books-ok-button", "click", onOkClick);
+addTabControl(tab.books, "cancelButton", "books-cancel-button", "click", onCancelClick);
 
 // options tab controls
-addControl("optionsAutoDelete", "options-auto-delete-checkbox", "change", onAutoDeleteChange);
-addControl("optionsShowAdvancedTab", "options-show-advanced-checkbox", "change", onShowAdvancedTabChange);
+addTabControl(tab.options, "autoDelete", "options-auto-delete-checkbox", "change", () => {
+    tab.options.onAutoDeleteChange();
+});
+addTabControl(tab.options, "advancedTabVisible", "options-show-advanced-checkbox", "change", () => {
+    tab.options.onShowAdvancedTabChange();
+});
+addTabControl(tab.options, "minimizeCompose", "options-minimize-compose-checkbox", "change", () => {
+    tab.options.onMinimizeComposeChange();
+});
+addTabControl(tab.options, "resetButton", "options-reset-button", "click", () => {
+    tab.options.onResetClick();
+});
+addTabControl(tab.options, "domainsStack", "options-domains-stack");
+addTabControl(tab.options, "domainsApplyButton", "options-domains-apply-changes", "click", () => {
+    tab.options.onDomainsApplyClick();
+});
+addTabControl(tab.options, "domainsCancelButton", "options-domains-cancel-changes", "click", () => {
+    tab.options.populateDomains();
+});
 
 // advanced tab controls
-addControl("advancedSelectedAccount", "advanced-selected-account-input");
-addControl("advancedCommand", "advanced-command-select", "change", onAdvancedCommandChange);
-addControl("advancedArgument", "advanced-argument-input");
-addControl("advancedSendButton", "advanced-send-button", "click", onAdvancedSend);
-addControl("advancedOutput", "advanced-output");
+addTabControl(tab.advanced, "selectedAccount", "advanced-selected-account-input");
+addTabControl(tab.advanced, "command", "advanced-command-select", "change", (sender) => {
+    tab.advanced.onCommandChange(sender);
+});
+addTabControl(tab.advanced, "argument", "advanced-argument-input");
+addTabControl(tab.advanced, "sendButton", "advanced-send-button", "click", () => {
+    tab.advanced.onSendClick();
+});
+addTabControl(tab.advanced, "output", "advanced-output");
 
 // help tab controls
-addControl("helpText", "help-text");
+addTabControl(tab.help, "helpText", "help-text");
 
 // tabs
 addControl("classesTab", "tab-classes");
@@ -1121,13 +701,20 @@ addControl("advancedTabLink", "tab-advanced-link");
 addControl("helpTabLink", "tab-help-link");
 
 // navlinks
-addControl("classesNavLink", "classes-navlink", "shown.bs.tab", handleTabShow);
-addControl("booksNavLink", "books-navlink", "shown.bs.tab", handleTabShow);
-addControl("optionsNavLink", "options-navlink", "shown.bs.tab", handleTabShow);
-addControl("advancedNavLink", "advanced-navlink", "shown.bs.tab", handleTabShow);
-addControl("helpNavLink", "help-navlink", "shown.bs.tab", handleTabShow);
+addControl("classesNavLink", "classes-navlink", "shown.bs.tab", onTabShow);
+addControl("booksNavLink", "books-navlink", "shown.bs.tab", onTabShow);
+addControl("optionsNavLink", "options-navlink", "shown.bs.tab", onTabShow);
+addControl("advancedNavLink", "advanced-navlink", "shown.bs.tab", onTabShow);
+addControl("helpNavLink", "help-navlink", "shown.bs.tab", onTabShow);
 
-browser.runtime.onMessage.addListener(handleMessage);
+// handlers for request port RPC commands
+requests.addHandler("selectAccount", handleSelectAccount);
+requests.addHandler("selectEditorTab", handleSelectEditorTab);
 
+// handler for global runtime messages
+messenger.runtime.onMessage.addListener(handleMessage);
+
+// DOM event handlers
 window.addEventListener("load", onLoad);
 window.addEventListener("beforeunload", onUnload);
+messenger.storage.onChanged.addListener(onStorageChange);

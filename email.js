@@ -8,27 +8,30 @@ import { config } from "./config.js";
 const verbose = true;
 const logQueue = true;
 
-const DEFAULT_TIMEOUT = 15 * 1024;
+const DEFAULT_TIMEOUT = 60 * 1024;
 const NO_TIMEOUT = 0;
 
-const RESPONSE_EXPIRE_SECONDS = 30;
-const MESSAGE_EXPIRE_SECONDS = 30;
+const RESPONSE_EXPIRE_SECONDS = 60;
 
 var pendingRequests = new AsyncMap(); // active requests		    key: UUID	    value: EmailRequest
-var pendingMessages = new AsyncMap(); // sent messages awaiting response    key: UUID	    value: EmailRequest
 var pendingResponses = new AsyncMap(); // unmatched received responses	    key: requestId  value: response body data
+var processedMessages = new AsyncMap();
+var resolvedRequests = new AsyncMap();
 
 const RESPONSE_CHECK_INTERVAL = 1024;
 var responseCheckTimer = null;
 
 class EmailRequest {
-    constructor(autoDelete) {
+    constructor(autoDelete, minimizeCompose, editorTab) {
+        console.log("autoDelete:", autoDelete);
+        console.log("minimizeCompose:", minimizeCompose);
+        console.log("editorTab:", editorTab);
         this.id = generateUUID();
         this.autoDelete = autoDelete;
+        this.minimizeCompose = minimizeCompose;
+        this.editorTab = editorTab;
         this.account = null;
         this.command = null;
-        this.requestId = null;
-        this.responseId = null;
         this.response = null;
         this.timer = null;
         this.resolvePromise = null;
@@ -55,43 +58,11 @@ class EmailRequest {
 
                 pendingRequests.set(this.id, this).then(() => {
                     if (logQueue) {
-                        console.log("send: added to pendingRequests:", { id: this.id, request: this });
+                        console.log("send: added to pendingRequests:", this.id, this);
                     }
                     sendmail(this).then((sent) => {
                         if (verbose) {
                             console.debug("sendmail returned:", sent);
-                        }
-                        if (sent.headerMessageId) {
-                            this.requestId = sent.headerMessageId;
-                            if (logQueue) {
-                                console.debug("send: adding to pendingMessages:", sent.headerMessageId);
-                            }
-
-                            pendingResponses.pop(this.requestId).then((response) => {
-                                if (response) {
-                                    if (logQueue) {
-                                        console.log("send: popped from pendingResponses:", {
-                                            requestId: this.requestId,
-                                            response: response,
-                                        });
-                                    }
-                                    if (verbose) {
-                                        console.debug("response present after send, resolving:", response);
-                                    }
-                                    this.resolve(response);
-                                } else {
-                                    pendingMessages.set(this.id, this).then(() => {
-                                        if (logQueue) {
-                                            console.log("send: added to pendingMessages:", {
-                                                requestId: this.requestId,
-                                                request: this,
-                                            });
-                                        }
-                                    });
-                                }
-                            });
-                        } else {
-                            this.reject(new Error("sendmail return value has no headerMessageId:", sent));
                         }
                     });
                 });
@@ -103,46 +74,32 @@ class EmailRequest {
 
     remove() {
         try {
+            console.log("remove:", this);
+
             if (this.timer) {
                 clearTimeout(this.timer);
                 this.timer = null;
             }
 
-            if (!this.requestId) {
-                console.error("remove: missing requestID:", this);
-            }
-
-            if (!this.responseId) {
-                console.error("remove: missing responseID:", this);
-            }
-
             pendingRequests.pop(this.id).then((request) => {
                 if (request) {
                     if (logQueue) {
-                        console.log("remove: popped from pendingRequests:", { id: this.id, request: request });
+                        console.log("remove: popped from pendingRequests:", this.id, request);
                     }
-                    if (request.id !== this.id) {
-                        console.error("unexpected id mismatch:", this, request);
-                    }
-                } else {
-                    console.error("remove: not found in pendingRequests:", this);
+                    console.assert(this.id === request.id, "remove: sanity check failed: request id mismatch", this, request);
                 }
-                pendingMessages.pop(this.requestId).then((request) => {
-                    if (request) {
+                pendingResponses.pop(this.id).then((response) => {
+                    if (response) {
                         if (logQueue) {
-                            console.log("remove: popped from pendingMessages:", { requestId: this.requestId, request: request });
+                            console.log("remove: popped from pendingResponses:", this.id, response);
                         }
+                        console.assert(
+                            this.id === getBodyRequest(response),
+                            "remove: sanity check failed: response id mismatches body request field",
+                            this,
+                            response,
+                        );
                     }
-                    pendingResponses.pop(this.requestId).then((response) => {
-                        if (response) {
-                            if (logQueue) {
-                                console.log("remove: popped from pendingResponses:", {
-                                    requestId: this.requestId,
-                                    response: response,
-                                });
-                            }
-                        }
-                    });
                 });
             });
         } catch (e) {
@@ -156,13 +113,19 @@ class EmailRequest {
         this.rejectPromise(error);
     }
 
-    resolve(response = undefined) {
+    resolve() {
         try {
-            this.remove();
             if (verbose) {
-                console.log("resolve: resolving response:", response);
+                console.log("resolve:", this, this.response);
             }
-            this.resolvePromise(response);
+            if (this.response) {
+                resolvedRequests.set(this.id, true).then(() => {
+                    this.remove();
+                    this.resolvePromise(this.response);
+                });
+            } else {
+                this.reject(new Error("resolved with null response", this));
+            }
         } catch (e) {
             this.rejectPromise(e);
         }
@@ -171,49 +134,30 @@ class EmailRequest {
 
 async function checkPending() {
     try {
-        const requestCount = await pendingRequests.size();
-        const messageCount = await pendingMessages.size();
         const responseCount = await pendingResponses.size();
 
-        if (messageCount === 0 && responseCount === 0) {
-            return;
-        } else {
-            if (verbose) {
+        if (verbose) {
+            if ((await pendingRequests.size()) > 0 || responseCount > 0) {
                 console.debug("checkPending:", {
-                    requests: requestCount,
-                    messages: messageCount,
-                    responses: responseCount,
+                    requests: await pendingRequests.keys(),
+                    responses: await pendingResponses.keys(),
                 });
             }
         }
 
-        if (messageCount > 0) {
-            // check for pending messages with responses available
-            const found = await pendingMessages.scan(checkPendingMessage);
-            for (const [requestId, request] of found.entries()) {
-                if (await pendingResponses.has(requestId)) {
-                    console.error(
-                        "pendingMessages: scan result requestId unexpectedly still present in pendingResponses",
-                        requestId,
-                        request,
-                    );
-                }
-                if (request.response) {
-                    request.resolve(request.response);
-                } else {
-                    console.error("pendingMessages: scan result has null response", requestId, request);
-                }
-            }
-
-            // check for expired messages
-            const expiredMessages = await pendingMessages.expire(MESSAGE_EXPIRE_SECONDS);
-            for (const [messageId, request] of expiredMessages.entries()) {
-                console.error("checkPending: request expired:", messageId, request);
-                request.reject(new Error("timeout awaiting command response:", request));
-            }
-        }
-
         if (responseCount > 0) {
+            // check for pending messages with responses available
+            const found = await pendingRequests.scan(checkPendingRequest);
+            for (const [requestId, request] of found.entries()) {
+                console.assert(
+                    !(await pendingResponses.has(requestId)),
+                    "checkPending: scan result requestId still present in pendingResponses",
+                    requestId,
+                    request,
+                );
+                request.resolve();
+            }
+
             // check for expired responses
             const expiredResponses = await pendingResponses.expire(RESPONSE_EXPIRE_SECONDS);
             for (const [responseId, response] of expiredResponses.entries()) {
@@ -226,26 +170,43 @@ async function checkPending() {
     }
 }
 
-// When a pendingMessage has a matching pendingResponse:
+// When a pendingRequest has a matching pendingResponse:
 //  - pop the response from pendingResponses
-//  - set the response data in the pendingMessage request object
-//  - include requestId: request in the scan return data
+//  - set the response data in the request object
+//  - include the request in the scan return data
 //  Note: the scan function runs with a lock on the scanned AsyncMap
-async function checkPendingMessage(requestId, request) {
+async function checkPendingRequest(requestId, request) {
     try {
+        console.assert(requestId === request.id, "sanity check failed", requestId, request);
         const response = await pendingResponses.pop(requestId);
         if (response) {
             if (logQueue) {
-                console.log("checkPendingMessage: popped pendingResponses:", { requestId: requestId, response: response });
+                console.log("checkPendingRequest: popped from pendingResponses:", requestId, response);
             }
+            console.assert(
+                requestId === getBodyRequest(response),
+                "sanity check failed: requestId mismatches response body request field",
+                requestId,
+                request,
+                response,
+            );
             if (verbose) {
-                console.debug("checkPendingMessage: response found, setting responseID, response in request");
+                console.debug("checkPendingRequest: response found, setting response in request");
             }
-            request.responseId = stripMessageId(response.Response);
             request.response = response;
             return true;
+        } else {
+            return false;
         }
-        return false;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function minimizeComposeWindow(composer) {
+    try {
+        //const ret = await messenger.tabs.move([composer.id], { index: -1, windowId: editorTab.window });
+        await messenger.windows.update(composer.windowId, { state: "minimized" });
     } catch (e) {
         console.error(e);
     }
@@ -256,6 +217,7 @@ async function sendmail(request) {
         if (verbose) {
             console.debug("sendmail:", request);
         }
+        console.assert(await pendingRequests.has(request.id), "sanity check: id should be pending");
         const identity = request.account.identities[0];
         const domain = domainPart(identity.email);
         const msg = {
@@ -269,6 +231,14 @@ async function sendmail(request) {
         };
 
         const comp = await messenger.compose.beginNew();
+        if (verbose) {
+            console.debug("sendmail: comp:", comp);
+            console.debug("sendmail: editorTab:", request.editorTab);
+        }
+        if (request.minimizeCompose) {
+            await minimizeComposeWindow(comp);
+        }
+
         const details = await messenger.compose.getComposeDetails(comp.id);
         if (verbose) {
             console.debug("getComposeDetails:", details);
@@ -283,12 +253,12 @@ async function sendmail(request) {
         if (verbose) {
             console.debug("sendMessage returned:", sent);
         }
-        let autoDelete = await config.local.get("autoDelete");
-        if (autoDelete) {
+        if (await config.local.get("autoDelete")) {
             for (const message of sent.messages) {
                 deleteMessage(message);
             }
         }
+        await checkPending();
         return sent;
     } catch (e) {
         console.error(e);
@@ -346,13 +316,27 @@ function stripMessageId(messageId) {
     return messageId.replace(/^<|>$/g, "");
 }
 
+function getBodyRequest(request) {
+    var value = request.request;
+    if (value === undefined) {
+        value = request.Request;
+    }
+    return value;
+}
+
 async function receive(folder, messageList) {
     try {
         for (const message of messageList.messages) {
             if (verbose) {
                 console.debug("receive: message received:", message);
             }
+
             if (message.subject === "filterctl response") {
+                if (await processedMessages.has(message.headerMessageId)) {
+                    console.warn("receive: Message-Id has been processed, discarding duplicate 'new' message:", message);
+                    continue;
+                }
+
                 const headers = await getMessageHeaders(message);
 
                 // this header contains the message-id of the request email message
@@ -370,31 +354,43 @@ async function receive(folder, messageList) {
                     var body = await getMessageBody(message);
                     var response = safeParseJSON(body);
 
-                    if (response.Request !== requestId) {
-                        console.error("receive: response header mismatches body Request:", requestId, response, message, headers);
-                    }
+                    console.assert(getBodyRequest(response) === requestId, "receive: response header mismatches body request field:", {
+                        requestID: requestId,
+                        response: response,
+                        message: message,
+                        headers: headers,
+                    });
 
                     // add the response message-id to the body data structure
                     // response.Response = stripMessageId(headers["message-id"][0]);
 
-                    const request = await pendingMessages.pop(requestId);
-                    if (request) {
-                        if (logQueue) {
-                            console.log("receive: popped from pendingMessages:", { requestID: requestId, request: request });
-                        }
-                        request.resolve(response);
-                    } else {
-                        await pendingResponses.set(requestId, response);
-                        if (logQueue) {
-                            console.log("receive: added to pendingResponses:", { requestId: requestId, response: response });
-                        }
+                    // save this messageId for duplicate detection
+                    await processedMessages.set(message.headerMessageId, requestId);
+
+                    if (await resolvedRequests.has(requestId)) {
+                        console.warn("receive: requestID has already been resolved, discarding 'new' message", {
+                            requestId: requestId,
+                            message: message,
+                            headers: headers,
+                            response: response,
+                        });
+                        continue;
                     }
+
+                    // autodelete filterctl response messages with any requestId
+                    if (await config.local.get("autoDelete")) {
+                        await deleteMessage(message);
+                    }
+
+                    await pendingResponses.set(requestId, response);
+                    if (logQueue) {
+                        console.log("receive: added to pendingResponses:", requestId, response);
+                    }
+
+                    // do a check without waiting for the timer
+                    await checkPending();
                 } else {
-                    console.warn("filterctl response message has no requestId:", message, headers);
-                }
-                const autoDelete = await config.local.get("autoDelete");
-                if (autoDelete) {
-                    await deleteMessage(message);
+                    console.error("filterctl response message has no requestId:", message, headers);
                 }
             }
         }
@@ -416,12 +412,15 @@ async function handleUnload() {
     }
 }
 
-export async function sendEmailRequest(account, command, body = undefined, timeout = undefined) {
+export async function sendEmailRequest(account, command, body = undefined, timeout = undefined, editorTab = undefined) {
     try {
-        let autoDelete = await config.local.get("autoDelete");
-        let request = new EmailRequest(autoDelete);
+        const autoDelete = await config.local.get("autoDelete");
+        const minimizeCompose = await config.local.get("minimizeCompose");
+
+        let request = new EmailRequest(autoDelete, minimizeCompose, editorTab);
         if (verbose) {
-            console.log("sendEmailRequest:", account, command, body, timeout, autoDelete);
+            console.log("sendEmailRequest:", account, command, body, timeout);
+            console.log("sendEmailRequest: config:", config);
         }
         var ret = await request.send(account, command, body);
         if (verbose) {
@@ -433,5 +432,10 @@ export async function sendEmailRequest(account, command, body = undefined, timeo
     }
 }
 
+async function onComposeStateChange(tab, state) {
+    console.log("composeStateChanged:", tab, state);
+}
+
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);
+messenger.compose.onComposeStateChanged.addListener(onComposeStateChange);

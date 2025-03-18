@@ -1,14 +1,28 @@
-/* global console */
+/* global console, messenger */
+
+import { config } from "./config.js";
 
 export function generateUUID() {
-    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
-        const r = (Math.random() * 16) | 0; // Generate a random number between 0 and 15
-        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16); // Convert to hexadecimal
-    });
+    try {
+        return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+            const r = (Math.random() * 16) | 0; // Generate a random number between 0 and 15
+            return (c === "x" ? r : (r & 0x3) | 0x8).toString(16); // Convert to hexadecimal
+        });
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 export function domainPart(text) {
-    return text.split("@")[1];
+    try {
+        if (text === undefined) {
+            text = "";
+        }
+        text = String(text);
+        return text.replace(/^[^@]*@*/, "");
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 export function differ(original, current) {
@@ -51,6 +65,44 @@ export function differ(original, current) {
             }
         }
         return false;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export async function findEditorTab() {
+    try {
+        const tabs = await messenger.tabs.query({ type: "content" });
+        const editorTitle = await config.local.get("editorTitle");
+        for (const tab of tabs) {
+            if (tab.title === editorTitle) {
+                return tab;
+            }
+        }
+        return null;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export async function reloadExtension() {
+    try {
+        const autoOpen = await config.local.get("autoOpen");
+        if (autoOpen !== "always") {
+            await config.local.set("autoOpen", "once");
+        }
+        await messenger.runtime.reload();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// NOTE: call only from editor.js, classes_tab.js, or books_tab.js
+export function selectedAccountId(accountSelect) {
+    try {
+        const index = accountSelect.selectedIndex;
+        const selectedOption = accountSelect.options[index];
+        return selectedOption.getAttribute("data-account-id");
     } catch (e) {
         console.error(e);
     }

@@ -10,9 +10,11 @@ const BOOKS = "books";
 /* global console */
 
 export class FilterData {
-    constructor(state, accounts, type, defaultItems) {
+    constructor(state, accounts, type, defaultItems, editorTab) {
         this.msg = {};
         this.type = type;
+        this.emailRequestTimeout = undefined;
+        this.editorTab = editorTab;
         this.defaultItems = defaultItems;
         switch (this.type) {
             case CLASSES:
@@ -103,7 +105,7 @@ export class FilterData {
         try {
             var items = this.items(account);
             if (force || !Array.isArray(items) || items.length === 0) {
-                const result = await sendEmailRequest(account, this.requestCommand);
+                const result = await sendEmailRequest(account, this.requestCommand, "", this.emailRequestTimeout, this.editorTab);
                 if (verbose) {
                     console.log(this.requestCommand + " result", result);
                 }
@@ -212,7 +214,7 @@ export class FilterData {
 }
 
 export class FilterClasses extends FilterData {
-    constructor(state, accounts) {
+    constructor(state, accounts, editorTab) {
         const defaultItems = [
             {
                 name: "ham",
@@ -227,7 +229,7 @@ export class FilterClasses extends FilterData {
                 score: "999",
             },
         ];
-        super(state, accounts, CLASSES, defaultItems);
+        super(state, accounts, CLASSES, defaultItems, editorTab);
     }
 
     async send(account, force) {
@@ -244,7 +246,7 @@ export class FilterClasses extends FilterData {
                         values.push(`${level.name}=${level.score}`);
                     }
                     const subject = "reset " + values.join(" ");
-                    const result = await sendEmailRequest(account, subject);
+                    const result = await sendEmailRequest(account, subject, "", this.emailRequestTimeout, this.editorTab);
                     if (verbose) {
                         console.log("result", result);
                     }
@@ -374,8 +376,8 @@ export class FilterClasses extends FilterData {
 }
 
 export class FilterBooks extends FilterData {
-    constructor(state, accounts) {
-        super(state, accounts, BOOKS, new Map());
+    constructor(state, accounts, editorTab) {
+        super(state, accounts, BOOKS, new Map(), editorTab);
     }
 
     async send(account, force) {
@@ -394,7 +396,7 @@ export class FilterBooks extends FilterData {
                     if (verbose) {
                         console.log("FilterBooks.send:", { account: account, command: command, request: request });
                     }
-                    const result = await sendEmailRequest(account, command, request);
+                    const result = await sendEmailRequest(account, command, request, this.emailRequestTimeout, this.editorTab);
                     if (verbose) {
                         console.log("result", result);
                     }

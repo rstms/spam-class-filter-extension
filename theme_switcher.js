@@ -1,12 +1,12 @@
-/* globals console, browser, window, document */
+/* globals console, window, document */
 
 // JavaScript snippet handling Dark/Light mode switching
+import { config } from "./config.js";
 
 async function getStoredTheme() {
     try {
-        const result = await browser.storage.local.get(["preferredTheme"]);
+        var theme = await config.local.get("preferredTheme");
         //console.log("getStoredTheme storage get returned:", result);
-        let theme = result.preferredTheme;
         if (theme !== "dark" && theme !== "light") {
             theme = "auto";
         }
@@ -20,7 +20,7 @@ async function getStoredTheme() {
 async function setStoredTheme(theme) {
     try {
         //console.log("setStoredTheme setting:", theme);
-        await browser.storage.local.set({ preferredTheme: theme });
+        await config.local.set("preferredTheme", theme);
         //console.log("setStoredTheme set:", theme);
     } catch (e) {
         console.error(e);
