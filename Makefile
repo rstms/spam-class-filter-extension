@@ -32,6 +32,8 @@ eslint.config.js: .eslint
 shell:
 	docker run -it --rm -v "$$(pwd):/app" eslint shell
 
+closure: .closure
+	docker run -it --rm -v "$$(pwd):/app" closure shell
 
 fmt: .prettier
 	chmod 0660 editor.html
@@ -45,6 +47,10 @@ fmt: .prettier
 
 .eslint: docker/eslint/Dockerfile docker/eslint/entrypoint docker/eslint/eslint.config.js
 	cd docker/eslint && $(docker) build . -t eslint
+	touch $@
+
+.closure: docker/closure/Dockerfile  docker/closure/entrypoint
+	cd docker/closure && $(docker) build -t closure --build-arg USER=$(USER) --build-arg UID=$(shell id -u) --build-arg GID=$(shell id -g) .
 	touch $@
 
 release_file = spam-class-extension-$(version).xpi

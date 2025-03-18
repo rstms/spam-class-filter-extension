@@ -8,3 +8,7 @@ testo
 *.xpi
 dist
 exported
+*.js.min
+*.js.map
+.closure
+.bash_history

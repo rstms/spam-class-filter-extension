@@ -1,7 +1,5 @@
 /* global console, messenger */
 
-import { config } from "./config.js";
-
 export function generateUUID() {
     try {
         return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
@@ -70,10 +68,19 @@ export function differ(original, current) {
     }
 }
 
+async function getConfig(key) {
+    try {
+        const config = await messenger.storage.local.get([key]);
+        return config[key];
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 export async function findEditorTab() {
     try {
-        const tabs = await messenger.tabs.query({ type: "content" });
-        const editorTitle = await config.local.get("editorTitle");
+        const editorTitle = await getConfig("editorTitle");
+        const tabs = await messenger.tabs.query({ type: "content", title: editorTitle });
         for (const tab of tabs) {
             if (tab.title === editorTitle) {
                 return tab;
@@ -87,9 +94,8 @@ export async function findEditorTab() {
 
 export async function reloadExtension() {
     try {
-        const autoOpen = await config.local.get("autoOpen");
-        if (autoOpen !== "always") {
-            await config.local.set("autoOpen", "once");
+        if ((await getConfig("autoOpen")) !== "always") {
+            await messenger.storage.local.set({ autoOpen: "once" });
         }
         await messenger.runtime.reload();
     } catch (e) {

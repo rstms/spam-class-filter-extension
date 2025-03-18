@@ -7,36 +7,93 @@ import { sendEmailRequest } from "./email.js";
 
 /* globals messenger, console */
 
-const verbose = false;
+// FIXME: test when no imap accounts are present
+// FIXME  test when no domains are selected
 
+// control flags
+const verbose = false;
+var menusCreated = false;
+
+// Classes, Filterbooks data management objects
 var classesState = null;
 var filterBooksState = null;
 
-const menuId = "rstms-spam-filter-classes-menu";
-const addressBookFilterMenuId = "rstms-address-book-filter-menu";
+///////////////////////////////////////////////////////////////////////////////
+//
+//  startup and suspend state management
+//
+///////////////////////////////////////////////////////////////////////////////
 
-var menusCreated = false;
-
-async function initMenus() {
+async function initialize(mode) {
     try {
-        if (!menusCreated) {
-            await messenger.menus.create({
-                id: menuId,
-                title: "Spam Class Thresholds",
-                contexts: ["tools_menu", "folder_pane"],
-            });
-            await messenger.menus.create({
-                id: addressBookFilterMenuId,
-                title: "Add To Address Book Filter",
-                contexts: ["message_list"],
-            });
-
-            menusCreated = true;
+        if (verbose) {
+            console.log("background initialize:", mode);
+        }
+        const manifest = await messenger.runtime.getManifest();
+        switch (mode) {
+            case "installed":
+                if (await config.local.get("autoClearConsole")) {
+                    console.clear();
+                }
+                console.log(manifest.name + " v" + manifest.version);
+                console.log("configuration:", await config.local.get());
+                break;
+        }
+        await initActiveDomains();
+        await initMenus();
+        const autoOpen = await config.local.get("autoOpen");
+        if (autoOpen) {
+            if (autoOpen === "once") {
+                await config.local.remove("autoOpen");
+            }
+            await focusEditorWindow();
         }
     } catch (e) {
         console.error(e);
     }
 }
+
+async function onStartup() {
+    try {
+        await initialize("startup");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onInstalled() {
+    try {
+        await initialize("installed");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onSuspend() {
+    try {
+        console.log("background suspending");
+        const port = await ports.get("editor", ports.NO_WAIT);
+        if (port) {
+            port.postMessage({ id: "backgroundSuspending" });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onSuspendCanceled() {
+    try {
+        await initialize("suspendCanceled");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+//  account data and selected account management
+//
+///////////////////////////////////////////////////////////////////////////////
 
 function defaultAccount(accounts) {
     try {
@@ -46,6 +103,81 @@ function defaultAccount(accounts) {
         console.error(e);
     }
 }
+
+async function getAccounts() {
+    try {
+        const accountList = await messenger.accounts.list();
+        const selectedAccount = await config.session.get("selectedAccount");
+        //const domains = await config.local.get("domain");
+        const domains = await getActiveDomains();
+        var selectedDomain = null;
+        if (selectedAccount) {
+            selectedDomain = domainPart(selectedAccount);
+        }
+        var accounts = {};
+        for (const account of accountList) {
+            if (account.type === "imap") {
+                const domain = domainPart(account.identities[0].email);
+                if (domains[domain]) {
+                    accounts[account.id] = account;
+                    if (domain === selectedDomain) {
+                        selectedDomain = domain;
+                    }
+                }
+            }
+        }
+        if (selectedAccount && !selectedDomain) {
+            const original = selectedAccount;
+            await setSelectedAccount(defaultAccount(accounts));
+            console.warning("selected account not active, changing:", { original: original, current: selectedAccount });
+        }
+        return accounts;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getSelectedAccount() {
+    try {
+        let selectedAccount = await config.session.get("selectedAccount");
+        if (!selectedAccount) {
+            const accounts = await getAccounts();
+            selectedAccount = defaultAccount(accounts);
+        }
+        return selectedAccount;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// NOTE: returns default account if specified account is not enabled
+async function setSelectedAccount(account) {
+    try {
+        await config.session.set("selectedAccount", account);
+        return await getSelectedAccount();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getSelectedAccountId() {
+    try {
+        const account = await getSelectedAccount();
+        const id = account.id;
+        if (verbose) {
+            console.debug("getSelectedAccountId returning:", id);
+        }
+        return id;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+//  enabled account domain management
+//
+///////////////////////////////////////////////////////////////////////////////
 
 async function initActiveDomains() {
     try {
@@ -107,91 +239,89 @@ async function setActiveDomains(message) {
     }
 }
 
-async function getAccounts() {
+///////////////////////////////////////////////////////////////////////////////
+//
+//  menu handlers
+//
+///////////////////////////////////////////////////////////////////////////////
+
+async function initMenus() {
     try {
-        const accountList = await messenger.accounts.list();
-        const selectedAccount = await config.session.get("selectedAccount");
-        //const domains = await config.local.get("domain");
-        const domains = await getActiveDomains();
-        var selectedDomain = null;
-        if (selectedAccount) {
-            selectedDomain = domainPart(selectedAccount);
+        if (!menusCreated) {
+            await messenger.menus.create({
+                id: config.menu.editor.id,
+                title: config.menu.editor.text,
+                contexts: ["tools_menu", "folder_pane"],
+            });
+            await messenger.menus.create({
+                id: config.filter.forward.id,
+                title: config.filter.forward.text,
+                contexts: ["messages_menu", "message_list"],
+            });
+            await messenger.menus.create({
+                id: config.filter.select.id,
+                title: config.filter.select.text,
+                contexts: ["messages_menu", "message_list"],
+            });
+            menusCreated = true;
         }
-        var accounts = {};
-        for (const account of accountList) {
-            if (account.type === "imap") {
-                const domain = domainPart(account.identities[0].email);
-                if (domains[domain]) {
-                    accounts[account.id] = account;
-                    if (domain === selectedDomain) {
-                        selectedDomain = domain;
-                    }
-                }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// determine account id from menu click context
+async function menuContextAccountId(info) {
+    try {
+        var accountId = undefined;
+        if (info.selectedFolders && info.selectedFolders.length > 0) {
+            const id = info.selectedFolders[0].accountId;
+            const accounts = await getAccounts();
+            if (id && accounts[id] !== undefined) {
+                // the user clicked the context menu in the folder list,
+                // so select the account of the folder if possible
+                accountId = id;
+                await setSelectedAccount(accounts[id]);
             }
         }
-        if (selectedAccount && !selectedDomain) {
-            const original = selectedAccount;
-            await setSelectedAccount(defaultAccount(accounts));
-            console.warning("selected account not active, changing:", { original: original, current: selectedAccount });
-        }
-        return accounts;
+        return accountId;
     } catch (e) {
         console.error(e);
     }
 }
 
-// FIXME: test when no imap accounts are present
-// FIXME  test when no domains are selected
-
-async function getSelectedAccount() {
+// if opt-in not approved, divert to extension options panel and return false
+async function optInApproved() {
     try {
-        let selectedAccount = await config.session.get("selectedAccount");
-        if (!selectedAccount) {
-            const accounts = await getAccounts();
-            selectedAccount = defaultAccount(accounts);
+        if (!(await config.local.get("optInApproved"))) {
+            await messenger.runtime.openOptionsPage();
+            return false;
         }
-        return selectedAccount;
+        return true;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function setSelectedAccount(account) {
-    try {
-        await config.session.set("selectedAccount", account);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleMenuClick(info) {
+async function onMenuClick(info) {
     try {
         if (verbose) {
-            console.debug("menu click:", info);
+            console.debug("onMenuClick:", info);
         }
         switch (info.menuItemId) {
-            case menuId:
-                if (!(await config.local.get("optInApproved"))) {
-                    await messenger.runtime.openOptionsPage();
-                    return;
-                }
-                var sendAccountId = false;
-                if (info.selectedFolders && info.selectedFolders.length > 0) {
-                    const id = info.selectedFolders[0].accountId;
-                    const accounts = await getAccounts();
-                    if (id && accounts[id]) {
-                        // the user clicked the context menu in the folder list,
-                        // so select the account of the folder if possible
-                        sendAccountId = id;
-                        await setSelectedAccount(accounts[id]);
-                    }
-                }
-                console.log("handleMenuClick: focusingEditorWindow:", sendAccountId);
-                await focusEditorWindow(sendAccountId);
+            case config.menu.editor.id:
+                console.log("onMenuClick: open mail filter controls");
+                await focusEditorWindow(await menuContextAccountId(info));
                 break;
-
-            case addressBookFilterMenuId:
-                console.log("add to address book filter");
+            case config.filter.forward.id:
+                console.log("onMenuClick: forward to selected book filter address");
+                break;
+            case config.filter.select.id:
+                console.log("onMenuClick: open select book filter submenu");
+                break;
+            case config.filter.edit.id:
+                console.log("onMenuClick: edit address book filters");
+                break;
         }
     } catch (e) {
         console.error(e);
@@ -217,6 +347,10 @@ async function focusEditorWindow(sendAccountId) {
     try {
         if (verbose) {
             console.debug("focusEditorWindow");
+        }
+
+        if (!(await optInApproved())) {
+            return;
         }
 
         var editorTab = await findEditorTab();
@@ -257,71 +391,11 @@ async function focusEditorWindow(sendAccountId) {
     }
 }
 
-async function initialize(mode) {
-    try {
-        if (verbose) {
-            console.log("background initialize:", mode);
-        }
-        const manifest = await messenger.runtime.getManifest();
-        switch (mode) {
-            case "installed":
-                if (await config.local.get("autoClearConsole")) {
-                    console.clear();
-                }
-                console.log(manifest.name + " v" + manifest.version);
-                //await config.local.set("optInApproved", false);
-                console.log("configuration:", await config.local.get());
-                break;
-        }
-        await initActiveDomains();
-        await initMenus();
-        const autoOpen = await config.local.get("autoOpen");
-        if (autoOpen) {
-            if (autoOpen === "once") {
-                await config.local.remove("autoOpen");
-            }
-            await focusEditorWindow();
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleStartup() {
-    try {
-        await initialize("startup");
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleInstalled() {
-    try {
-        await initialize("installed");
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleSuspend() {
-    try {
-        console.log("background suspending");
-        const port = await ports.get("editor", ports.NO_WAIT);
-        if (port) {
-            port.postMessage({ id: "backgroundSuspending" });
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleSuspendCanceled() {
-    try {
-        await initialize("suspendCanceled");
-    } catch (e) {
-        console.error(e);
-    }
-}
+///////////////////////////////////////////////////////////////////////////////
+//
+//  FilterClasses data management
+//
+///////////////////////////////////////////////////////////////////////////////
 
 async function loadFilterClasses(force = false) {
     try {
@@ -416,6 +490,25 @@ async function refreshAllClassLevels() {
     }
 }
 
+async function setDefaultLevels(message) {
+    try {
+        const accounts = await getAccounts();
+        const classes = await getFilterClasses();
+        const result = await classes.setDefaultItems(accounts[message.accountId]);
+        await saveFilterClasses(classes);
+        return result;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+//  FilterBooks data management
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// return new or cached FilterBooks object
 async function getFilterBooks() {
     try {
         if (filterBooksState === null) {
@@ -509,32 +602,13 @@ async function refreshAllAddressBooks() {
     }
 }
 
-async function getSelectedAccountId() {
-    try {
-        const account = await getSelectedAccount();
-        const id = account.id;
-        if (verbose) {
-            console.debug("getSelectedAccountId returning:", id);
-        }
-        return id;
-    } catch (e) {
-        console.error(e);
-    }
-}
+///////////////////////////////////////////////////////////////////////////////
+//
+//  runtime and requests messaga control
+//
+///////////////////////////////////////////////////////////////////////////////
 
-async function setDefaultLevels(message) {
-    try {
-        const accounts = await getAccounts();
-        const classes = await getFilterClasses();
-        const result = await classes.setDefaultItems(accounts[message.accountId]);
-        await saveFilterClasses(classes);
-        return result;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleMessage(message, sender, callback) {
+async function onRuntimeMessage(message, sender, callback) {
     try {
         if (verbose) {
             console.debug("background listener received:", message.id);
@@ -550,7 +624,8 @@ async function handleMessage(message, sender, callback) {
     }
 }
 
-async function handlePortMessage(message, sender) {
+// requests port message handler
+async function onPortMessage(message, sender) {
     try {
         if (verbose) {
             console.log("background port received:", message.id);
@@ -574,7 +649,7 @@ async function handlePortMessage(message, sender) {
     }
 }
 
-async function handleDisconnect(port) {
+async function onPortDisconnect(port) {
     try {
         if (verbose) {
             console.debug("background got disconnect:", port);
@@ -585,20 +660,66 @@ async function handleDisconnect(port) {
     }
 }
 
-async function handleConnect(port) {
+async function onPortConnect(port) {
     try {
         if (verbose) {
             console.debug("background got connection:", port);
         }
         ports.add(port);
-        port.onMessage.addListener(handlePortMessage);
-        port.onDisconnect.addListener(handleDisconnect);
+        port.onMessage.addListener(onPortMessage);
+        port.onDisconnect.addListener(onPortDisconnect);
     } catch (e) {
         console.error(e);
     }
 }
 
-async function sendCommand(message) {
+///////////////////////////////////////////////////////////////////////////////
+//
+//  runtime and requests RPC handlers
+//
+///////////////////////////////////////////////////////////////////////////////
+
+async function handleSetSelectedAccountId(message) {
+    try {
+        const accounts = await getAccounts();
+        if (!accounts[message.accountId]) {
+            throw new Error("unknown accountId:", { message: message, accounts: accounts });
+        }
+        const account = await setSelectedAccount(account);
+        return account.id;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleGetConfigValue(message) {
+    try {
+        return await config.local.get(message.key);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSetConfigValue(message) {
+    try {
+        await config.local.set(message.key, message.value);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleResetConfigToDefaults(message) {
+    try {
+        if (verbose) {
+            config.debug("resetConfigToDefaults:", message);
+        }
+        config.log;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSendCommand(message) {
     try {
         var id = message.accountId;
         if (!id) {
@@ -616,35 +737,10 @@ async function sendCommand(message) {
     }
 }
 
-async function getConfigValue(message) {
-    try {
-        return await config.local.get(message.key);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function setConfigValue(message) {
-    try {
-        await config.local.set(message.key, message.value);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function resetConfigToDefaults(message) {
-    try {
-        if (verbose) {
-            config.debug("resetConfigToDefaults:", message);
-        }
-        config.log;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
+// requests RPC handlers
 requests.addHandler("getAccounts", getAccounts);
 requests.addHandler("getSelectedAccountId", getSelectedAccountId);
+requests.addHandler("setSelectedAccountId", handleSetSelectedAccountId);
 
 requests.addHandler("getAccountDomains", getAccountDomains);
 requests.addHandler("getActiveDomains", getActiveDomains);
@@ -663,18 +759,20 @@ requests.addHandler("sendAccountAddressBooks", sendAccountAddressBooks);
 requests.addHandler("sendAllAddressBooks", sendAllAddressBooks);
 requests.addHandler("refreshAllAddressBooks", refreshAllAddressBooks);
 
-requests.addHandler("sendCommand", sendCommand);
+requests.addHandler("setConfigValue", handleSetConfigValue);
+requests.addHandler("getConfigValue", handleGetConfigValue);
+requests.addHandler("resetConfigToDefaults", handleResetConfigToDefaults);
 
-requests.addHandler("setConfigValue", setConfigValue);
-requests.addHandler("getConfigValue", getConfigValue);
-requests.addHandler("resetConfigToDefaults", resetConfigToDefaults);
+requests.addHandler("sendCommand", handleSendCommand);
 
-messenger.runtime.onStartup.addListener(handleStartup);
-messenger.runtime.onInstalled.addListener(handleInstalled);
-messenger.runtime.onSuspend.addListener(handleSuspend);
-messenger.runtime.onSuspendCanceled.addListener(handleSuspendCanceled);
-messenger.menus.onClicked.addListener(handleMenuClick);
-messenger.runtime.onConnect.addListener(handleConnect);
-messenger.runtime.onMessage.addListener(handleMessage);
+// DOM event handlers
+messenger.runtime.onStartup.addListener(onStartup);
+messenger.runtime.onInstalled.addListener(onInstalled);
+messenger.runtime.onSuspend.addListener(onSuspend);
+messenger.runtime.onSuspendCanceled.addListener(onSuspendCanceled);
+messenger.runtime.onConnect.addListener(onPortConnect);
+messenger.runtime.onMessage.addListener(onRuntimeMessage);
+
+messenger.menus.onClicked.addListener(onMenuClick);
 
 console.log("background page loaded");
