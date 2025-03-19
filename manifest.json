@@ -13,25 +13,43 @@
     "page": "options.html"
   },
   "background": {
-    "scripts": ["background.js"],
+    "scripts": [
+      "background.js"
+    ],
     "type": "module"
   },
   "action": {
-      "default_popup": "popup.html",
-      "default_title": "Mail Filter",
-      "default_icon": "funnel.svg"
+    "default_popup": "popup.html",
+    "default_title": "Mail Filter",
+    "default_icon": "funnel.svg"
   },
   "message_display_action": {
-      "default_title": "Add Sender to Selected Filter Address Book",
-      "default_icon": "funnel.svg"
+    "default_title": "Add Sender to Selected Filter Address Book",
+    "default_icon": "funnel.svg"
   },
   "permissions": [
-      "accountsRead",
-      "compose",
-      "compose.send",
-      "menus",
-      "messagesDelete",
-      "messagesRead",
-      "storage"
-  ]
+    "accountsRead",
+    "compose",
+    "compose.send",
+    "menus",
+    "messagesDelete",
+    "messagesRead",
+    "storage"
+  ],
+  "experiment_apis": {
+    "cardDAV": {
+      "schema": "schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "cardDAV"
+          ]
+        ],
+        "script": "carddav.js"
+      }
+    }
+  }
 }

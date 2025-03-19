@@ -1,0 +1,134 @@
+[
+  {
+    "namespace": "cardDAV",
+    "types": [
+      {
+        "id": "AddressBook",
+        "type": "object",
+        "description": "A connection to a remote cardDAV address book",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "URI": {
+            "type": "string"
+          },
+          "UID": {
+            "type": "string"
+          },
+          "username": {
+            "optional": true,
+            "type": "string"
+          },
+          "password": {
+            "optional": true,
+            "type": "string"
+          },
+          "addresses": {
+            "optional": true,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    ],
+    "functions": [
+      {
+        "name": "getBooks",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "populate",
+            "description": "include address lists",
+            "optional": true,
+            "type": "boolean"
+          }
+        ]
+      },
+      {
+        "name": "connect",
+        "description": "create a new cardDAV connection",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "URI",
+            "type": "string"
+          },
+          {
+            "name": "username",
+            "type": "string"
+          },
+          {
+            "name": "password",
+            "optional": true,
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "disconnect",
+        "description": "remove an existing cardDAV connection",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "UID",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "getAddresses",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "UID",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      {
+        "name": "addAddress",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "UID",
+            "type": "string"
+          },
+          {
+            "name": "address",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "deleteAddress",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "UID",
+            "type": "string"
+          },
+          {
+            "name": "address",
+            "type": "string"
+          }
+        ]
+      }
+    ]
+  }
+]

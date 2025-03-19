@@ -326,9 +326,11 @@ async function onMenuClick(info) {
                 break;
             case config.menu.filter.forward.id:
                 console.log("onMenuClick: forward to selected book filter address");
+                await listAddressBooks();
                 break;
             case config.menu.filter.select.id:
                 console.log("onMenuClick: open select book filter submenu");
+                await createAddressBook();
                 break;
             case config.menu.filter.edit.id:
                 console.log("onMenuClick: edit address book filters");
@@ -814,27 +816,14 @@ async function onTabActivated(tab) {
     }
 }
 
-var uriMenuId = null;
-var passwdMenuId = null;
+//var uriMenuId = null;
+//var passwdMenuId = null;
 
 async function onTabUpdated(tabId, changeInfo, tab) {
     try {
         console.log("onTabUpdated:", { tabId: tabId, changeInfo: changeInfo, tab: tab });
         if (tab.status === "complete" && tab.type === "addressBook") {
-            const windows = await messenger.windows.getAll({ populate: true, windowTypes: ["normal", "popup"] });
-            console.log("windows:", windows);
-            uriMenuId = await messenger.menus.create({
-                title: config.menu.addressbook.uri.text,
-                id: config.menu.addressbook.uri.id,
-                contexts: ["editable"],
-            });
-            console.log("uriMenuId:", uriMenuId, config.menu.addressbook.uri.id);
-            passwdMenuId = await messenger.menus.create({
-                title: config.menu.addressbook.password.text,
-                id: config.menu.addressbook.password.id,
-                contexts: ["editable"],
-            });
-            console.log("passwdMenuId:", passwdMenuId, config.menu.addressbook.password.id);
+            console.log("address book tab opened");
         }
     } catch (e) {
         console.error(e);
@@ -844,6 +833,32 @@ async function onTabUpdated(tabId, changeInfo, tab) {
 async function onTabRemoved(tabId, removeInfo) {
     try {
         console.log("onTabRemoved:", { tabId: tabId, removeInfo: removeInfo });
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function listAddressBooks() {
+    try {
+        console.log("listAddressBooks");
+        const books = await messenger.cardDAV.getBooks();
+        console.log("cardDAV books:", books);
+        return books;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function createAddressBook() {
+    try {
+        console.log("createAddressBook");
+        const newBook = await messenger.cardDAV.connect(
+            "testbook",
+            "https://rolodex.rstms.net:4443/dav.php/addressbooks/mkrueger@rstms.net/mkrueger-rstms-net-testbook/",
+            "mkrueger@rstms.net",
+            "c5215864be60f9bdadf0eef0",
+        );
+        console.log("newBook:", newBook);
     } catch (e) {
         console.error(e);
     }

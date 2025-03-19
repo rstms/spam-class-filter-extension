@@ -12,3 +12,4 @@ exported
 *.js.map
 .closure
 .bash_history
+cruft

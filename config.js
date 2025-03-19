@@ -10,7 +10,7 @@ const DEFAULTS = {
     optInApproved: false,
     advancedTabVisible: false,
     autoDelete: true,
-    autoOpen: "always",
+    autoOpen: false,
     autoClearConsole: true,
     minimizeCompose: true,
     preferredTheme: "auto",
