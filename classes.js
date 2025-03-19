@@ -3,7 +3,7 @@ import { differ } from "./common.js";
 
 const MIN_SCORE = -100.0;
 const MAX_SCORE = 100.0;
-const verbose = true;
+const verbose = false;
 const CLASSES = "classes";
 const BOOKS = "books";
 

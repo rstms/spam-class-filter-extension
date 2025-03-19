@@ -5,8 +5,8 @@ import { config } from "./config.js";
 
 /* global console, messenger, setTimeout, clearTimeout, setInterval, clearInterval, window */
 
-const verbose = true;
-const logQueue = true;
+const verbose = false;
+const logQueue = false;
 
 const DEFAULT_TIMEOUT = 60 * 1024;
 const NO_TIMEOUT = 0;
@@ -22,14 +22,12 @@ const RESPONSE_CHECK_INTERVAL = 1024;
 var responseCheckTimer = null;
 
 class EmailRequest {
-    constructor(autoDelete, minimizeCompose, editorTab) {
+    constructor(autoDelete, minimizeCompose) {
         console.log("autoDelete:", autoDelete);
         console.log("minimizeCompose:", minimizeCompose);
-        console.log("editorTab:", editorTab);
         this.id = generateUUID();
         this.autoDelete = autoDelete;
         this.minimizeCompose = minimizeCompose;
-        this.editorTab = editorTab;
         this.account = null;
         this.command = null;
         this.response = null;
@@ -48,7 +46,13 @@ class EmailRequest {
                 this.rejectPromise = reject;
                 this.account = account;
                 this.command = command;
-                this.body = JSON.stringify(body ? body : "", null, 2);
+                if (body === undefined || body === null || body === "") {
+                    this.body = "{}";
+                } else if (typeof body === "string") {
+                    this.body = body;
+                } else {
+                    this.body = JSON.stringify(body, null, 2);
+                }
 
                 if (timeout !== NO_TIMEOUT) {
                     this.timer = setTimeout(() => {
@@ -205,7 +209,6 @@ async function checkPendingRequest(requestId, request) {
 
 async function minimizeComposeWindow(composer) {
     try {
-        //const ret = await messenger.tabs.move([composer.id], { index: -1, windowId: editorTab.window });
         await messenger.windows.update(composer.windowId, { state: "minimized" });
     } catch (e) {
         console.error(e);
@@ -233,7 +236,6 @@ async function sendmail(request) {
         const comp = await messenger.compose.beginNew();
         if (verbose) {
             console.debug("sendmail: comp:", comp);
-            console.debug("sendmail: editorTab:", request.editorTab);
         }
         if (request.minimizeCompose) {
             await minimizeComposeWindow(comp);
@@ -283,7 +285,7 @@ async function getMessageBody(message) {
     }
 }
 
-async function getMessageHeaders(message) {
+export async function getMessageHeaders(message) {
     try {
         const fullMessage = await messenger.messages.getFull(message.id);
         return fullMessage.headers;
@@ -412,12 +414,12 @@ async function handleUnload() {
     }
 }
 
-export async function sendEmailRequest(account, command, body = undefined, timeout = undefined, editorTab = undefined) {
+export async function sendEmailRequest(account, command, body = undefined, timeout = undefined) {
     try {
         const autoDelete = await config.local.get("autoDelete");
         const minimizeCompose = await config.local.get("minimizeCompose");
 
-        let request = new EmailRequest(autoDelete, minimizeCompose, editorTab);
+        let request = new EmailRequest(autoDelete, minimizeCompose);
         if (verbose) {
             console.log("sendEmailRequest:", account, command, body, timeout);
             console.log("sendEmailRequest: config:", config);

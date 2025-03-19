@@ -5,7 +5,11 @@ docker = env DOCKER_BUILD_OUTPUT=plain BUILDKIT_PROGRESS=plain docker
 gitclean = if git status --porcelain | grep '^.*$$'; then echo git status is dirty; false; else echo git status is clean; true; fi
 
 src = $(wildcard *.js)
-html = options.html editor.html
+exported_html = $(wildcard exported/*.html)
+html = $(notdir $(exported_html))
+
+#html = options.html editor.html popup.hml
+
 package_files = manifest.json VERSION LICENSE README.md $(src) $(html) assets
 version != cat VERSION
 
@@ -17,11 +21,18 @@ assets: exported/assets
 	mkdir assets
 	mv exported/assets/* assets
 
-editor.html: exported/editor.html
+%.html: exported/%.html
 	sed '/<script>/,/<\/script>/d' $< >$@
 
-options.html: exported/options.html
-	sed '/<script>/,/<\/script>/d' $< >$@
+#editor.html: exported/editor.html
+#	sed '/<script>/,/<\/script>/d' $< >$@
+#
+#options.html: exported/options.html
+#	sed '/<script>/,/<\/script>/d' $< >$@
+#
+#popup.html: exported/popup.html
+#	sed '/<script>/,/<\/script>/d' $< >$@
+#
 
 lint: .eslint 
 	docker run --rm -v "$$(pwd):/app" eslint *.js

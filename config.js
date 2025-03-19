@@ -2,7 +2,7 @@ import { differ } from "./common.js";
 
 /* globals console, messenger */
 
-const verbose = true;
+const verbose = false;
 const readback = true;
 
 const DEFAULTS = {
@@ -163,6 +163,16 @@ export const config = {
             edit: {
                 text: "Edit Filter Books",
                 id: "rstms_filter_edit",
+            },
+        },
+        addressbook: {
+            uri: {
+                text: "Paste Filter Book URI",
+                id: "rstms_filterbook_uri",
+            },
+            password: {
+                text: "Paste Filter Book password",
+                id: "rstms_filterbook_passwd",
             },
         },
     },

@@ -17,9 +17,13 @@
     "type": "module"
   },
   "action": {
+      "default_popup": "popup.html",
       "default_title": "Mail Filter",
-      "default_icon": "funnel.svg",
-      "type": "menu"
+      "default_icon": "funnel.svg"
+  },
+  "message_display_action": {
+      "default_title": "Add Sender to Selected Filter Address Book",
+      "default_icon": "funnel.svg"
   },
   "permissions": [
       "accountsRead",

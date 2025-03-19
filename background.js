@@ -3,7 +3,7 @@ import * as requests from "./requests.js";
 import { config } from "./config.js";
 import * as ports from "./ports.js";
 import { domainPart, findEditorTab } from "./common.js";
-import { sendEmailRequest } from "./email.js";
+import { sendEmailRequest, getMessageHeaders } from "./email.js";
 
 /* globals messenger, console */
 
@@ -104,6 +104,7 @@ function defaultAccount(accounts) {
     }
 }
 
+// NOTE: side effect: resets selectedAccount if the domain is not in the set of active domains
 async function getAccounts() {
     try {
         const accountList = await messenger.accounts.list();
@@ -137,6 +138,15 @@ async function getAccounts() {
     }
 }
 
+async function getAccount(accountId) {
+    try {
+        const accounts = await getAccounts();
+        return accounts[accountId];
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function getSelectedAccount() {
     try {
         let selectedAccount = await config.session.get("selectedAccount");
@@ -151,6 +161,7 @@ async function getSelectedAccount() {
 }
 
 // NOTE: returns default account if specified account is not enabled
+// TODO: this needs to inform the editor
 async function setSelectedAccount(account) {
     try {
         await config.session.set("selectedAccount", account);
@@ -254,14 +265,14 @@ async function initMenus() {
                 contexts: ["tools_menu", "folder_pane"],
             });
             await messenger.menus.create({
-                id: config.filter.forward.id,
-                title: config.filter.forward.text,
-                contexts: ["messages_menu", "message_list"],
+                id: config.menu.filter.forward.id,
+                title: config.menu.filter.forward.text,
+                contexts: ["message_list", "message_display_action_menu", "page", "frame"],
             });
             await messenger.menus.create({
-                id: config.filter.select.id,
-                title: config.filter.select.text,
-                contexts: ["messages_menu", "message_list"],
+                id: config.menu.filter.select.id,
+                title: config.menu.filter.select.text,
+                contexts: ["message_list", "message_display_action_menu"],
             });
             menusCreated = true;
         }
@@ -313,14 +324,20 @@ async function onMenuClick(info) {
                 console.log("onMenuClick: open mail filter controls");
                 await focusEditorWindow(await menuContextAccountId(info));
                 break;
-            case config.filter.forward.id:
+            case config.menu.filter.forward.id:
                 console.log("onMenuClick: forward to selected book filter address");
                 break;
-            case config.filter.select.id:
+            case config.menu.filter.select.id:
                 console.log("onMenuClick: open select book filter submenu");
                 break;
-            case config.filter.edit.id:
+            case config.menu.filter.edit.id:
                 console.log("onMenuClick: edit address book filters");
+                break;
+            case config.menu.addressbook.uri.id:
+                console.log("onMenuClick: paste address book URI");
+                break;
+            case config.menu.addressbook.password.id:
+                console.log("onMenuClick: paste address book password");
                 break;
         }
     } catch (e) {
@@ -390,6 +407,36 @@ async function focusEditorWindow(sendAccountId) {
         console.error(e);
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////
+//
+//  Address Book Filter actions
+//
+///////////////////////////////////////////////////////////////////////////////
+
+async function onForwardToSelectedFilterBook(tab, info) {
+    try {
+        console.log("onMenuForwardToSelectedFilterBook:", { tab: tab, info: info });
+        const messageList = await messenger.messageDisplay.getDisplayedMessages(tab.id);
+        console.log("messageList:", messageList);
+        for (const message of messageList.messages) {
+            const account = await getAccount(message.folder.accountId);
+            const headers = await getMessageHeaders(message);
+            console.log({ account: account, author: message.author, message: message, headers: headers });
+            const selectedBookName = "testbook";
+            var sender = String(message.author)
+                .replace(/^[^<]*</g, "")
+                .replace(/>.*$/g, "");
+            const command = "mkaddr " + selectedBookName + " " + sender;
+            const response = await sendEmailRequest(account, command);
+            console.log({ response: response });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+messenger.messageDisplayAction.onClicked.addListener(onForwardToSelectedFilterBook);
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -604,7 +651,7 @@ async function refreshAllAddressBooks() {
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-//  runtime and requests messaga control
+//  runtime and requests message and connnection handlers
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -737,7 +784,78 @@ async function handleSendCommand(message) {
     }
 }
 
-// requests RPC handlers
+///////////////////////////////////////////////////////////////////////////////
+//
+//  DOM and API event handlers
+//
+///////////////////////////////////////////////////////////////////////////////
+
+async function onWindowCreated(info) {
+    try {
+        console.log("onWindowCreated:", info);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onTabCreated(tab) {
+    try {
+        console.log("onTabCreated:", tab);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onTabActivated(tab) {
+    try {
+        console.log("onTabActivated:", tab);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+var uriMenuId = null;
+var passwdMenuId = null;
+
+async function onTabUpdated(tabId, changeInfo, tab) {
+    try {
+        console.log("onTabUpdated:", { tabId: tabId, changeInfo: changeInfo, tab: tab });
+        if (tab.status === "complete" && tab.type === "addressBook") {
+            const windows = await messenger.windows.getAll({ populate: true, windowTypes: ["normal", "popup"] });
+            console.log("windows:", windows);
+            uriMenuId = await messenger.menus.create({
+                title: config.menu.addressbook.uri.text,
+                id: config.menu.addressbook.uri.id,
+                contexts: ["editable"],
+            });
+            console.log("uriMenuId:", uriMenuId, config.menu.addressbook.uri.id);
+            passwdMenuId = await messenger.menus.create({
+                title: config.menu.addressbook.password.text,
+                id: config.menu.addressbook.password.id,
+                contexts: ["editable"],
+            });
+            console.log("passwdMenuId:", passwdMenuId, config.menu.addressbook.password.id);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onTabRemoved(tabId, removeInfo) {
+    try {
+        console.log("onTabRemoved:", { tabId: tabId, removeInfo: removeInfo });
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+//  event wiring
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// requests message handlers
 requests.addHandler("getAccounts", getAccounts);
 requests.addHandler("getSelectedAccountId", getSelectedAccountId);
 requests.addHandler("setSelectedAccountId", handleSetSelectedAccountId);
@@ -765,13 +883,20 @@ requests.addHandler("resetConfigToDefaults", handleResetConfigToDefaults);
 
 requests.addHandler("sendCommand", handleSendCommand);
 
-// DOM event handlers
+// API event handlers
 messenger.runtime.onStartup.addListener(onStartup);
 messenger.runtime.onInstalled.addListener(onInstalled);
 messenger.runtime.onSuspend.addListener(onSuspend);
 messenger.runtime.onSuspendCanceled.addListener(onSuspendCanceled);
 messenger.runtime.onConnect.addListener(onPortConnect);
 messenger.runtime.onMessage.addListener(onRuntimeMessage);
+
+messenger.windows.onCreated.addListener(onWindowCreated);
+
+messenger.tabs.onCreated.addListener(onTabCreated);
+messenger.tabs.onActivated.addListener(onTabActivated);
+messenger.tabs.onUpdated.addListener(onTabUpdated);
+messenger.tabs.onRemoved.addListener(onTabRemoved);
 
 messenger.menus.onClicked.addListener(onMenuClick);
 
