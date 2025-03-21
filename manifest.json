@@ -5,7 +5,7 @@
   "name": "Mail Filter Control",
   "browser_specific_settings": {
     "gecko": {
-      "id": "rstms-mail-filter-control-extension@rstms.net",
+      "id": "mail-filter-control-a7cb4aeb-d2e8-4381-b738-571518ec3d0f@rstms.net",
       "strict_min_version": "128.0"
     }
   },
@@ -39,24 +39,24 @@
   ],
   "commands": {
     "_execute_action": {
-	"suggested_key": {
-	    "default": "Ctrl+Shift+F"
-	}
+      "suggested_key": {
+        "default": "Ctrl+Shift+F"
+      }
     },
     "_execute_compose_action": {
-	"suggested_key": {
-	    "default": "Ctrl+Shift+F"
-	}
+      "suggested_key": {
+        "default": "Ctrl+Shift+F"
+      }
     },
     "_execute_message_display_action": {
-	"suggested_key": {
-	    "default": "Ctrl+Shift+F"
-	}
+      "suggested_key": {
+        "default": "Ctrl+Shift+F"
+      }
     },
     "select_mailfilter_book": {
-	"suggested_key": {
-	    "default": "Ctrl+Shift+F"
-	}
+      "suggested_key": {
+        "default": "Ctrl+Shift+F"
+      }
     }
   },
   "experiment_apis": {

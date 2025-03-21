@@ -16,8 +16,7 @@ version != cat VERSION
 all: $(html) $(src) fmt lint assets .manifest
 
 .manifest: manifest.json
-	mv $< $<.in
-	jq <$<.in >$<
+	jq . <$< >$<.parsed && mv $<.parsed $<
 	touch $@
 
 assets: exported/assets

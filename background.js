@@ -11,10 +11,9 @@ import { sendEmailRequest, getMessageHeaders } from "./email.js";
 // FIXME  test when no domains are selected
 
 // control flags
-const verbose = false;
-var menusCreated = false;
+const verbose = true;
 
-// Classes, Filterbooks data management objects
+// Menus, Classes, Filterbooks data management objects
 var classesState = null;
 var filterBooksState = null;
 
@@ -130,7 +129,7 @@ async function getAccounts() {
         if (selectedAccount && !selectedDomain) {
             const original = selectedAccount;
             await setSelectedAccount(defaultAccount(accounts));
-            console.warning("selected account not active, changing:", { original: original, current: selectedAccount });
+            console.warn("selected account not active, changing:", { original: original, current: selectedAccount });
         }
         return accounts;
     } catch (e) {
@@ -258,69 +257,145 @@ async function setActiveDomains(message) {
 
 let menu = {
     rmfMailFilter: {
-        text: "Mail Filter",
+        properties: {
+            title: "Mail Filter",
+            contexts: ["tools_menu", "folder_pane"],
+        },
+        shown: initSubmenu,
+        clicked: onMenuMailFilter,
+    },
+    rmfSelectAccounts: {
+        properties: {
+            title: "Selected Account",
+            contexts: ["action_menu", "tools_menu", "folder_pane"],
+        },
+        shown: initSubmenu,
+    },
+    rmfSelectAccount: {
+        properties: {
+            title: "__account_name__",
+            contexts: ["action_menu", "tools_menu", "folder_pane"],
+        },
+        shown: onMenuSelectAccountShown,
+        clicked: onMenuSelectAccountClicked,
+        noInit: true,
+    },
+    rmfSelectFilterBooks: {
+        properties: {
+            title: "Selected Filter Book",
+            contexts: ["action_menu", "tools_menu", "folder_pane"],
+        },
         shown: initSubmenu,
     },
     rmfSelectFilterBook: {
-        text: "Select Filter Book",
-        shown: initSubmenu,
-    },
-    rmfAccounts: {
-        text: "Account",
-        shown: initSubmenu,
-    },
-    rmfAccount: {
-        text: "__account__",
-        clicked: onMenuAccount,
-    },
-    rmfControlPanel: {
-        text: "Control Panel",
-        clicked: onMenuControlPanel,
+        properties: {
+            title: "__book_name__",
+            contexts: ["action_menu", "tools_menu", "folder_pane"],
+        },
+        shown: onMenuSelectFilterBookShown,
+        clicked: onMenuSelectFilterBookClicked,
+        noInit: true,
     },
     rmfAddSenderToFilterBook: {
-        text: "Add Sender To Filter Book",
+        properties: {
+            title: "Add Sender To Filter Book",
+            contexts: ["message_display_action_menu", "message_list"],
+        },
+        shown: initSubmenu,
         clicked: onMenuAddSenderToFilterBook,
-        shown: initSubmenu,
     },
-    rmfFilterBook: {
-        text: "__filterbook__",
-        clicked: onMenuFilterBook,
+    rmfConnectFilterBooks: {
+        properties: {
+            title: "Show Filter Books",
+            contexts: ["all"],
+        },
+        shown: onMenuAddressBookShown,
+        clicked: onMenuConnectFilterBooks,
     },
-    rmfEditFilterbook: {
-        text: "Add Filter Book",
-        shown: initSubmenu,
-    },
-    rmfDisconnectAll: {
-        text: "Remove Filter Book Connections",
-        clicked: onMenuRemoveFilterBookConnections,
+    rmfControlPanel: {
+        properties: {
+            title: "Control Panel",
+            contexts: ["action_menu", "tools_menu"],
+        },
+        clicked: onMenuControlPanel,
     },
     rmfTest: {
-        text: "test menu item",
-        clickedt: onMenuTest,
+        properties: {
+            title: "__test__",
+            contexts: ["action_menu", "tools_menu"],
+        },
+        clicked: onMenuTest,
+        noInit: true,
     },
 };
 
+async function updateMenu(id, properties) {
+    try {
+        if (verbose) {
+            console.log("updateMenu:", id, properties);
+        }
+        properties.id = id;
+        let menuId = await messenger.menus.create(properties);
+        console.log("updateMenu: created:", properties);
+        console.assert(menuId === properties.id, "unexpected menuId:", { menuId: menuId, properties: properties, config: config });
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function initMenus() {
     try {
-        if (!menusCreated) {
-            await messenger.menus.create({
-                id: "rmfMailFilter",
-                title: menu.rmfMailFilter.text,
-                contexts: ["action_menu", "tools_menu", "folder_pane"],
-            });
-            await messenger.menus.create({
-                id: "rmfAddSenderToFilterBook",
-                title: menu.rmfAddSenderToFilterBook.text,
-                contexts: ["message_list", "message_display_action_menu", "page", "frame"], // FIXME: do we need page, frame?
-            });
-            menusCreated = true;
+        for (let [id, config] of Object.entries(menu)) {
+            if (!config.noInit) {
+                await updateMenu(id, config.properties);
+            }
         }
     } catch (e) {
         console.error(e);
     }
 }
 
-// determine account id from menu click context
+async function onMenuSelectAccountShown(info, tabs) {
+    try {
+        console.log("onMenuSelectAccountShown:", info, tabs);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onMenuSelectAccountClicked(info, tabs) {
+    try {
+        console.log("onMenuSelectAccountClicked:", info, tabs);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onMenuSelectFilterBookShown(info, tabs) {
+    try {
+        console.log("onMenuSelectFilterBookShown:", info, tabs);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onMenuSelectFilterBookClicked(info, tabs) {
+    try {
+        console.log("onMenuSelectFilterBookClicked:", info, tabs);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onMenuAddressBookShown(info, tabs) {
+    try {
+        console.log("onMenuAddressBookShown:", info, tabs);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// determine account id from menu click context info
 async function menuContextAccountId(info) {
     try {
         let accountId = null;
@@ -351,6 +426,19 @@ async function menuContextAccountId(info) {
     }
 }
 
+// determine filter book from menu click context info
+async function menuContextFilterBook(info) {
+    try {
+        if (verbose) {
+            console.debug("menuContextFilterBook:", info);
+        }
+        let filterBook = null;
+        return filterBook;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 // if opt-in not approved, divert to extension options panel and return false
 async function optInApproved() {
     try {
@@ -369,12 +457,9 @@ async function onMenuClick(info, tab) {
         if (verbose) {
             console.debug("onMenuClick:", { info: info, tab: tab });
         }
-        if (menu[info.menuItemId]) {
-            let handler = menu[info.menuItemId].clicked;
-            if (handler) {
-                console.debug("calling menu clicked handler:", { menu: menu, info: info });
-                await menu.handler(info);
-            }
+        if (menu[info.menuItemId] && menu[info.menuItemId].clicked) {
+            console.debug("calling menu clicked handler:", { menu: menu[info.menuItemId], info: info });
+            await menu[info.menuItemId].clicked(info);
         }
     } catch (e) {
         console.error(e);
@@ -386,11 +471,25 @@ async function onMenuShown(info, tab) {
         if (verbose) {
             console.debug("onMenuShown:", { info: info, tab: tab });
         }
-        if (menu[info.menuItemId]) {
-            let handler = menu[info.menuItemId].shown;
-            if (handler) {
-                console.debug("calling menu shown handler:", { menu: menu, info: info });
-                await handler(info);
+        if (info.menuIds.length == 0) {
+            for (let context of info.contexts) {
+                switch (context) {
+                    case "action_menu":
+                        await initMenus();
+                        break;
+                    case "all":
+                        break;
+                    default:
+                        console.error("onMenuShown: unhandled init context:", context, info);
+                        break;
+                }
+            }
+        } else {
+            for (let menuId of info.menuIds) {
+                if (menu[menuId] && menu[menuId].shown) {
+                    console.debug("calling menu shown handler:", { menu: menu[menuId], info: info });
+                    await menu[menuId].shown(menuId, info, tab);
+                }
             }
         }
     } catch (e) {
@@ -400,26 +499,28 @@ async function onMenuShown(info, tab) {
 
 let clickCount = 0;
 
-async function initSubmenu(info) {
+// called from onShown event
+async function initSubmenu(menuId, info, tab) {
     try {
-        if (verbose) {
-            console.debug("initSubmenu:", { info: info });
-        }
         let accountId = await menuContextAccountId(info);
-        console.log("initSubmenu: accountId", accountId);
+        let filterBook = await menuContextFilterBook(info);
+        if (verbose) {
+            console.log("initSubmenu:", { menu: menu[menuId], info: info, tab: tab, accountId: accountId, filterBook: filterBook });
+        }
         let changed = false;
-        switch (info.menuItemId) {
-            case menu.rmfMailFilter:
-                await messenger.menus.Create({
-                    id: "rmfTest",
-                    title: "click_" + ++clickCount,
-                    contexts: info.contexts,
-                    parentId: info.menuItemId,
-                });
+        switch (menuId) {
+            case "rmfMailFilter":
+                ++clickCount;
+                for (let i = 0; i < clickCount; i++) {
+                    let id = "rmfTest_" + clickCount;
+                    let properties = menu.rmfTest.properties;
+                    properties.title = "click_" + clickCount;
+                    await updateMenu(id, properties);
+                }
                 changed = true;
                 break;
             default:
-                console.error("unhandled initSubmenu:", info.menuItemId, info);
+                console.error("unhandled initSubmenu:", menuId, info);
                 break;
         }
         if (changed) {
@@ -430,9 +531,19 @@ async function initSubmenu(info) {
     }
 }
 
+async function onMenuMailFilter(info, tab) {
+    try {
+        if (verbose) {
+            console.log("onMenuMailFilter clicked:", { info: info, tab: tab });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function onMenuTest(info) {
     try {
-        console.log("menu clicked test", info);
+        console.log("onMenuTest clicked", info);
     } catch (e) {
         console.error(e);
     }
@@ -440,34 +551,20 @@ async function onMenuTest(info) {
 
 async function onMenuControlPanel(info) {
     try {
-        console.log("menu clicked control panel", info);
+        console.log("onMenuControlPanel clicked:", info);
         await focusEditorWindow();
     } catch (e) {
         console.error(e);
     }
 }
 
-async function onMenuAccount(info) {
+async function onMenuConnectFilterBooks(info) {
     try {
-        console.log("menu clicked account", info);
-        await focusEditorWindow();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onMenuFilterBook(info) {
-    try {
-        console.log("menu clicked filter book", info);
-        await focusEditorWindow();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onMenuRemoveFilterBookConnections(info) {
-    try {
-        console.log("menu clicked remove filter book connections", info);
+        console.log("onMenuConnectFilterBooks:", info);
+        let books = getConnectedFilterBooks();
+        for (let book of books) {
+            console.log("book:", book);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -973,18 +1070,18 @@ async function onTabRemoved(tabId, removeInfo) {
     }
 }
 
-/*
-async function listAddressBooks() {
+async function getConnectedFilterBooks() {
     try {
-        console.log("listAddressBooks");
+        console.log("getConnectedFilterBooks");
         const books = await messenger.cardDAV.getBooks();
-        console.log("cardDAV books:", books);
+        console.log("connected cardDAV books:", books);
         return books;
     } catch (e) {
         console.error(e);
     }
 }
 
+/*
 async function createAddressBook() {
     try {
         console.log("createAddressBook");
