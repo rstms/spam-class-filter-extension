@@ -2,10 +2,10 @@
   "manifest_version": 3,
   "version": "0.1.17",
   "author": "Matt Krueger <mkrueger@rstms.net>",
-  "name": "Mail Filter Control Panel",
+  "name": "Mail Filter Control",
   "browser_specific_settings": {
     "gecko": {
-      "id": "spam-filter-class-extension@rstms.net",
+      "id": "rstms-mail-filter-control-extension@rstms.net",
       "strict_min_version": "128.0"
     }
   },
@@ -19,13 +19,14 @@
     "type": "module"
   },
   "action": {
-    "default_popup": "popup.html",
     "default_title": "Mail Filter",
-    "default_icon": "funnel.svg"
+    "default_icon": "funnel.svg",
+    "type": "menu"
   },
   "message_display_action": {
-    "default_title": "Add Sender to Selected Filter Address Book",
-    "default_icon": "funnel.svg"
+    "default_title": "Add Sender to Filter Book",
+    "default_icon": "funnel.svg",
+    "type": "menu"
   },
   "permissions": [
     "accountsRead",
@@ -36,6 +37,28 @@
     "messagesRead",
     "storage"
   ],
+  "commands": {
+    "_execute_action": {
+	"suggested_key": {
+	    "default": "Ctrl+Shift+F"
+	}
+    },
+    "_execute_compose_action": {
+	"suggested_key": {
+	    "default": "Ctrl+Shift+F"
+	}
+    },
+    "_execute_message_display_action": {
+	"suggested_key": {
+	    "default": "Ctrl+Shift+F"
+	}
+    },
+    "select_mailfilter_book": {
+	"suggested_key": {
+	    "default": "Ctrl+Shift+F"
+	}
+    }
+  },
   "experiment_apis": {
     "cardDAV": {
       "schema": "schema.json",

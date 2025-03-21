@@ -5,19 +5,32 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
         <title>popup</title>
         <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css?h=2a67f89353a72f7ee4500027c27d0b66" />
-        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=da5f8e3a0fc40dd0875afcdb7a88e4ba" />
+        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=5b7cf980a733a47e04a015fea84fb675" />
         <script type="module" src="popup.js"></script>
     </head>
 
     <body>
-        <div class="row">
-            <div class="col"><button class="btn btn-primary" type="button">foo</button></div>
-        </div>
-        <div class="row">
-            <div class="col"><button class="btn btn-primary" type="button">bar</button></div>
-        </div>
-        <div class="row">
-            <div class="col"><button class="btn btn-primary" type="button">baz</button></div>
+        <div class="container">
+            <div class="row">
+                <div class="col-auto">
+                    <div class="vstack">
+                        <div class="btn-group">
+                            <button class="btn btn-primary" type="button">Select Filter Book</button
+                            ><button
+                                class="btn btn-primary dropdown-toggle dropdown-toggle-split"
+                                data-bs-toggle="dropdown"
+                                aria-expanded="false"
+                                type="button"
+                            ></button>
+                            <div class="dropdown-menu" id="action-select-filterbook-menu">
+                                <a class="dropdown-item" id="action-select-filterbook-menu-item" href="#">First Item</a
+                                ><a class="dropdown-item" href="#">Second Item</a><a class="dropdown-item" href="#">Third Item</a>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" type="button">Control Panel</button>
+                    </div>
+                </div>
+            </div>
         </div>
         <script src="assets/bootstrap/js/bootstrap.min.js?h=374d178d651fa0eaf680a1fa7b40c788"></script>
     </body>

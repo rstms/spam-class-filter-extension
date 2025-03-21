@@ -13,8 +13,12 @@ html = $(notdir $(exported_html))
 package_files = manifest.json VERSION LICENSE README.md $(src) $(html) assets
 version != cat VERSION
 
-all: $(html) $(src) fmt lint assets
-	touch manifest.json
+all: $(html) $(src) fmt lint assets .manifest
+
+.manifest: manifest.json
+	mv $< $<.in
+	jq <$<.in >$<
+	touch $@
 
 assets: exported/assets
 	rm -rf assets

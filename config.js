@@ -146,34 +146,4 @@ class ConfigSession extends ConfigBase {
 export const config = {
     local: new ConfigLocal(),
     session: new ConfigSession(),
-    menu: {
-        editor: {
-            text: "Mail Filter Controls",
-            id: "rstms_filter_controls",
-        },
-        filter: {
-            forward: {
-                text: "Forward Message To Selected Filter Book",
-                id: "rsms_forward_selected",
-            },
-            select: {
-                text: "Select Filter Address Book",
-                id: "rstms_filter_select",
-            },
-            edit: {
-                text: "Edit Filter Books",
-                id: "rstms_filter_edit",
-            },
-        },
-        addressbook: {
-            uri: {
-                text: "Paste Filter Book URI",
-                id: "rstms_filterbook_uri",
-            },
-            password: {
-                text: "Paste Filter Book password",
-                id: "rstms_filterbook_passwd",
-            },
-        },
-    },
 };
