@@ -9,12 +9,21 @@ export class AdvancedTab {
         this.sendMessage = sendMessage;
         this.commandUsage = {};
     }
+
     setOutput(text) {
         try {
             const output = this.controls.output;
             output.style.height = "0px";
             output.value = text;
             output.style.height = `${output.scrollHeight + 10}px`;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    setStatus(text) {
+        try {
+            this.controls.status.innerHTML = text;
         } catch (e) {
             console.error(e);
         }
@@ -99,15 +108,18 @@ export class AdvancedTab {
                 command: this.controls.command.value,
                 argument: this.controls.argument.value,
             };
-            this.setOutput(JSON.stringify(message, null, 2) + "\n\nAwaiting filterctl response...");
+            this.setStatus("Awaiting filterctl response...");
+            this.setOutput(JSON.stringify(message, null, 2));
             const response = await this.sendMessage(message);
             if (verbose) {
                 console.debug("response:", response);
             }
             if (response == undefined) {
-                this.setOutput("Error: server communication failed");
+                this.setOutput("");
+                this.setStatus("Error: server communication failed");
             } else {
                 this.setOutput(JSON.stringify(response, null, 2));
+                this.setStatus(response.Message);
             }
         } catch (e) {
             console.error(e);

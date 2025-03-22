@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
         <title>Mail Filter Control</title>
         <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css?h=2a67f89353a72f7ee4500027c27d0b66" />
-        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=5b7cf980a733a47e04a015fea84fb675" />
+        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=4ba73f64711bf2848fe34d19a81a6e3d" />
         <script type="module" src="editor.js"></script>
     </head>
 
@@ -283,7 +283,7 @@
                                         </div>
                                     </div>
                                     <div class="col-10 d-flex">
-                                        <select class="d-flex flex-fill" id="books-account-select-1">
+                                        <select class="d-flex flex-fill" id="books-filterbook-select">
                                             <optgroup label="This is a group">
                                                 <option value="12" selected="">This is item 1</option>
                                                 <option value="13">This is item 2</option>
@@ -336,7 +336,7 @@
                                     <div class="col-10 d-flex justify-content-md-start align-items-md-center">
                                         <span
                                             class="bg-light-subtle border rounded-0 flex-fill py-1 px-1"
-                                            id="books-status-message-span-1"
+                                            id="books-status-message-span"
                                             >Text</span
                                         >
                                     </div>
@@ -347,17 +347,23 @@
                                         <div class="vstack gap-1">
                                             <label class="form-label">Selected Filter Book Operations:</label>
                                             <div class="hstack gap-2">
-                                                <button class="btn btn-primary" type="button">Set "Add Sender" Filter Book</button
-                                                ><button class="btn btn-primary" type="button">Show in Address Books</button
-                                                ><button class="btn btn-primary" type="button">Remove All from Address Books</button
-                                                ><button class="btn btn-primary" type="button">Delete Book and All Addresses</button>
+                                                <button class="btn btn-primary" id="books-select-button" type="button">
+                                                    Set "Add Sender" Filter Book</button
+                                                ><button class="btn btn-primary" id="books-show-button" type="button">
+                                                    Show in Address Books</button
+                                                ><button class="btn btn-primary" id="books-disconnect-button" type="button">
+                                                    Remove All from Address Books</button
+                                                ><button class="btn btn-primary" id="books-delete-button" type="button">
+                                                    Delete Book and All Addresses
+                                                </button>
                                             </div>
                                             <div></div>
                                             <div></div>
                                             <div class="input-group">
                                                 <span class="input-group-text">Add New Filter Book</span
-                                                ><input class="form-control" type="text" /><button
+                                                ><input class="form-control" type="text" id="books-add-text" /><button
                                                     class="btn btn-primary"
+                                                    id="books-add-button"
                                                     type="button"
                                                 >
                                                     Add
@@ -608,7 +614,7 @@
                                     </div>
                                     <div class="col-10 d-flex justify-content-md-start align-items-md-center">
                                         <span class="bg-light-subtle border rounded-0 flex-fill py-1 px-1" id="advanced-status-span"
-                                            >Text</span
+                                            >Initializing...</span
                                         >
                                     </div>
                                 </div>
@@ -638,9 +644,9 @@
                 <div></div>
                 <div></div>
                 <div class="hstack gap-2 d-sm-flex justify-content-sm-end align-items-sm-end">
-                    <button class="btn btn-primary btn-sm" id="classes-apply-button" type="button">Apply</button
-                    ><button class="btn btn-primary btn-sm" id="classes-cancel-button" type="button">Cancel</button
-                    ><button class="btn btn-primary btn-sm" id="classes-ok-button" type="button">&nbsp; Ok&nbsp;&nbsp;</button>
+                    <button class="btn btn-primary btn-sm" id="apply-button" type="button">Apply</button
+                    ><button class="btn btn-primary btn-sm" id="cancel-button" type="button">Cancel</button
+                    ><button class="btn btn-primary btn-sm" id="ok-button" type="button">&nbsp; Ok&nbsp;&nbsp;</button>
                 </div>
             </div>
         </div>

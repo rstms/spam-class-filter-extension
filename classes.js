@@ -1,13 +1,13 @@
 import { sendEmailRequest } from "./email.js";
 import { differ } from "./common.js";
 
+/* global console */
+
 const MIN_SCORE = -100.0;
 const MAX_SCORE = 100.0;
 const verbose = false;
 const CLASSES = "classes";
 const BOOKS = "books";
-
-/* global console */
 
 export class FilterData {
     constructor(state, accounts, type, defaultItems, editorTab) {
@@ -16,6 +16,7 @@ export class FilterData {
         this.emailRequestTimeout = undefined;
         this.editorTab = editorTab;
         this.defaultItems = defaultItems;
+        this.dumpResult = undefined;
         switch (this.type) {
             case CLASSES:
                 this.msg.notFound = "Class not present";
@@ -111,6 +112,9 @@ export class FilterData {
                 }
                 if (!result) {
                     return { items: null, valid: false, message: this.requestCommand + " request failed; please contact support" };
+                }
+                if (this.requestCommand === "dump") {
+                    this.dumpResult = result;
                 }
                 const returned = result[this.resultKey];
                 const validated = this.validateItems(returned);
@@ -378,6 +382,18 @@ export class FilterClasses extends FilterData {
 export class FilterBooks extends FilterData {
     constructor(state, accounts, editorTab) {
         super(state, accounts, BOOKS, new Map(), editorTab);
+    }
+
+    async getPassword(account) {
+        try {
+            if (!this.dumpResult) {
+                await this.get(true);
+            }
+            console.log("getPassword:", account, this.dumpResult);
+            return "howdy";
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     async send(account, force) {

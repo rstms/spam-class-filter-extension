@@ -1,32 +1,44 @@
 import * as requests from "./requests.js";
 import { initThemeSwitcher } from "./theme_switcher.js";
-import { selectedAccountId } from "./common.js";
 import { config } from "./config.js";
+import { differ } from "./common.js";
 import { ClassesTab } from "./classes_tab.js";
 import { BooksTab } from "./books_tab.js";
 import { OptionsTab } from "./options_tab.js";
 import { AdvancedTab } from "./advanced_tab.js";
 import { HelpTab } from "./help_tab.js";
 
+// FIXME: add refresh command to filterctl to get classes, books,  account data in one filterctl response
+
 /* globals messenger, window, document, console */
 const verbose = true;
 
 initThemeSwitcher();
 
-var hasLoaded = false;
-var backgroundSuspended = false;
-var usagePopulated = false;
-var activeTab = null;
+let hasLoaded = false;
+let backgroundSuspended = false;
+let usagePopulated = false;
+let accountsPopulated = false;
 
-var accountNames = {};
-var accountIndex = {};
+let activeTab = null;
 
-var port = null;
+// buffer programatic updates when controls are unpopulated or disabled
+let bufferedSelectTab = undefined;
+let bufferedSelectAccount = undefined;
 
-var controls = {};
+// map between select element index and accountId
+let accountIndex = {};
 
-var tab = {
-    classes: new ClassesTab(sendMessage, {
+// keep accounts and selectedAccounts state
+let accounts = undefined;
+let selectedAccount = undefined;
+
+let port = null;
+
+let controls = {};
+
+let tab = {
+    classes: new ClassesTab(disableEditorControl, sendMessage, {
         InputKeypress: onClassesInputKeypress,
         NameChanged: onClasessNameChanged,
         SliderMoved: onClassesSliderMoved,
@@ -46,61 +58,85 @@ var tab = {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-async function populateAccountSelect() {
+// called from the background page message handler
+async function populateAccounts(updateAccounts = undefined, updateSelectedAccount = undefined) {
     try {
         if (verbose) {
-            console.log("BEGIN populateAccountSelect");
+            console.log("BEGIN populateAccounts");
         }
 
-        // disable the select controls while updating
-        tab.classes.controls.accountSelect.disabled = true;
-        tab.books.controls.accountSelect.disabled = true;
-
-        // clear account select contents
-        tab.classes.controls.accountSelect.innerHTML = "";
-        tab.books.controls.accountSelect.innerHTML = "";
-        tab.advanced.controls.selectedAccount.value = "";
-
-        // get the accounts from the background page
-        const accounts = await sendMessage("getAccounts");
-
-        // initialize the select control dropdown lists
-        accountNames = {};
-        var i = 0;
-        for (let id of Object.keys(accounts)) {
-            accountNames[id] = accounts[id].name;
-            accountNames[i] = accounts[id].name;
-            accountIndex[id] = i;
-            accountIndex[i] = id;
-            addAccountSelectRow(tab.classes.controls.accountSelect, i, id, accounts);
-            addAccountSelectRow(tab.books.controls.accountSelect, i, id, accounts);
-            i++;
+        if (updateAccounts === undefined) {
+            updateAccounts = await sendMessage({ id: "getAccounts" });
+        }
+        if (updateSelectedAccount == undefined) {
+            updateSelectedAccount = await sendMessage({ id: "getSelectedAccount" });
         }
 
-        // get the selected account ID from the background page and update
-        const selectedAccountId = await sendMessage("getSelectedAccountId");
-        await setSelectedAccount(selectedAccountId);
+        if (accountsPopulated && !differ(updateAccounts, accounts) === false) {
+            console.warn("populateAccounts: accounts unchanged, skipping populate");
+        } else {
+            // disable the select controls while updating
+            await enableAccountControls(false);
 
-        tab.classes.accountNames = accountNames;
-        tab.books.accountNames = accountNames;
+            // clear account select contents
+            tab.classes.controls.accountSelect.innerHTML = "";
+            tab.books.controls.accountSelect.innerHTML = "";
+            tab.advanced.controls.selectedAccount.value = "";
 
-        // enable the select controls
-        tab.classes.controls.accountSelect.disabled = false;
-        tab.books.controls.accountSelect.disabled = false;
+            // initialize the select control dropdown lists
+            let i = 0;
+            accountIndex = {};
+            for (let [id, account] of Object.keys(updateAccounts)) {
+                accountIndex[account.id] = i;
+                accountIndex[i] = account.id;
+                addAccountSelectRow(tab.classes.controls.accountSelect, id, account.name);
+                addAccountSelectRow(tab.books.controls.accountSelect, id, account.name);
+                i++;
+            }
+
+            // set the accounts here and in the tabs that need them
+            accounts = updateAccounts;
+            tab.classes.accounts = updateAccounts;
+            tab.books.accounts = updateAccounts;
+            tab.options.accounts = updateAccounts;
+
+            await tab.options.populate();
+            await tab.classes.populate();
+
+            // enable the select controls
+            await enableAccountControls(false);
+
+            // enable the tabs
+            await enableTab("classes", true);
+            await enableTab("books", true);
+            await enableTab("options", true);
+            await enableTab("advanced", true);
+            await enableTab("help", true);
+
+            accountsPopulated = true;
+        }
+
+        await selectAccount(updateSelectedAccount);
+
+        if (bufferedSelectTab) {
+            console.log("applying buffered tab selection:", bufferedSelectTab);
+            await selectTab(bufferedSelectTab);
+            bufferedSelectTab = undefined;
+        }
 
         if (verbose) {
-            console.log("END populateAccountSelect");
+            console.log("END populateAccountSelect", { accounts: accounts, selectedAccount: selectedAccount });
         }
     } catch (e) {
         console.error(e);
     }
 }
 
-function addAccountSelectRow(control, i, id, accounts) {
+function addAccountSelectRow(control, id, name) {
     try {
         const option = document.createElement("option");
         option.setAttribute("data-account-id", id);
-        option.textContent = accounts[id].name;
+        option.textContent = name;
         control.appendChild(option);
     } catch (e) {
         console.error(e);
@@ -113,13 +149,34 @@ function addAccountSelectRow(control, i, id, accounts) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-async function setSelectedAccount(id) {
+////////////////////////////////////////////////////////////////////////////////
+//
+// selectAccount:   set the account elements and selectedAccount variable
+//		    to synchronize the selected account when changed
+//
+// callers:
+//  - populateAccounts - the select controls have been (re)initialized
+//  - onAccountSelectChange - one of the select controls has been changed
+//  - handleUpdateEditorSelectedAccount - background page requests message handler
+//
+////////////////////////////////////////////////////////////////////////////////
+
+async function selectAccount(account) {
     try {
-        console.log("setSelectedAccountId:", id, accountNames[id]);
-        tab.classes.controls.accountSelect.selectedIndex = accountIndex[id];
-        tab.books.controls.accountSelect.selectedIndex = accountIndex[id];
-        tab.advanced.controls.selectedAccount.value = accountNames[id];
-        tab.advanced.selectedAccountId = id;
+        let index = accountIndex[account.Id];
+        if (verbose) {
+            console.log("selectAccount:", index, account);
+        }
+        tab.classes.controls.accountSelect.selectedIndex = index;
+        await tab.classes.populate(account);
+        tab.books.controls.accountSelect.selectedIndex = index;
+        tab.books.populate(account);
+        tab.advanced.controls.selectedAccount.value = account.name;
+        tab.advanced.selectedAccount = account;
+        selectedAccount = account;
+        tab.classes.selectedAccount = account;
+        tab.books.selectedAccount = account;
+        tab.options.selectedAccount = account;
     } catch (e) {
         console.error(e);
     }
@@ -127,34 +184,29 @@ async function setSelectedAccount(id) {
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-//  selected account event handlers
+// event handler
+//
+// handle classes and books select control changed events
+//
+// callers:
+//  - tab.classes.controls.accountSelect
+//  - tab.books.controls.accountSelect
 //
 ////////////////////////////////////////////////////////////////////////////////
-
 async function onAccountSelectChange(sender) {
     try {
         const index = sender.target.selectedIndex;
         if (verbose) {
-            console.log("account select index changed:", index, sender.target.id);
+            console.log("onAccountSelectChange:", index, sender.target.id);
         }
-        console.assert(
-            sender.target === tab.classes.controls.accountSelect || sender.target === tab.books.controls.accountSelect,
-            "unexpected event sender:",
-            sender,
-        );
-        const id = selectedAccountId(sender.target);
-        if (verbose) {
-            console.debug("accountId:", id);
-            console.debug("index:", accountIndex[id]);
-            console.debug("name:", accountNames[id]);
+        if (sender.target === tab.classes.controls.accountSelect || sender.target === tab.books.controls.accountSelect) {
+            const account = accountIndex[index];
+            await selectAccount(account);
+            // slected account changed by user action, inform the background page
+            await sendMessage({ id: "setSelectedAccount", account: account });
+        } else {
+            throw new Error("onAccountSelectChange: unexpected event sender:", sender);
         }
-        tab.classes.controls.accountSelect.selectedIndex = index;
-        tab.books.controls.accountSelect.selectedIndex = index;
-        tab.advanced.controls.selectedAccount.value = accountNames[id];
-        tab.advanced.selectedAccountId = id;
-        tab.books.controls.accountSelect.value = accountNames[id];
-        const levels = await tab.classes.getClasses(id);
-        await tab.classes.populate(levels);
     } catch (e) {
         console.error(e);
     }
@@ -166,7 +218,7 @@ async function onAccountSelectChange(sender) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-function enableTab(name, enabled) {
+function getTabControls(name) {
     try {
         var tab = null;
         var link = null;
@@ -200,13 +252,27 @@ function enableTab(name, enabled) {
             default:
                 throw new Error("unknown tab: " + name);
         }
-        link.disabled = !enabled;
+        return { tab: tab, link: link, navlink: navlink };
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function enableTab(name, enabled) {
+    try {
+        const tabControls = getTabControls(name);
+
+        tabControls.link.disabled = !enabled;
         if (enabled) {
-            delete navlink.classList.remove("disabled");
+            delete tabControls.navlink.classList.remove("disabled");
         } else {
-            navlink.classList.add("disabled");
+            tabControls.navlink.classList.add("disabled");
         }
-        console.log(enabled ? "enabled tab: " : "disabled tab:", tab.id, link.id, navlink.id);
+        console.log(enabled ? "enabled tab: " : "disabled tab:", {
+            tabId: tabControls.tab.id,
+            link: tabControls.link.id,
+            navLink: tabControls.navlink.id,
+        });
     } catch (e) {
         console.error(e);
     }
@@ -307,14 +373,42 @@ async function requestUsage() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-async function handleSelectAccount(message) {
+async function handleUpdateEditorAccounts(message) {
     try {
-        console.log("selectAccount:", message);
-        if (!tab.classes.controls.accountSelect.disabled) {
-            await setSelectedAccount(message.accountId);
-            await onAccountSelectChange(message);
+        if (verbose) {
+            console.log("handleUpdateEditorAccounts:", message);
         }
-        return tab.classes.accountId();
+        await populateAccounts(message.accounts, message.selectedAccount);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleUpdateEditorSelectedAccount(message) {
+    try {
+        if (verbose) {
+            console.log("handleUpdateEditorSelectedAccount:", message);
+        }
+        let warnings = [];
+        if (!accountsPopulated) {
+            warnings.push("handleUpdateEditorSelectedAccount: accounts not populated");
+        }
+        if (tab.classes.controls.accountSelect.disabled) {
+            warnings.push("handleUpdateEditorSelectedAccount: classes account controls disabled");
+        }
+        if (tab.books.controls.accountSelect.disabled) {
+            warnings.push("handleUpdateEditorSelectedAccount: books account controls disabled");
+        }
+        if (warnings.length > 0) {
+            console.warn("handleUpdateEditorSelectedAccount: updating buffered message:", {
+                detail: warnings,
+                previousBuffer: bufferedSelectAccount,
+                newBuffer: message.account,
+            });
+            bufferedSelectAccount = message.account;
+        } else {
+            await selectAccount(message.account);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -322,22 +416,64 @@ async function handleSelectAccount(message) {
 
 async function handleSelectEditorTab(message) {
     try {
-        switch (message.name) {
+        if (verbose) {
+            console.log("handleSelectEditorTab:", message);
+        }
+        let success = await selectTab(message.name);
+        if (!success) {
+            bufferedSelectTab = message.name;
+            console.warn("handleSelectEditorTab: tab disabled, buffering tab selection", message);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function selectTab(name) {
+    try {
+        if (verbose) {
+            console.log("selectTab:", name);
+        }
+        let link = undefined;
+        switch (name) {
             case "classes":
-                controls.classesNavLink.click();
+                link = controls.classesNavLink;
+                break;
+            case "books":
+                link = controls.booksNavLink;
                 break;
             case "options":
-                controls.optionsNavLink.click();
+                link = controls.optionsNavLink;
                 break;
             case "advanced":
-                controls.advancedNavLink.click();
+                link = controls.advancedNavLink;
                 break;
             case "help":
-                controls.helpNavLink.click();
+                link = controls.helpNavLink;
                 break;
-            default:
-                console.warn("selectEditorTab: unexpected tab name:", message.name);
         }
+        if (link === undefined) {
+            throw new Error("selectTab: unexpected tab name:", name);
+        }
+        if (link.disabled) {
+            console.warn("selectTab: tab link disabled:", { name: name, link: link });
+            return false;
+        }
+        link.click();
+        if (verbose) {
+            console.log("tab selected:", name);
+        }
+        return true;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function disableEditorControl(id, disable) {
+    try {
+        console.log("disableEditorControl:", id, disable);
+        let control = controls[id];
+        control.disabled = disable;
     } catch (e) {
         console.error(e);
     }
@@ -434,35 +570,32 @@ async function onLoad() {
         }
         hasLoaded = true;
 
-        await enableTab("classes", true);
+        // disable all tabs and account select until we receive accounts from the background page
+        await enableTab("classes", false);
         await enableTab("books", false);
         await enableTab("options", false);
         await enableTab("advanced", false);
         await enableTab("help", false);
+        await enableAccountControls(false);
 
         // set advanced tab visible state from the local.storage config
         await setAdvancedTabVisible();
 
-        tab.classes.controls.accountSelect.disabled = true;
-        await tab.classes.enableControls(false);
-
-        tab.books.controls.accountSelect.disabled = true;
-        await tab.books.enableControls(false);
-
-        await populateAccountSelect();
-
-        await enableTab("advanced", true);
-        await enableTab("help", true);
-
-        await tab.options.populate();
-        await enableTab("options", true);
-
-        await tab.classes.populate();
-
-        await enableTab("classes", true);
-        await enableTab("books", true);
+        await populateAccounts();
 
         console.debug("editor page loaded");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function enableAccountControls(enabled) {
+    try {
+        if (verbose) {
+            console.log("enableAccountControls:", enabled);
+        }
+        await tab.classes.enableControls(enabled);
+        await tab.books.enableControls(enabled);
     } catch (e) {
         console.error(e);
     }
@@ -485,6 +618,15 @@ async function onStorageChange(changes, areaName) {
         if (change !== undefined) {
             await setAdvancedTabVisible(change.newValue ? true : false);
         }
+    }
+}
+
+async function onApplyClick() {
+    try {
+        await tab.classes.saveChanges();
+        await tab.books.saveChanges();
+    } catch (e) {
+        console.error(e);
     }
 }
 
@@ -614,42 +756,31 @@ addTabControl(tab.classes, "defaultsButton", "defaults-button", "click", () => {
 addTabControl(tab.classes, "refreshButton", "refresh-button", "click", () => {
     tab.classes.onRefreshClick();
 });
-addTabControl(tab.classes, "applyButton", "classes-apply-button", "click", () => {
-    tab.classes.onApplyClick();
-});
-addTabControl(tab.classes, "okButton", "classes-ok-button", "click", onOkClick);
-addTabControl(tab.classes, "cancelButton", "classes-cancel-button", "click", onCancelClick);
 
 // books tab controls
 addTabControl(tab.books, "accountSelect", "books-account-select", "change", onAccountSelectChange);
+addTabControl(tab.books, "filterBookSelect", "books-filterbook-select", "change", () => {
+    tab.books.onBookSelectChange;
+});
+addTabControl(tab.books, "selectedCheckbox", "book-selected-checkbox");
+addTabControl(tab.books, "connectedCheckbox", "book-connected-checkbox");
 addTabControl(tab.books, "statusMessage", "books-status-message-span");
-addTabControl(tab.books, "editRow", "books-edit-row-stack");
-
-addTabControl(tab.books, "booksLabel", "books-label");
-addTabControl(tab.books, "booksStack", "books-stack");
-addTabControl(tab.books, "booksInput", "book-input");
-addTabControl(tab.books, "booksAddButton", "book-add-button", "click", () => {
-    tab.books.onBooksAdd();
+addTabControl(tab.books, "selectButton", "books-select-button", "click", () => {
+    tab.books.onSelect;
 });
-addTabControl(tab.books, "booksDeleteButton", "book-delete-button", "click", () => {
-    tab.books.onBooksDelete();
+addTabControl(tab.books, "showButton", "books-show-button", "click", () => {
+    tab.books.onShow;
 });
-
-addTabControl(tab.books, "addrsLabel", "addresses-label");
-addTabControl(tab.books, "addrsStack", "addresses-stack");
-addTabControl(tab.books, "addrsInput", "address-input");
-addTabControl(tab.books, "addrsAddButton", "address-add-button", "click", () => {
-    tab.books.onAddrsAddClick();
+addTabControl(tab.books, "disconnectButton", "books-disconnect-button", "click", () => {
+    tab.books.onDisconnect;
 });
-addTabControl(tab.books, "addrsDeleteButton", "address-delete-button", "click", () => {
-    tab.books.onAddrsDeleteClick();
+addTabControl(tab.books, "deleteButton", "books-delete-button", "click", () => {
+    tab.books.onDelete;
 });
-
-addTabControl(tab.books, "applyButton", "books-apply-button", "click", () => {
-    tab.books.onApplyClick();
+addTabControl(tab.books, "addButton", "books-add-button", "click", () => {
+    tab.books.onAdd;
 });
-addTabControl(tab.books, "okButton", "books-ok-button", "click", onOkClick);
-addTabControl(tab.books, "cancelButton", "books-cancel-button", "click", onCancelClick);
+addTabControl(tab.books, "addText", "books-add-text");
 
 // options tab controls
 addTabControl(tab.options, "autoDelete", "options-auto-delete-checkbox", "change", () => {
@@ -681,6 +812,7 @@ addTabControl(tab.advanced, "argument", "advanced-argument-input");
 addTabControl(tab.advanced, "sendButton", "advanced-send-button", "click", () => {
     tab.advanced.onSendClick();
 });
+addTabControl(tab.advanced, "status", "advanced-status-span");
 addTabControl(tab.advanced, "output", "advanced-output");
 
 // help tab controls
@@ -707,9 +839,14 @@ addControl("optionsNavLink", "options-navlink", "shown.bs.tab", onTabShow);
 addControl("advancedNavLink", "advanced-navlink", "shown.bs.tab", onTabShow);
 addControl("helpNavLink", "help-navlink", "shown.bs.tab", onTabShow);
 
+addControl("applyButton", "apply-button", "click", onApplyClick);
+addControl("okButton", "ok-button", "click", onOkClick);
+addControl("cancelButton", "cancel-button", "click", onCancelClick);
+
 // handlers for request port RPC commands
-requests.addHandler("selectAccount", handleSelectAccount);
 requests.addHandler("selectEditorTab", handleSelectEditorTab);
+requests.addHandler("updateEditorAccounts", handleUpdateEditorAccounts);
+requests.addHandler("updateEditorSelectedAccount", handleUpdateEditorSelectedAccount);
 
 // handler for global runtime messages
 messenger.runtime.onMessage.addListener(handleMessage);

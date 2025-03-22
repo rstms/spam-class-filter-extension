@@ -11,6 +11,8 @@ export class OptionsTab {
         this.domainCheckbox = {};
         this.sendMessage = sendMessage;
         this.handlers = handlers;
+        this.accounts = undefined;
+        this.selectedAccount = undefined;
     }
 
     createDomainRow(index, domain, enabled) {

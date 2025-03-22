@@ -1,8 +1,9 @@
 import { FilterClasses, FilterBooks } from "./classes.js";
 import * as requests from "./requests.js";
 import { config } from "./config.js";
+import { Accounts } from "./accounts.js";
 import * as ports from "./ports.js";
-import { domainPart, findEditorTab } from "./common.js";
+import { findEditorTab } from "./common.js";
 import { sendEmailRequest, getMessageHeaders } from "./email.js";
 
 /* globals messenger, console */
@@ -14,8 +15,9 @@ import { sendEmailRequest, getMessageHeaders } from "./email.js";
 const verbose = true;
 
 // Menus, Classes, Filterbooks data management objects
-var classesState = null;
-var filterBooksState = null;
+let classesState = null;
+let filterBooksState = null;
+let accounts = new Accounts();
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -38,7 +40,6 @@ async function initialize(mode) {
                 console.log("configuration:", await config.local.get());
                 break;
         }
-        await initActiveDomains();
         await initMenus();
         const autoOpen = await config.local.get("autoOpen");
         if (autoOpen) {
@@ -90,167 +91,6 @@ async function onSuspendCanceled() {
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-//  account data and selected account management
-//
-///////////////////////////////////////////////////////////////////////////////
-
-function defaultAccount(accounts) {
-    try {
-        const keys = Object.keys(accounts).sort();
-        return accounts[keys[0]];
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-// NOTE: side effect: resets selectedAccount if the domain is not in the set of active domains
-async function getAccounts() {
-    try {
-        const accountList = await messenger.accounts.list();
-        const selectedAccount = await config.session.get("selectedAccount");
-        //const domains = await config.local.get("domain");
-        const domains = await getActiveDomains();
-        var selectedDomain = null;
-        if (selectedAccount) {
-            selectedDomain = domainPart(selectedAccount);
-        }
-        var accounts = {};
-        for (const account of accountList) {
-            if (account.type === "imap") {
-                const domain = domainPart(account.identities[0].email);
-                if (domains[domain]) {
-                    accounts[account.id] = account;
-                    if (domain === selectedDomain) {
-                        selectedDomain = domain;
-                    }
-                }
-            }
-        }
-        if (selectedAccount && !selectedDomain) {
-            const original = selectedAccount;
-            await setSelectedAccount(defaultAccount(accounts));
-            console.warn("selected account not active, changing:", { original: original, current: selectedAccount });
-        }
-        return accounts;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function getAccount(accountId) {
-    try {
-        const accounts = await getAccounts();
-        return accounts[accountId];
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function getSelectedAccount() {
-    try {
-        let selectedAccount = await config.session.get("selectedAccount");
-        if (!selectedAccount) {
-            const accounts = await getAccounts();
-            selectedAccount = defaultAccount(accounts);
-        }
-        return selectedAccount;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-// NOTE: returns default account if specified account is not enabled
-// TODO: this needs to inform the editor
-async function setSelectedAccount(account) {
-    try {
-        await config.session.set("selectedAccount", account);
-        return await getSelectedAccount();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function getSelectedAccountId() {
-    try {
-        const account = await getSelectedAccount();
-        const id = account.id;
-        if (verbose) {
-            console.debug("getSelectedAccountId returning:", id);
-        }
-        return id;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  enabled account domain management
-//
-///////////////////////////////////////////////////////////////////////////////
-
-async function initActiveDomains() {
-    try {
-        // get config domains
-        const configDomains = await getAccountDomains();
-
-        // list unique domains from all imap accounts
-        const accountList = await messenger.accounts.list();
-        var domains = {};
-        for (const account of accountList) {
-            if (account.type === "imap") {
-                domains[domainPart(account.identities[0].email)] = true;
-            }
-        }
-
-        // set enabled values of all domains present in accountList
-        for (const domain of Object.keys(domains)) {
-            domains[domain] = configDomains[domain] === true ? true : false;
-        }
-
-        await setActiveDomains({ domains: domains });
-
-        console.log("domains:", { accounts: accountList, config: configDomains, control: domains });
-
-        return domains;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function getAccountDomains() {
-    try {
-        return await config.local.get("domain");
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function getActiveDomains() {
-    try {
-        const domains = await getAccountDomains();
-        const activeDomains = {};
-        for (const [domain, active] of Object.entries(domains)) {
-            if (active) {
-                activeDomains[domain] = true;
-            }
-        }
-        return activeDomains;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function setActiveDomains(message) {
-    try {
-        await config.local.set("domain", message.domains);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//
 //  menu handlers
 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -261,39 +101,37 @@ let menu = {
             title: "Mail Filter",
             contexts: ["tools_menu", "folder_pane"],
         },
-        shown: initSubmenu,
+        shown: initMailFilterSubmenu,
         clicked: onMenuMailFilter,
     },
-    rmfSelectAccounts: {
+    rmfSelectedAccount: {
         properties: {
             title: "Selected Account",
             contexts: ["action_menu", "tools_menu", "folder_pane"],
         },
-        shown: initSubmenu,
+        shown: initSelectedAccountSubmenu,
     },
     rmfSelectAccount: {
         properties: {
             title: "__account_name__",
             contexts: ["action_menu", "tools_menu", "folder_pane"],
         },
-        shown: onMenuSelectAccountShown,
-        clicked: onMenuSelectAccountClicked,
+        clicked: onMenuSelectAccount,
         noInit: true,
     },
-    rmfSelectFilterBooks: {
+    rmfSelectedFilterBook: {
         properties: {
             title: "Selected Filter Book",
             contexts: ["action_menu", "tools_menu", "folder_pane"],
         },
-        shown: initSubmenu,
+        shown: initSelectedFilterBookSubmenu,
     },
     rmfSelectFilterBook: {
         properties: {
             title: "__book_name__",
             contexts: ["action_menu", "tools_menu", "folder_pane"],
         },
-        shown: onMenuSelectFilterBookShown,
-        clicked: onMenuSelectFilterBookClicked,
+        clicked: onMenuSelectFilterBook,
         noInit: true,
     },
     rmfAddSenderToFilterBook: {
@@ -301,7 +139,7 @@ let menu = {
             title: "Add Sender To Filter Book",
             contexts: ["message_display_action_menu", "message_list"],
         },
-        shown: initSubmenu,
+        shown: initAddSenderSubmenu,
         clicked: onMenuAddSenderToFilterBook,
     },
     rmfConnectFilterBooks: {
@@ -355,33 +193,17 @@ async function initMenus() {
     }
 }
 
-async function onMenuSelectAccountShown(info, tabs) {
+async function onMenuSelectAccount(info, tabs) {
     try {
-        console.log("onMenuSelectAccountShown:", info, tabs);
+        console.log("onMenuSelectAccount:", info, tabs);
     } catch (e) {
         console.error(e);
     }
 }
 
-async function onMenuSelectAccountClicked(info, tabs) {
+async function onMenuSelectFilterBook(info, tabs) {
     try {
-        console.log("onMenuSelectAccountClicked:", info, tabs);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onMenuSelectFilterBookShown(info, tabs) {
-    try {
-        console.log("onMenuSelectFilterBookShown:", info, tabs);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onMenuSelectFilterBookClicked(info, tabs) {
-    try {
-        console.log("onMenuSelectFilterBookClicked:", info, tabs);
+        console.log("onMenuSelectFilterBook:", info, tabs);
     } catch (e) {
         console.error(e);
     }
@@ -414,10 +236,10 @@ async function menuContextAccountId(info) {
             }
         }
         if (accountId) {
-            let account = await getAccount(accountId);
+            let account = await accounts.get(accountId);
             if (account) {
                 console.log("menuContextAccountId: setting selected account:", account);
-                await setSelectedAccount(account);
+                await accounts.setSelected(account);
             }
         }
         return accountId;
@@ -500,32 +322,109 @@ async function onMenuShown(info, tab) {
 let clickCount = 0;
 
 // called from onShown event
-async function initSubmenu(menuId, info, tab) {
+async function initMailFilterSubmenu(menuId, info, tab) {
     try {
         let accountId = await menuContextAccountId(info);
         let filterBook = await menuContextFilterBook(info);
         if (verbose) {
-            console.log("initSubmenu:", { menu: menu[menuId], info: info, tab: tab, accountId: accountId, filterBook: filterBook });
+            console.log("initMailFilterSubmenu:", {
+                menu: menu[menuId],
+                info: info,
+                tab: tab,
+                accountId: accountId,
+                filterBook: filterBook,
+            });
         }
-        let changed = false;
-        switch (menuId) {
-            case "rmfMailFilter":
-                ++clickCount;
-                for (let i = 0; i < clickCount; i++) {
-                    let id = "rmfTest_" + clickCount;
-                    let properties = menu.rmfTest.properties;
-                    properties.title = "click_" + clickCount;
-                    await updateMenu(id, properties);
-                }
-                changed = true;
-                break;
-            default:
-                console.error("unhandled initSubmenu:", menuId, info);
-                break;
+        ++clickCount;
+        for (let i = 0; i < clickCount; i++) {
+            let id = "rmfTest_" + clickCount;
+            let properties = menu.rmfTest.properties;
+            properties.title = "click_" + clickCount;
+            await updateMenu(id, properties);
         }
-        if (changed) {
-            await messenger.menus.refresh();
+        await messenger.menus.refresh();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function initSelectedAccountSubmenu(menuId, info, tab) {
+    try {
+        if (verbose) {
+            console.debug("initSelectedAccountSubmenu:", menuId, info, tab);
         }
+        let selectedAccount = await accounts.getSelected();
+        for (let [accountId, account] of Object.entries(await accounts.all())) {
+            let id = "rmfSelectedAccount_" + accountId;
+            let properties = menu.rmfSelectedAccount.properties;
+            properties.title = account.name;
+            properties.visible = accountId == selectedAccount.id;
+            properties.checked = properties.visible && account.id === selectedAccount.id;
+            properties.type = "checkbox";
+            properties.parentId = menuId;
+            await updateMenu(id, properties);
+        }
+        await messenger.menus.refresh();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function initSelectedFilterBookSubmenu(menuId, info, tab) {
+    try {
+        if (verbose) {
+            console.debug("initSelectedFilterBookSubmenu:", menuId, info, tab);
+        }
+        let selectedAccount = await accounts.getSelected();
+        let filterBooks = await getFilterBooks();
+        console.log("initSelectedFilterBooksSubmenu:", {
+            selectedAccount: selectedAccount,
+            filterBooks: filterBooks,
+        });
+
+        for (let [accountId, account] of Object.entries(await accounts.all())) {
+            let books = filterBooks.get(account);
+            let selectedBook = await accounts.getSelectedFilterBook(account);
+            console.log("initSelectedFilterBooksSubmenu:", {
+                accountId: accountId,
+                books: books,
+                selectedBook: selectedBook,
+            });
+            for (let book of books) {
+                let id = "rmfSelectedFilterBook_" + accountId + "_" + book.name;
+                let properties = menu.rmfSelectedFilterBook.properties;
+                properties.title = book.name;
+                properties.visible = account.id === selectedAccount.id;
+                properties.checked = properties.visible && book.name === selectedBook.name;
+                properties.type = "checkbox";
+                properties.parentId = menuId;
+                await updateMenu(id, properties);
+            }
+        }
+        await messenger.menus.refresh();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function initAddSenderSubmenu(menuId, info, tab) {
+    try {
+        if (verbose) {
+            console.debug("initAddSenderSubmenu:", menuId, info, tab);
+        }
+        /*
+        let accounts = await getAccounts();
+        let selectedAccount = await getSelectedAccount();
+        for (let [id, account] of Object.entries(accounts)) {
+            let menuId = "rmfSelectedAccount_" + id;
+            let properties = menu.rmfSelectedAccount.properties;
+            properties.title = account.name;
+            properties.checked = account.id === selectedAccount.id;
+            properties.type = "checkbox";
+            await updateMenu(id, properties);
+        }
+        await messenger.menus.refresh();
+	*/
     } catch (e) {
         console.error(e);
     }
@@ -645,7 +544,7 @@ async function onMenuAddSenderToFilterBook(info, tab) {
         const messageList = await messenger.messageDisplay.getDisplayedMessages(tab.id);
         console.log("messageList:", messageList);
         for (const message of messageList.messages) {
-            const account = await getAccount(message.folder.accountId);
+            const account = await accounts.get(message.folder.accountId);
             const headers = await getMessageHeaders(message);
             console.log({ account: account, author: message.author, message: message, headers: headers });
             const selectedBookName = "testbook";
@@ -680,9 +579,8 @@ messenger.messageDisplayAction.onClicked.addListener(onMessageDisplayActionClick
 
 async function loadFilterClasses(force = false) {
     try {
-        const accounts = await getAccounts();
         const classes = await getFilterClasses();
-        for (const account of Object.values(accounts)) {
+        for (const account of Object.values(await accounts.all())) {
             await classes.get(account, force);
         }
         await saveFilterClasses(classes);
@@ -695,8 +593,7 @@ async function getFilterClasses() {
     try {
         if (classesState === null) {
             const state = await config.session.get("filterClassesState");
-            const accounts = await getAccounts();
-            classesState = new FilterClasses(state, accounts, await findEditorTab());
+            classesState = new FilterClasses(state, await accounts.all(), await findEditorTab());
         }
         return classesState;
     } catch (e) {
@@ -715,9 +612,9 @@ async function saveFilterClasses(classes) {
 
 async function getClassLevels(message) {
     try {
-        const accounts = await getAccounts();
+        const account = await accounts.get(message.accountId);
         const classes = await getFilterClasses();
-        const levels = await classes.get(accounts[message.accountId]);
+        const levels = await classes.get(account);
         return levels;
     } catch (e) {
         console.error(e);
@@ -726,9 +623,9 @@ async function getClassLevels(message) {
 
 async function setClassLevels(message) {
     try {
-        const accounts = await getAccounts();
+        const account = await accounts.get(message.accountId);
         const classes = await getFilterClasses();
-        const validationResult = await classes.set(accounts[message.accountId], message.levels);
+        const validationResult = await classes.set(account, message.levels);
         await saveFilterClasses(classes);
         return validationResult;
     } catch (e) {
@@ -738,11 +635,11 @@ async function setClassLevels(message) {
 
 async function sendClassLevels(message) {
     try {
-        const accounts = await getAccounts();
+        const account = await accounts.get(message.accountId);
         const classes = await getFilterClasses();
-        let validationResult = await classes.set(accounts[message.accountId], message.levels);
+        let validationResult = await classes.set(account, message.levels);
         if (validationResult.valid) {
-            validationResult = await await classes.send(accounts[message.accountId]);
+            validationResult = await await classes.send(account);
         }
         await saveFilterClasses(classes);
         return validationResult;
@@ -753,9 +650,8 @@ async function sendClassLevels(message) {
 
 async function sendAllClassLevels(message) {
     try {
-        const accounts = await getAccounts();
         const classes = await getFilterClasses();
-        const result = await classes.sendAll(accounts, message.force);
+        const result = await classes.sendAll(await accounts.all(), message.force);
         await saveFilterClasses(classes);
         return result;
     } catch (e) {
@@ -773,9 +669,9 @@ async function refreshAllClassLevels() {
 
 async function setDefaultLevels(message) {
     try {
-        const accounts = await getAccounts();
+        const account = await accounts.get(message.accountId);
         const classes = await getFilterClasses();
-        const result = await classes.setDefaultItems(accounts[message.accountId]);
+        const result = await classes.setDefaultItems(account);
         await saveFilterClasses(classes);
         return result;
     } catch (e) {
@@ -794,7 +690,6 @@ async function getFilterBooks() {
     try {
         if (filterBooksState === null) {
             const state = await config.session.get("filterBooksState");
-            const accounts = await getAccounts();
             filterBooksState = new FilterBooks(state, accounts, await findEditorTab());
         }
         return filterBooksState;
@@ -805,9 +700,8 @@ async function getFilterBooks() {
 
 async function loadFilterBooks(force = false) {
     try {
-        const accounts = await getAccounts();
         const books = await getFilterBooks();
-        for (const account of Object.values(accounts)) {
+        for (const account of Object.values(accounts.all())) {
             await books.get(account, force);
         }
         await saveFilterBooks(books);
@@ -827,9 +721,9 @@ async function saveFilterBooks(filterBooks) {
 
 async function getAccountAddressBooks(message) {
     try {
-        const accounts = await getAccounts();
+        const account = await accounts.get(message.accountId);
         const filterBooks = await getFilterBooks();
-        const books = await filterBooks.get(accounts[message.accountId]);
+        const books = await filterBooks.get(account);
         return books;
     } catch (e) {
         console.error(e);
@@ -838,9 +732,9 @@ async function getAccountAddressBooks(message) {
 
 async function setAccountAddressBooks(message) {
     try {
-        const accounts = await getAccounts();
+        const account = await accounts.get(message.accountId);
         const filterBooks = await getFilterBooks();
-        const validationResult = await filterBooks.set(accounts[message.accountId], message.books);
+        const validationResult = await filterBooks.set(account, message.books);
         await saveFilterBooks(filterBooks);
         return validationResult;
     } catch (e) {
@@ -850,11 +744,11 @@ async function setAccountAddressBooks(message) {
 
 async function sendAccountAddressBooks(message) {
     try {
-        const accounts = await getAccounts();
+        const account = await accounts.get(message.accountId);
         const filterBooks = await getFilterBooks();
-        let validationResult = await filterBooks.set(accounts[message.accountId], message.books);
+        let validationResult = await filterBooks.set(account, message.books);
         if (validationResult.valid) {
-            validationResult = await filterBooks.send(accounts[message.accountId]);
+            validationResult = await filterBooks.send(account);
         }
         await saveFilterBooks(filterBooks);
         return validationResult;
@@ -865,9 +759,8 @@ async function sendAccountAddressBooks(message) {
 
 async function sendAllAddressBooks(message) {
     try {
-        const accounts = await getAccounts();
         const filterBooks = await getFilterBooks();
-        const result = await filterBooks.sendAll(accounts, message.force);
+        const result = await filterBooks.sendAll(await accounts.all(), message.force);
         await saveFilterBooks(filterBooks);
         return result;
     } catch (e) {
@@ -960,14 +853,25 @@ async function onPortConnect(port) {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-async function handleSetSelectedAccountId(message) {
+async function handleGetAccounts() {
     try {
-        const accounts = await getAccounts();
-        if (!accounts[message.accountId]) {
-            throw new Error("unknown accountId:", { message: message, accounts: accounts });
-        }
-        const account = await setSelectedAccount(account);
-        return account.id;
+        return accounts.all();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleGetSelectedAccount() {
+    try {
+        return accounts.selected();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSetSelectedAccount(message) {
+    try {
+        return accounts.select(message.account);
     } catch (e) {
         console.error(e);
     }
@@ -1002,17 +906,25 @@ async function handleResetConfigToDefaults(message) {
 
 async function handleSendCommand(message) {
     try {
-        var id = message.accountId;
-        if (!id) {
-            id = await getSelectedAccountId();
+        let account = undefined;
+        if (message.accountId !== undefined) {
+            account = await accounts.get(message.accountId);
+        } else {
+            account = await accounts.getSelected();
         }
-        const accounts = await getAccounts();
-        const account = accounts[message.accountId];
         var command = message.command.trim();
         if (message.argument) {
             command += " " + message.argument.trim();
         }
         return await sendEmailRequest(account, command, message.body, message.timeout, await findEditorTab());
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSetActiveDomains(message) {
+    try {
+        return await accounts.setDomains(message.domains);
     } catch (e) {
         console.error(e);
     }
@@ -1105,13 +1017,13 @@ async function createAddressBook() {
 ///////////////////////////////////////////////////////////////////////////////
 
 // requests message handlers
-requests.addHandler("getAccounts", getAccounts);
-requests.addHandler("getSelectedAccountId", getSelectedAccountId);
-requests.addHandler("setSelectedAccountId", handleSetSelectedAccountId);
+requests.addHandler("getAccounts", handleGetAccounts);
+requests.addHandler("getSelectedAccount", handleGetSelectedAccount);
+requests.addHandler("setSelectedAccount", handleSetSelectedAccount);
 
-requests.addHandler("getAccountDomains", getAccountDomains);
-requests.addHandler("getActiveDomains", getActiveDomains);
-requests.addHandler("setActiveDomains", setActiveDomains);
+requests.addHandler("getAccountDomains", accounts.domains);
+requests.addHandler("getActiveDomains", accounts.activeDomains);
+requests.addHandler("setActiveDomains", handleSetActiveDomains);
 
 requests.addHandler("setClassLevels", setClassLevels);
 requests.addHandler("getClassLevels", getClassLevels);

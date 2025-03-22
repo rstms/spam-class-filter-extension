@@ -10,12 +10,15 @@ const MAX_LEVELS = 16;
 const STATUS_PENDING_TIMEOUT = 5120;
 
 export class ClassesTab {
-    constructor(sendMessage, handlers) {
+    constructor(disableEditorControl, sendMessage, handlers) {
         this.controls = {};
+        this.disableEditorControl = disableEditorControl;
         this.sendMessage = sendMessage;
         this.cellTemplate = null;
         this.accountNames = undefined;
         this.handlers = handlers;
+        this.accounts = undefined;
+        this.selectedAccount = undefined;
     }
 
     async getClasses(accountId) {
@@ -331,6 +334,9 @@ export class ClassesTab {
             }
 
             await this.updateClasses();
+
+            await this.enableControls(true);
+
             if (verbose) {
                 console.log("END populateRows");
             }
@@ -416,20 +422,17 @@ export class ClassesTab {
             }
             this.controls.statusMessage.innerHTML = parts.join(" ");
 
-            this.controls.accountSelect.disabled = state.disable;
-            this.controls.applyButton.disabled = state.disable;
-            this.controls.okButton.disabled = state.disable;
+            await this.enableControls(state.disable ? false : true);
         } catch (e) {
             console.error(e);
         }
     }
 
-    enableControls(enabled) {
+    async enableControls(enabled) {
         try {
             this.controls.accountSelect.disabled = !enabled;
-            this.controls.tableBody.disabled = !enabled;
-            this.controls.applyButton.disabled = !enabled;
-            this.controls.okButton.disabled = !enabled;
+            await this.disableEditorControl("applyButton", !enabled);
+            await this.disableEditorControl("okButton", !enabled);
         } catch (e) {
             console.error(e);
         }
@@ -444,14 +447,6 @@ export class ClassesTab {
         } catch (e) {
             console.error(e);
             await this.updateClassesStatus({ error: true, message: "Pending operation failed." });
-        }
-    }
-
-    async onApplyClick() {
-        try {
-            await this.saveChanges();
-        } catch (e) {
-            console.error(e);
         }
     }
 
