@@ -1,7 +1,6 @@
-import * as requests from "./requests.js";
 import { initThemeSwitcher } from "./theme_switcher.js";
 import { config } from "./config.js";
-import { differ } from "./common.js";
+import { differ, accountEmail } from "./common.js";
 import { ClassesTab } from "./classes_tab.js";
 import { BooksTab } from "./books_tab.js";
 import { OptionsTab } from "./options_tab.js";
@@ -9,6 +8,9 @@ import { AdvancedTab } from "./advanced_tab.js";
 import { HelpTab } from "./help_tab.js";
 
 // FIXME: add refresh command to filterctl to get classes, books,  account data in one filterctl response
+
+// FIXME: implement all element event listeners here and call functions on tab objects
+// FIXME: share controls container between this page and all tab objects
 
 /* globals messenger, window, document, console */
 const verbose = true;
@@ -20,7 +22,7 @@ let backgroundSuspended = false;
 let usagePopulated = false;
 let accountsPopulated = false;
 
-let activeTab = null;
+let activeTab = "classes";
 
 // buffer programatic updates when controls are unpopulated or disabled
 let bufferedSelectTab = undefined;
@@ -33,6 +35,7 @@ let accountIndex = {};
 let accounts = undefined;
 let selectedAccount = undefined;
 
+// port: connected to listening background page
 let port = null;
 
 let controls = {};
@@ -84,24 +87,35 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
             tab.advanced.controls.selectedAccount.value = "";
 
             // initialize the select control dropdown lists
+            console.log("editor.populateAccounts:", { updateAccounts: updateAccounts, updateSelectedAccount: updateSelectedAccount });
+
             let i = 0;
             accountIndex = {};
-            for (let [id, account] of Object.keys(updateAccounts)) {
+            for (let [id, account] of Object.entries(updateAccounts)) {
+                console.log({ i: i, id: id, account: account });
                 accountIndex[account.id] = i;
                 accountIndex[i] = account.id;
-                addAccountSelectRow(tab.classes.controls.accountSelect, id, account.name);
-                addAccountSelectRow(tab.books.controls.accountSelect, id, account.name);
+                addAccountSelectRow(tab.classes.controls.accountSelect, id, accountEmail(account));
+                addAccountSelectRow(tab.books.controls.accountSelect, id, accountEmail(account));
                 i++;
             }
 
             // set the accounts here and in the tabs that need them
             accounts = updateAccounts;
-            tab.classes.accounts = updateAccounts;
-            tab.books.accounts = updateAccounts;
-            tab.options.accounts = updateAccounts;
 
-            await tab.options.populate();
-            await tab.classes.populate();
+            /*
+            switch (activeTab) {
+                case "classes":
+                    await tab.classes.populate();
+                    break;
+                case "books":
+                    await tab.books.populate();
+                    break;
+                case "options":
+                    await tab.options.populate();
+                    break;
+            }
+	    */
 
             // enable the select controls
             await enableAccountControls(false);
@@ -116,7 +130,7 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
             accountsPopulated = true;
         }
 
-        await selectAccount(updateSelectedAccount);
+        await selectAccount(updateSelectedAccount.id);
 
         if (bufferedSelectTab) {
             console.log("applying buffered tab selection:", bufferedSelectTab);
@@ -137,6 +151,7 @@ function addAccountSelectRow(control, id, name) {
         const option = document.createElement("option");
         option.setAttribute("data-account-id", id);
         option.textContent = name;
+        console.log("addAccountSelectRow:", control, id, name);
         control.appendChild(option);
     } catch (e) {
         console.error(e);
@@ -161,22 +176,32 @@ function addAccountSelectRow(control, id, name) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-async function selectAccount(account) {
+// FIXME: this should be called updateSelectedAccountControlState
+async function selectAccount(accountId) {
     try {
-        let index = accountIndex[account.Id];
         if (verbose) {
-            console.log("selectAccount:", index, account);
+            console.log("selectAccount:", accountId);
+        }
+        if (typeof accountId !== "string") {
+            throw new Error("selectAccount: unexpected accountId type:", accountId);
+        }
+        let index = accountIndex[accountId];
+        const account = accounts[accountId];
+        if (index === undefined || account === undefined) {
+            console.error("selectAccount: unknown accountId:", accountId);
+            return false;
         }
         tab.classes.controls.accountSelect.selectedIndex = index;
-        await tab.classes.populate(account);
+        await tab.classes.populate();
         tab.books.controls.accountSelect.selectedIndex = index;
-        tab.books.populate(account);
-        tab.advanced.controls.selectedAccount.value = account.name;
+        tab.books.populate();
+        tab.advanced.controls.selectedAccount.value = accountEmail(account);
         tab.advanced.selectedAccount = account;
         selectedAccount = account;
         tab.classes.selectedAccount = account;
         tab.books.selectedAccount = account;
         tab.options.selectedAccount = account;
+        return true;
     } catch (e) {
         console.error(e);
     }
@@ -184,7 +209,7 @@ async function selectAccount(account) {
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-// event handler
+// event handlers
 //
 // handle classes and books select control changed events
 //
@@ -200,10 +225,10 @@ async function onAccountSelectChange(sender) {
             console.log("onAccountSelectChange:", index, sender.target.id);
         }
         if (sender.target === tab.classes.controls.accountSelect || sender.target === tab.books.controls.accountSelect) {
-            const account = accountIndex[index];
-            await selectAccount(account);
+            const accountId = accountIndex[index];
+            await selectAccount(accountId);
             // slected account changed by user action, inform the background page
-            await sendMessage({ id: "setSelectedAccount", account: account });
+            await sendMessage({ id: "selectAccount", account: accountId });
         } else {
             throw new Error("onAccountSelectChange: unexpected event sender:", sender);
         }
@@ -286,6 +311,7 @@ async function onTabShow(sender) {
         switch (sender.srcElement) {
             case controls.classesNavLink:
                 activeTab = "classes";
+                await tab.classes.populate();
                 break;
             case controls.booksNavLink:
                 activeTab = "books";
@@ -373,12 +399,27 @@ async function requestUsage() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
+async function handleENQ(message) {
+    try {
+        console.debug("editor.HandleENQ:", message);
+        let response = { id: "ACK", src: "editor", dst: message.src, cid: message.cid };
+        if (message.dst !== "editor") {
+            response.id = "NAK";
+        }
+        console.debug("returning:", response);
+        return response;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function handleUpdateEditorAccounts(message) {
     try {
         if (verbose) {
             console.log("handleUpdateEditorAccounts:", message);
         }
         await populateAccounts(message.accounts, message.selectedAccount);
+        return true;
     } catch (e) {
         console.error(e);
     }
@@ -390,6 +431,7 @@ async function handleUpdateEditorSelectedAccount(message) {
             console.log("handleUpdateEditorSelectedAccount:", message);
         }
         let warnings = [];
+        let success = false;
         if (!accountsPopulated) {
             warnings.push("handleUpdateEditorSelectedAccount: accounts not populated");
         }
@@ -407,8 +449,9 @@ async function handleUpdateEditorSelectedAccount(message) {
             });
             bufferedSelectAccount = message.account;
         } else {
-            await selectAccount(message.account);
+            success = await selectAccount(message.account.id);
         }
+        return success;
     } catch (e) {
         console.error(e);
     }
@@ -419,16 +462,19 @@ async function handleSelectEditorTab(message) {
         if (verbose) {
             console.log("handleSelectEditorTab:", message);
         }
-        let success = await selectTab(message.name);
-        if (!success) {
-            bufferedSelectTab = message.name;
-            console.warn("handleSelectEditorTab: tab disabled, buffering tab selection", message);
+        let tabName = message.name;
+        let success = await selectTab(tabName);
+        if (success !== true) {
+            bufferedSelectTab = tabName;
+            console.warn("handleSelectEditorTab: requested tab disabled, tab selection change deferred:", message);
         }
+        return success;
     } catch (e) {
         console.error(e);
     }
 }
 
+// return bool: true if successfully changed
 async function selectTab(name) {
     try {
         if (verbose) {
@@ -479,47 +525,86 @@ async function disableEditorControl(id, disable) {
     }
 }
 
-async function handleMessage(message, sender) {
+///////////////////////////////////////////////////////////////////////////////
+//
+//  messages handlers
+//
+///////////////////////////////////////////////////////////////////////////////
+
+async function connect() {
     try {
-        console.log("editor received:", message.id);
-        console.debug("editor received message:", message, sender);
-        switch (message.id) {
-            case "backgroundActivated":
-                await connectToBackground();
-                break;
+        if (port === null) {
+            console.log("editor: requesting background page...");
+            const background = await messenger.runtime.getBackgroundPage();
+            backgroundSuspended = false;
+            console.debug("background: page:", { url: background, suspended: backgroundSuspended });
+
+            console.log("editor: connecting to background ...");
+            port = await messenger.runtime.connect(undefined, { name: "editor" });
+            await port.onMessage.addListener(async (m, s, c) => {
+                await onMessage(m, s, c, port);
+            });
+            await port.onDisconnect.addListener(onDisconnect);
+            console.log("editor: connection pending on port:", port);
         }
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handlePortMessage(message, sender) {
+async function onMessage(message, sender, sendResponse, port = undefined) {
     try {
-        console.log("editor port received:", message.id);
-        console.debug("editor port received message:", message);
-        if (await requests.resolveResponses(message)) {
-            return;
+        if (verbose) {
+            console.debug("editor.onMessage:", message, sender, sendResponse, port);
         }
-        if (await requests.resolveRequests(message, sender)) {
-            return;
-        }
+        let response = undefined;
         switch (message.id) {
-            case "ping":
-                sender.postMessage({ id: "pong", src: "editor" });
+            case "ENQ":
+                response = await handleENQ(message);
                 break;
+
+            case "backgroundActivated":
+                await connect();
+                break;
+
             case "backgroundSuspending":
                 backgroundSuspended = true;
                 break;
+
+            case "selectEditorTab":
+                response = await handleSelectEditorTab(message);
+                break;
+
+            case "updateEditorAccounts":
+                response = handleUpdateEditorAccounts(message);
+                break;
+
+            case "updateEditorSelectedAccount":
+                response = await handleUpdateEditorSelectedAccount(message);
+                break;
+
+            default:
+                console.error("background: received unexpected message:", message, sender, sendResponse);
+                break;
         }
+        if (response !== undefined) {
+            if (typeof response !== "object") {
+                response = { result: response };
+            }
+            console.debug("editor.onMessage: sending response:", response);
+            sendResponse(response);
+            return true;
+        }
+        return false;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handlePortDisconnect(event) {
+async function onDisconnect(port) {
     try {
-        console.log("background port disconnected:", event);
-        console.log("backgroundSuspended:", backgroundSuspended);
+        console.log("editor: disconnected:", port);
+        console.log("editor: backgroundSuspended:", backgroundSuspended);
         port = null;
     } catch (e) {
         console.error(e);
@@ -529,27 +614,13 @@ async function handlePortDisconnect(event) {
 async function sendMessage(message) {
     try {
         if (port === null) {
-            await connectToBackground();
+            console.debug("SendMessage:", { port: port, message: message });
+            throw new Error("SendMessage: port not connected");
         }
-        return await requests.sendMessage(port, message);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function connectToBackground() {
-    try {
-        if (port === null) {
-            console.log("requesting background page...");
-            const background = await messenger.runtime.getBackgroundPage();
-            console.log("connecting to background page:", background);
-            port = await messenger.runtime.connect({ name: "editor" });
-            console.log("connected background port:", port);
-            backgroundSuspended = false;
-            port.onMessage.addListener(handlePortMessage);
-            port.onDisconnect.addListener(handlePortDisconnect);
-        }
-        //port.postMessage({ id: "ping", src: "editor" });
+        console.log("editor.sendMessage:", message);
+        let result = await port.postMessage(message);
+        console.log("editor.sendMessage returned:", result);
+        return result;
     } catch (e) {
         console.error(e);
     }
@@ -581,7 +652,9 @@ async function onLoad() {
         // set advanced tab visible state from the local.storage config
         await setAdvancedTabVisible();
 
-        await populateAccounts();
+        await connect();
+
+        //await populateAccounts();
 
         console.debug("editor page loaded");
     } catch (e) {
@@ -603,8 +676,8 @@ async function enableAccountControls(enabled) {
 
 async function onUnload() {
     try {
-        if (port) {
-            port.disconnect();
+        if (port !== null) {
+            await port.disconnect();
             port = null;
         }
     } catch (e) {
@@ -613,6 +686,9 @@ async function onUnload() {
 }
 
 async function onStorageChange(changes, areaName) {
+    if (verbose) {
+        console.debug("editor: onStorageChange:", changes, areaName);
+    }
     if (areaName == "local") {
         const change = changes.advancedTabVisible;
         if (change !== undefined) {
@@ -843,13 +919,8 @@ addControl("applyButton", "apply-button", "click", onApplyClick);
 addControl("okButton", "ok-button", "click", onOkClick);
 addControl("cancelButton", "cancel-button", "click", onCancelClick);
 
-// handlers for request port RPC commands
-requests.addHandler("selectEditorTab", handleSelectEditorTab);
-requests.addHandler("updateEditorAccounts", handleUpdateEditorAccounts);
-requests.addHandler("updateEditorSelectedAccount", handleUpdateEditorSelectedAccount);
-
-// handler for global runtime messages
-messenger.runtime.onMessage.addListener(handleMessage);
+// handler for runtime broadcast messages
+messenger.runtime.onMessage.addListener(onMessage);
 
 // DOM event handlers
 window.addEventListener("load", onLoad);

@@ -10,8 +10,8 @@ const DEFAULTS = {
     optInApproved: false,
     advancedTabVisible: false,
     autoDelete: true,
-    autoOpen: false,
-    autoClearConsole: true,
+    autoOpen: true,
+    autoClearConsole: false,
     minimizeCompose: true,
     preferredTheme: "auto",
     domain: {
@@ -102,7 +102,12 @@ class ConfigBase {
                 const updated = await this.storage.get([key]);
                 const readbackValue = updated[key];
                 if (differ(value, readbackValue)) {
-                    throw new Error("set: readback failed:", value, readbackValue);
+                    console.error("config.set: readback failed:", {
+                        key: key,
+                        value: value,
+                        readback: readbackValue,
+                    });
+                    throw new Error("set: readback failed:");
                 }
             }
         } catch (e) {

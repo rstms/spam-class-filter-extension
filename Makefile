@@ -13,7 +13,8 @@ html = $(notdir $(exported_html))
 package_files = manifest.json VERSION LICENSE README.md $(src) $(html) assets
 version != cat VERSION
 
-all: $(html) $(src) fmt lint assets .manifest
+all: $(html) $(src) fix fmt lint assets .manifest
+	touch manifest.json
 
 .manifest: manifest.json
 	jq . <$< >$<.parsed && mv $<.parsed $<
@@ -36,6 +37,12 @@ assets: exported/assets
 #popup.html: exported/popup.html
 #	sed '/<script>/,/<\/script>/d' $< >$@
 #
+
+fix: .eslint
+	fix -- docker run --rm -v "$$(pwd):/app" eslint fix *.js
+
+lint-shell: .eslint 
+	docker run -it --rm -v "$$(pwd):/app" eslint shell
 
 lint: .eslint 
 	docker run --rm -v "$$(pwd):/app" eslint *.js

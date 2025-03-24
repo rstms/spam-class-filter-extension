@@ -15,14 +15,23 @@ export class ClassesTab {
         this.disableEditorControl = disableEditorControl;
         this.sendMessage = sendMessage;
         this.cellTemplate = null;
-        this.accountNames = undefined;
         this.handlers = handlers;
-        this.accounts = undefined;
         this.selectedAccount = undefined;
+    }
+
+    selectAccount(account) {
+        try {
+            this.selectedAccount = account;
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     async getClasses(accountId) {
         try {
+            if (verbose) {
+                console.log("ClassesTab.getClasses:", this, accountId);
+            }
             await this.setStatusPending("requesting classes...");
             return await this.sendMessage({ id: "getClassLevels", accountId: accountId });
         } catch (e) {
@@ -268,7 +277,11 @@ export class ClassesTab {
 
     accountId() {
         try {
-            return selectedAccountId(this.controls.accountSelect);
+            const id = selectedAccountId(this.controls.accountSelect);
+            if (verbose) {
+                console.log("ClassesTab.accountId returning", id);
+            }
+            return id;
         } catch (e) {
             console.error(e);
         }
@@ -279,9 +292,26 @@ export class ClassesTab {
             if (verbose) {
                 console.log("BEGIN populateRows");
             }
+
+            let accountId = this.accountId();
+            console.debug("ClassesTab.populate: accountId:", accountId);
+
+            if (!accountId) {
+                throw new Error("ClassesTab.populate: invalid accountId", accountId);
+            }
+
             if (levels == undefined) {
                 levels = await this.getClasses(this.accountId());
             }
+
+            console.debug("ClassesTab.populate: levels:", levels);
+
+            if (!levels) {
+                throw new Error("ClassesTab.populate: invalid levels", levels);
+            }
+
+            console.debug("ClassesTab.populate: levels:", levels);
+
             if (!this.cellTemplate) {
                 if (dumpHTML) {
                     console.log(this.controls.tableBody.innerHTML);
@@ -347,16 +377,13 @@ export class ClassesTab {
 
     async updateClasses(sendToServer = false) {
         try {
-            const id = this.accountId();
-
             await this.setStatusPending("sending classes...");
             let state = await this.sendMessage({
                 id: sendToServer ? "sendClassLevels" : "setClassLevels",
-                accountId: id,
+                accountId: this.accountId(),
                 levels: this.getLevels(),
-                name: this.accountNames[id],
             });
-            return await this.updateClassesStatus(state);
+            await this.updateClassesStatus(state);
         } catch (e) {
             console.error(e);
         }

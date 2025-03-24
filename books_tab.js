@@ -4,8 +4,15 @@ export class BooksTab {
     constructor(sendMessage) {
         this.controls = {};
         this.sendMessage = sendMessage;
-        this.accounts = undefined;
         this.selectedAccount = undefined;
+    }
+
+    async selectAccount(account) {
+        try {
+            this.selectedAccount = account;
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     async populate() {

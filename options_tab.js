@@ -2,7 +2,7 @@ import { differ, reloadExtension } from "./common.js";
 import { config } from "./config.js";
 
 /* globals document, console */
-const verbose = true;
+const verbose = false;
 
 export class OptionsTab {
     constructor(sendMessage, handlers) {
@@ -11,8 +11,15 @@ export class OptionsTab {
         this.domainCheckbox = {};
         this.sendMessage = sendMessage;
         this.handlers = handlers;
-        this.accounts = undefined;
         this.selectedAccount = undefined;
+    }
+
+    async selectAccount(account) {
+        try {
+            this.selectedAccount = account;
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     createDomainRow(index, domain, enabled) {
@@ -71,9 +78,9 @@ export class OptionsTab {
             this.showDomainsButtons(false);
 
             // get domains from background page
-            const configDomains = await this.sendMessage({ id: "getAccountDomains" });
-            const activeDomains = await this.sendMessage({ id: "getActiveDomains" });
-            console.log({ configDomains: configDomains, activeDomains: activeDomains });
+            const configDomains = await this.sendMessage({ id: "getDomains" });
+            const enabledDomains = await this.sendMessage({ id: "getEnabledDomains" });
+            console.log({ configDomains: configDomains, enabledDomains: enabledDomains });
 
             var stack = this.controls.domainsStack;
             stack.innerHTML = "";
@@ -81,7 +88,7 @@ export class OptionsTab {
             this.pendingDomainConfig = {};
             var index = 0;
             for (const domain of Object.keys(configDomains).sort()) {
-                const enabled = activeDomains[domain] ? true : false;
+                const enabled = enabledDomains[domain] ? true : false;
                 console.log(index, domain, enabled);
                 const created = await this.createDomainRow(index, domain, enabled);
                 this.pendingDomainConfig[domain] = enabled;
@@ -105,7 +112,7 @@ export class OptionsTab {
 
     async updateDomainsApplyButton() {
         try {
-            const accountDomains = await this.sendMessage({ id: "getAccountDomains" });
+            const accountDomains = await this.sendMessage({ id: "getDomains" });
             const dirty = differ(this.pendingDomainConfig, accountDomains);
             console.log("updateDomainsApplyButton:", {
                 dirty: dirty,
@@ -131,9 +138,9 @@ export class OptionsTab {
 
     async onDomainsApplyClick() {
         try {
-            const accountDomains = await this.sendMessage({ id: "getAccountDomains" });
+            const accountDomains = await this.sendMessage({ id: "getDomains" });
             if (differ(this.pendingDomainConfig, accountDomains)) {
-                await this.sendMessage({ id: "setActiveDomains", domains: this.pendingDomainConfig });
+                await this.sendMessage({ id: "setDomains", domains: this.pendingDomainConfig });
                 await reloadExtension();
             }
         } catch (e) {

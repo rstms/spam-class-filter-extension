@@ -1,5 +1,5 @@
 import { sendEmailRequest } from "./email.js";
-import { differ } from "./common.js";
+import { differ, accountEmail } from "./common.js";
 
 /* global console */
 
@@ -266,9 +266,13 @@ export class FilterClasses extends FilterData {
                         throw new Error(`send result failed validation: ${validatedReturn.error}`);
                     }
                     if (differ(validated.items, validatedReturn.items)) {
-                        console.debug("account:", account);
-                        console.debug("validated.items:", returned);
-                        console.debug("validatedReturn.items:", validatedReturn.items);
+                        console.debug("FilterClasses.send: readback mismatch:", {
+                            account: account,
+                            validatedItems: validated.items,
+                            validatedReturn: validatedReturn,
+                            items: items,
+                            returned: returned,
+                        });
                         throw new Error("send result failed: readback mismatch");
                     }
                     delete this.classes.dirty[account.id];
@@ -405,7 +409,7 @@ export class FilterBooks extends FilterData {
                     throw new Error(`Validation failed: ${validated.message}`);
                 }
                 if (force || validated.dirty) {
-                    const username = account.identities[0].email;
+                    const username = accountEmail(account);
                     const command = "restore";
                     const request = { Dump: { Users: {} } };
                     request.Dump.Users[username] = validated.items;

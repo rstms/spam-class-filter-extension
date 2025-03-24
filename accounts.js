@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { domainPart } from "./common.js";
+import { accountEmail, accountDomain } from "./common.js";
 
 /* globals messenger, console */
 
@@ -13,13 +13,16 @@ const verbose = true;
 ///////////////////////////////////////////////////////////////////////////////
 
 export class Accounts {
-    constructor() {
-        this.activeDomainsInitialized = false;
+    constructor(sendEvents = false) {
+        console.log("Accounts.constructor:", this);
+        this.domainsInitialized = false;
+        this.lastSelection = undefined;
         this.listeners = new Set();
-        messenger.storage.onChanged.addListener(this.handleStorageChanged);
+        this.sendEvents = sendEvents;
     }
 
-    addSelectedAccountChangeListener(handler) {
+    // selected account change listener
+    addListener(handler) {
         try {
             this.listeners.set(handler);
         } catch (e) {
@@ -27,7 +30,7 @@ export class Accounts {
         }
     }
 
-    removeSelectedAccountChangeListener(handler) {
+    removeListener(handler) {
         try {
             this.listeners.delete(handler);
         } catch (e) {
@@ -35,8 +38,12 @@ export class Accounts {
         }
     }
 
-    getDefault(accounts) {
+    // return the first enabled account
+    async defaultAccount(accounts = undefined) {
         try {
+            if (accounts === undefined) {
+                accounts = await this.enabled();
+            }
             const keys = Object.keys(accounts).sort();
             return accounts[keys[0]];
         } catch (e) {
@@ -44,34 +51,15 @@ export class Accounts {
         }
     }
 
-    // NOTE: side effect: resets selectedAccount if the domain is not in the set of active domains
+    // return all imap accounts including disabled domains
     async all() {
         try {
             const accountList = await messenger.accounts.list();
-            const selectedAccount = await config.session.get("selectedAccount");
-            //const domains = await config.local.get("domain");
-            const domains = await this.activeDomains();
-            var selectedDomain = null;
-            if (selectedAccount) {
-                selectedDomain = domainPart(selectedAccount);
-            }
             var accounts = {};
             for (const account of accountList) {
                 if (account.type === "imap") {
-                    const domain = domainPart(account.identities[0].email);
-                    if (domains[domain]) {
-                        accounts[account.id] = account;
-                        if (domain === selectedDomain) {
-                            selectedDomain = domain;
-                        }
-                    }
+                    accounts[account.id] = account;
                 }
-            }
-            if (selectedAccount && !selectedDomain) {
-                const original = selectedAccount;
-                await this.select(this.getDefault(accounts));
-                console.warn("selected account not active, changing:", { original: original, current: selectedAccount });
-                // FIXME: send a runtime message notification of the account change
             }
             return accounts;
         } catch (e) {
@@ -79,61 +67,127 @@ export class Accounts {
         }
     }
 
-    async get(accountId) {
+    // return all imap accounts with enabled domains
+    async enabled() {
         try {
-            const accounts = await this.all();
-            return accounts[accountId];
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async getSelected() {
-        try {
-            let selectedAccount = await config.session.get("selectedAccount");
-            if (!selectedAccount) {
-                const accounts = await this.all();
-                selectedAccount = this.defaultAccount(accounts);
+            const enabledDomains = await this.enabledDomains();
+            const all = await this.all();
+            let accounts = {};
+            for (const account of Object.values(all)) {
+                const domain = accountDomain(account);
+                if (enabledDomains[domain] === true) {
+                    accounts[account.id] = account;
+                }
             }
-            return selectedAccount;
+            return accounts;
         } catch (e) {
             console.error(e);
         }
     }
 
-    // NOTE: returns default account if specified account is not enabled
-    // TODO: this needs to inform the editor
-    async select(account) {
+    // return enabled accounts or single enabled account by accountId if provided
+    async get(accountId = undefined) {
         try {
+            if (accountId === undefined) {
+                // return all enabled accounts keyed by id
+                return await this.enabled();
+            }
+            // return account with accountId
+            const accounts = await this.enabled();
+            const account = accounts[accountId];
+            // throw error if account is unknown or domain is not enabled
+            await this.isEnabled(account);
+            return account;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // return selected account or default selection if no selection is found
+    async selected() {
+        try {
+            let account = await config.session.get("selectedAccount");
+            if (account !== undefined && this.isEnabled(account, false)) {
+                return account;
+            }
+            return await this.defaultAccount();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // set selected account - takes accountID or account
+    // optional sendEvents flag overrides default setting
+    async select(account, sendEvents = undefined) {
+        try {
+            if (sendEvents === undefined) {
+                sendEvents = this.sendEvents;
+            }
+            // if account is string type, try it as an accountID
             if (typeof account === "string") {
                 let lookup = await this.get(account);
                 if (lookup === undefined) {
-                    throw new Error("unknown account:", account);
+                    throw new Error("unknown accountId:", account);
                 }
                 account = lookup;
             }
-            let previous = await this.getSelected();
+            // throw error if account is not valid and enabled
+            await this.isEnabled(account);
+            let previous = await this.selected();
             await config.session.set("selectedAccount", account);
-            let newAccount = await this.getSelected();
-            if (newAccount.id !== account.id) {
-                console.warn("select: changed account while selecting", { requested: account, returning: newAccount });
-            }
-            if (newAccount.id !== previous.id) {
-                for (const listener of this.listeners.keys()) {
-                    await listener(account);
+            if (sendEvents) {
+                if (account.id !== previous.id) {
+                    console.log("Account selected:", account.id);
+                    // notify listeners if changed
+                    for (const listener of this.listeners.keys()) {
+                        await listener(account);
+                    }
                 }
-                //await messenger.runtime.SendMessage({ id: "selectedAccountChanged", account: account, previous: previous });
             }
-            return newAccount;
         } catch (e) {
             console.error(e);
         }
     }
 
-    async getSelectedId() {
+    async selectedId() {
         try {
-            let selected = await this.getSelected();
-            return selected.id;
+            const account = await this.selected();
+            return account.id;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // check if account id is known
+    async isValid(account, throwError = true) {
+        try {
+            const accounts = await this.all();
+            if (accounts[account.id] !== undefined) {
+                return true;
+            }
+            if (throwError) {
+                throw new Error("unknown account:", account);
+            }
+            return false;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // check if account id is known and domain is enabled
+    async isEnabled(account, throwError = true) {
+        try {
+            if (!(await this.isValid(account, throwError))) {
+                return false;
+            }
+            const accounts = await this.enabled();
+            if (accounts[account.id] !== undefined) {
+                return true;
+            }
+            if (throwError) {
+                throw new Error("account domain not enabled:", account);
+            }
+            return false;
         } catch (e) {
             console.error(e);
         }
@@ -141,7 +195,7 @@ export class Accounts {
 
     ///////////////////////////////////////////////////////////////////////////////
     //
-    //  enabled account domain management
+    //  enabled account domains
     //
     ///////////////////////////////////////////////////////////////////////////////
 
@@ -155,7 +209,7 @@ export class Accounts {
             var domains = {};
             for (const account of accountList) {
                 if (account.type === "imap") {
-                    domains[domainPart(account.identities[0].email)] = true;
+                    domains[accountDomain(account)] = true;
                 }
             }
 
@@ -164,12 +218,14 @@ export class Accounts {
                 domains[domain] = configDomains[domain] === true ? true : false;
             }
 
+            // update local storage domains
             await this.setDomains(domains);
+
             if (verbose) {
                 console.log("domains:", { accounts: accountList, config: configDomains, control: domains });
             }
 
-            this.activeDomainsInitialized = true;
+            this.domainsInitialized = true;
 
             return domains;
         } catch (e) {
@@ -180,7 +236,7 @@ export class Accounts {
     async domains() {
         try {
             if (!this.domainsInitialized) {
-                await this.initDomains();
+                return await this.initDomains();
             }
             return await config.local.get("domain");
         } catch (e) {
@@ -188,16 +244,16 @@ export class Accounts {
         }
     }
 
-    async activeDomains() {
+    async enabledDomains() {
         try {
             const domains = await this.domains();
-            const activeDomains = {};
-            for (const [domain, active] of Object.entries(domains)) {
-                if (active) {
-                    activeDomains[domain] = true;
+            const enabledDomains = {};
+            for (const [domain, enabled] of Object.entries(domains)) {
+                if (enabled) {
+                    enabledDomains[domain] = true;
                 }
             }
-            return activeDomains;
+            return enabledDomains;
         } catch (e) {
             console.error(e);
         }
@@ -208,6 +264,11 @@ export class Accounts {
             let domains = await this.domains();
             domains[domain] = enabled;
             await this.setDomains(domains);
+            if (enabled) {
+                console.log("Domain enabled:", domain);
+            } else {
+                console.log("Domain disabled:", domain);
+            }
         } catch (e) {
             console.error(e);
         }
@@ -217,8 +278,10 @@ export class Accounts {
         try {
             let domains = await this.domains();
             let enabled = domains[domain];
-            console.assert(enabled !== undefined, "domainEnabled: unknown domain:", domain);
-            return domain === true ? true : false;
+            if (enabled === true || enabled === false) {
+                return enabled;
+            }
+            throw new Error("domainEnabled: unknown domain:", domain);
         } catch (e) {
             console.error(e);
         }
@@ -232,6 +295,12 @@ export class Accounts {
         }
     }
 
+    ///////////////////////////////////////////////////////////////////////////////
+    //
+    //  filter book selection for each account
+    //
+    ///////////////////////////////////////////////////////////////////////////////
+
     async selectedFilterBook(account) {
         try {
             let selected = await config.local.get("selectedFilterBookNames");
@@ -244,18 +313,22 @@ export class Accounts {
         }
     }
 
-    async setSelectedFilterBook(account, book) {
+    async selectFilterBook(account, book) {
         try {
             let bookName = book;
             if (typeof book === "object") {
                 bookName = book.name;
             }
-            console.assert(typeof bookName === "string", "unexpected book type", book);
+            if (typeof bookName !== "string") {
+                throw new Error("unexpected book type", book);
+            }
+            await this.isValid(account);
             let selected = await config.local.get("selectedFilterBookNames");
             if (selected === undefined) {
                 selected = {};
             }
             selected[account.id] = bookName;
+            console.log("FilterBook selected:", accountEmail(account), bookName);
             await config.local.set("selectedFilterBookNames", selected);
         } catch (e) {
             console.error(e);

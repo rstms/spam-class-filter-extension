@@ -14,7 +14,8 @@ if [ ! -e "${config_file}" ]; then
 fi
 
 case $cmd in 
-  shell) /bin/sh ;;
+  shell) shift && /bin/sh "$@" ;;
+  fix) shift && eslint -c ${config_file} "$@" --format unix | sed 's/\/app\///g';;
   config) cat /eslint.config.js;;
   *) eslint -c ${config_file}  "$@" ;;
 esac

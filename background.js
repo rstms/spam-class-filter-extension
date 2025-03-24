@@ -1,12 +1,15 @@
 import { FilterClasses, FilterBooks } from "./classes.js";
-import * as requests from "./requests.js";
+//import { Requests } from "./requests.js";
 import { config } from "./config.js";
 import { Accounts } from "./accounts.js";
 import * as ports from "./ports.js";
-import { findEditorTab } from "./common.js";
+import { findEditorTab, accountEmail } from "./common.js";
 import { sendEmailRequest, getMessageHeaders } from "./email.js";
+import { generateUUID } from "./common.js";
 
-/* globals messenger, console */
+/* globals messenger, console, setTimeout, clearTimeout  */
+
+const CONNECTION_HANDSHAKE_TIMEOUT = 5 * 1024;
 
 // FIXME: test when no imap accounts are present
 // FIXME  test when no domains are selected
@@ -17,7 +20,11 @@ const verbose = true;
 // Menus, Classes, Filterbooks data management objects
 let classesState = null;
 let filterBooksState = null;
-let accounts = new Accounts();
+
+let accounts = null;
+let pendingConnections = new Map();
+let cids = new Map();
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -27,18 +34,20 @@ let accounts = new Accounts();
 
 async function initialize(mode) {
     try {
-        if (verbose) {
-            console.log("background initialize:", mode);
-        }
         const manifest = await messenger.runtime.getManifest();
+        console.log(manifest.name + " v" + manifest.version + " (" + mode + ")");
         switch (mode) {
             case "installed":
                 if (await config.local.get("autoClearConsole")) {
                     console.clear();
                 }
-                console.log(manifest.name + " v" + manifest.version);
-                console.log("configuration:", await config.local.get());
+                if (verbose) {
+                    console.log("configuration:", await config.local.get());
+                }
                 break;
+        }
+        if (accounts === null) {
+            accounts = new Accounts();
         }
         await initMenus();
         const autoOpen = await config.local.get("autoOpen");
@@ -52,6 +61,55 @@ async function initialize(mode) {
         console.error(e);
     }
 }
+
+/*
+async function initRequests() {
+    try {
+        if (requests === null) {
+            requests = new Requests("background", handleConnected, handleDisconnected);
+            await requests.addHandler("getAccounts", handleGetAccounts);
+            await requests.addHandler("getSelectedAccount", handleGetSelectedAccount);
+            await requests.addHandler("selectAccount", handleSelectAccount);
+            await requests.addHandler("getDomains", handleGetDomains);
+            await requests.addHandler("getEnabledDomains", handleGetEnabledDomains);
+            await requests.addHandler("setDomains", handleSetDomains);
+            await requests.addHandler("setDomainEnabled", handleSetDomainEnabled);
+            await requests.addHandler("setClassLevels", handleSetClassLevels);
+            await requests.addHandler("getClassLevels", handleGetClassLevels);
+            await requests.addHandler("sendClassLevels", handleSendClassLevels);
+            await requests.addHandler("sendAllClassLevels", handleSendAllClassLevels);
+            await requests.addHandler("refreshAllClassLevels", handleRefreshAllClassLevels);
+            await requests.addHandler("setDefaultLevels", handleSetDefaultLevels);
+            await requests.addHandler("setAccountAddressBooks", setAccountAddressBooks);
+            await requests.addHandler("getAccountAddressBooks", getAccountAddressBooks);
+            await requests.addHandler("sendAccountAddressBooks", sendAccountAddressBooks);
+            await requests.addHandler("sendAllAddressBooks", sendAllAddressBooks);
+            await requests.addHandler("refreshAllAddressBooks", refreshAllAddressBooks);
+            await requests.addHandler("setConfigValue", handleSetConfigValue);
+            await requests.addHandler("getConfigValue", handleGetConfigValue);
+            await requests.addHandler("resetConfigToDefaults", handleResetConfigToDefaults);
+            await requests.addHandler("sendCommand", handleSendCommand);
+            //await messenger.runtime.onConnect.addListener(async (port) => {
+            //    await requests.onConnect(port);
+            //});
+            await requests.listen(
+                async (port) => {
+                    await requests.onConnect(port);
+                },
+                async (port) => {
+                    await requests.onMessage(port);
+                },
+                async (port) => {
+                    await requests.onDisconnect(port);
+                },
+            );
+            console.log("background: requests initialized:", requests);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+*/
 
 async function onStartup() {
     try {
@@ -84,6 +142,281 @@ async function onSuspend() {
 async function onSuspendCanceled() {
     try {
         await initialize("suspendCanceled");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+//  messages handler
+//
+///////////////////////////////////////////////////////////////////////////////
+
+let pendingConnections = new Map();
+
+async function onConnect(port) {
+    try {
+        if (verbose) {
+            console.debug("background.onConnect:", port);
+        }
+        port.onMessage.addListener(onPortMessage);
+        port.onDisconnect.addListener(onDisconnect);
+        let cid = generateUUID();
+	console.debug("connection pending:", port, cid);
+	pendingConnections.set(port, cid)
+
+	/*
+	let connection = {
+	    cid: cid, 
+	    port: port
+	    timer: setTimeout(() => {
+		if (pendingConnections.has(port)) {
+		    console.error("pending connection timeout:", cid);
+		    pendingConnections.delete(cid)
+		}
+
+            if (pendingConnections[port] !== undefined) {
+		pendingConnections.delete(port)
+                delete pendingConnections[cid];
+            }
+        }, CONNECTION_HANDSHAKE_TIMEOUT);
+
+	pendingConnections.set(port, connection);
+
+        let enquiry = { id: "ENQ", src: "background", dst: port.name, cid: cid };
+        console.debug("background.onConnect: sending:", enquiry);
+        let response = await messenger.runtime.SendMessage(port.postMessage(enquiry);
+        console.debug("ENQ response:", response);
+
+	*/
+
+        if (verbose) {
+            console.debug("returning from onConnect");
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+/*
+async function doHandshake(cid) {
+    try {
+        if (verbose) {
+            console.debug("background.doHandshake:", cid);
+        }
+        let port = pendingConnections[cid];
+        delete pendingConnections[cid];
+        console.debug("doHandshake port:", port, pendingConnections);
+        let enquiry = { id: "ENQ", src: "background", dst: port.name, cid: cid };
+        console.debug("sending:", enquiry);
+        let response = port.postMessage(enquiry);
+        console.debug("response:", response);
+        if (typeof response === "object" && response.id === "ACK" && response.cid == cid) {
+            ports.add(port);
+            console.log("background accepted connection from", response.src);
+            return "accepted";
+        } else {
+            port.onMessage.removeListener(onMessage);
+            port.onMessage.removeListener(onDisconnect);
+            port.disconnect();
+            console.error("rejected connection:", port);
+            return "rejected";
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+*/
+
+async function onMessage(message, sender, sendResponse) {
+    try {
+        if (verbose) {
+            console.debug("background.onMessage:", message, sender, sendResponse);
+        }
+        let response = undefined;
+        switch (message.id) {
+            case "ENQ":
+                await handleENQ(message, sender);
+                break;
+            case "ACK":
+                await handleACK(message, sender);
+                break;
+            case "NAK":
+                await handleNAK(message, sender);
+                break;
+            case "getAccounts":
+                response = await accounts.get();
+                break;
+            case "getSelectedAccount":
+                response = await accounts.selected();
+                break;
+            case "setSelectedAccount":
+                response = await accounts.select(message.accountId);
+                break;
+            case "getAllDomains":
+                response = await accounts.allDomains();
+                break;
+            case "getEnabledDomains":
+                response = await accounts.domains();
+                break;
+            case "setDomains":
+                response = await accounts.setDomains(message.domains);
+                break;
+            case "enableDomain":
+                response = await accounts.enableDomain(message.domain);
+                break;
+            case "disableDomain":
+                response = await accounts.disableDomain(message.domain);
+                break;
+            case "setClassLevels":
+                response = await handleSetClassLevels(message);
+                break;
+            case "getClassLevels":
+                response = await handleGetClassLevels(message);
+                break;
+            case "sendClassLevels":
+                response = await handleSendClassLevels(message);
+                break;
+            case "sendAllClassLevels":
+                response = await handleSendAllClassLevels(message);
+                break;
+            case "refreshAllClassLevels":
+                response = await handleRefreshAllClassLevels(message);
+                break;
+            case "setDefaultLevels":
+                response = await handleSetDefaultLevels(message);
+                break;
+            case "setAccountAddressBooks":
+                response = await setAccountAddressBooks(message);
+                break;
+            case "getAccountAddressBooks":
+                response = await getAccountAddressBooks(message);
+                break;
+            case "sendAccountAddressBooks":
+                response = await sendAccountAddressBooks(message);
+                break;
+            case "sendAllAddressBooks":
+                response = await sendAllAddressBooks(message);
+                break;
+            case "refreshAllAddressBooks":
+                response = await refreshAllAddressBooks(message);
+                break;
+            case "setConfigValue":
+                response = await handleSetConfigValue(message);
+                break;
+            case "getConfigValue":
+                response = await handleGetConfigValue(message);
+                break;
+            case "resetConfigToDefaults":
+                response = await handleResetConfigToDefaults(message);
+                break;
+            case "sendCommand":
+                response = await handleSendCommand(message);
+                break;
+            default:
+                console.error("background: received unexpected message:", message, sender, sendResponse);
+                break;
+        }
+        if (response !== undefined) {
+            if (typeof response !== "object") {
+                response = { result: response };
+            }
+            console.debug("background.onMessage: sending response:", response);
+            sendResponse(response);
+            return true;
+        }
+        return false;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onDisconnect(port) {
+    try {
+        if (verbose) {
+            console.debug("onDisconnect:", port);
+        }
+        ports.remove(port);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleENQ(message, sender) {
+    try {
+        if (verbose) {
+            console.debug("background.handleENQ:", message, sender);
+        }
+        if (message.dst !== "background") {
+            console.error("received ENQ for incorrect destination", message.dst);
+            return {id: "NAK", src: "background", dst: sender.name, detail: "invalid destination"};
+        }
+	if (!pendingConnections.has(sender) {
+            console.error("background received unexpected ENQ", message);
+	    return;
+	}
+        let port = pendingConnections.get(sender);
+        if (port === undefined) {
+        }
+        clearTimeout(pending.timer);
+        console.debug("pending:", pending);
+        console.debug("pending===sender:", pending.port === sender);
+        console.log("accepted connection from:", pending.port.name);
+        ports.add(pending.port);
+        return "connected";
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleACK(message, sender) {
+    try {
+        if (verbose) {
+            console.debug("background.handleACK:", message, sender);
+        }
+        if (message.dst !== "background") {
+            console.error("received ACK for incorrect destination", message.dst);
+            return "invalid destination";
+        }
+        let cid = message.cid;
+        let pending = pendingConnections[cid];
+        delete pendingConnections[cid];
+        if (cid === undefined || pending === undefined || pending.port === undefined) {
+            console.error("background received unexpected ACK", cid, pending.port);
+            return "unknown";
+        }
+        clearTimeout(pending.timer);
+        console.debug("pending:", pending);
+        console.debug("pending===sender:", pending.port === sender);
+        console.log("accepted connection from:", pending.port.name);
+        ports.add(pending.port);
+        return "connected";
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleNAK(message, sender) {
+    try {
+        if (verbose) {
+            console.debug("background.handleNAK:", message, sender);
+        }
+        if (message.dst !== "background") {
+            console.error("received NAK for incorrect destination:", message.dst);
+            return "invalid destination";
+        }
+        let cid = message.cid;
+        let pending = pendingConnections[cid];
+        delete pendingConnections[cid];
+        if (cid === undefined || pending === undefined || pending.port === undefined) {
+            console.error("background received unexpected NAK:", cid, pending.port);
+            return "unknown";
+        }
+        clearTimeout(pending.timer);
+        console.log("background received NAK, disconnecting:", cid, pending.port);
+        pending.port.disconnect();
+        return "disconnected";
     } catch (e) {
         console.error(e);
     }
@@ -174,7 +507,9 @@ async function updateMenu(id, properties) {
         }
         properties.id = id;
         let menuId = await messenger.menus.create(properties);
-        console.log("updateMenu: created:", properties);
+        if (verbose) {
+            console.log("updateMenu: created:", properties);
+        }
         console.assert(menuId === properties.id, "unexpected menuId:", { menuId: menuId, properties: properties, config: config });
     } catch (e) {
         console.error(e);
@@ -195,7 +530,9 @@ async function initMenus() {
 
 async function onMenuSelectAccount(info, tabs) {
     try {
-        console.log("onMenuSelectAccount:", info, tabs);
+        if (verbose) {
+            console.log("onMenuSelectAccount:", info, tabs);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -203,7 +540,9 @@ async function onMenuSelectAccount(info, tabs) {
 
 async function onMenuSelectFilterBook(info, tabs) {
     try {
-        console.log("onMenuSelectFilterBook:", info, tabs);
+        if (verbose) {
+            console.log("onMenuSelectFilterBook:", info, tabs);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -211,7 +550,9 @@ async function onMenuSelectFilterBook(info, tabs) {
 
 async function onMenuAddressBookShown(info, tabs) {
     try {
-        console.log("onMenuAddressBookShown:", info, tabs);
+        if (verbose) {
+            console.log("onMenuAddressBookShown:", info, tabs);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -238,8 +579,10 @@ async function menuContextAccountId(info) {
         if (accountId) {
             let account = await accounts.get(accountId);
             if (account) {
-                console.log("menuContextAccountId: setting selected account:", account);
-                await accounts.setSelected(account);
+                if (verbose) {
+                    console.log("menuContextAccountId: setting selected account:", account);
+                }
+                await accounts.select(account);
             }
         }
         return accountId;
@@ -280,7 +623,9 @@ async function onMenuClick(info, tab) {
             console.debug("onMenuClick:", { info: info, tab: tab });
         }
         if (menu[info.menuItemId] && menu[info.menuItemId].clicked) {
-            console.debug("calling menu clicked handler:", { menu: menu[info.menuItemId], info: info });
+            if (verbose) {
+                console.debug("calling menu clicked handler:", { menu: menu[info.menuItemId], info: info });
+            }
             await menu[info.menuItemId].clicked(info);
         }
     } catch (e) {
@@ -309,7 +654,9 @@ async function onMenuShown(info, tab) {
         } else {
             for (let menuId of info.menuIds) {
                 if (menu[menuId] && menu[menuId].shown) {
-                    console.debug("calling menu shown handler:", { menu: menu[menuId], info: info });
+                    if (verbose) {
+                        console.debug("calling menu shown handler:", { menu: menu[menuId], info: info });
+                    }
                     await menu[menuId].shown(menuId, info, tab);
                 }
             }
@@ -353,11 +700,11 @@ async function initSelectedAccountSubmenu(menuId, info, tab) {
         if (verbose) {
             console.debug("initSelectedAccountSubmenu:", menuId, info, tab);
         }
-        let selectedAccount = await accounts.getSelected();
-        for (let [accountId, account] of Object.entries(await accounts.all())) {
+        let selectedAccount = await accounts.selected();
+        for (let [accountId, account] of Object.entries(await accounts.get())) {
             let id = "rmfSelectedAccount_" + accountId;
             let properties = menu.rmfSelectedAccount.properties;
-            properties.title = account.name;
+            properties.title = accountEmail(account);
             properties.visible = accountId == selectedAccount.id;
             properties.checked = properties.visible && account.id === selectedAccount.id;
             properties.type = "checkbox";
@@ -375,21 +722,25 @@ async function initSelectedFilterBookSubmenu(menuId, info, tab) {
         if (verbose) {
             console.debug("initSelectedFilterBookSubmenu:", menuId, info, tab);
         }
-        let selectedAccount = await accounts.getSelected();
+        let selectedAccount = await accounts.selected();
         let filterBooks = await getFilterBooks();
-        console.log("initSelectedFilterBooksSubmenu:", {
-            selectedAccount: selectedAccount,
-            filterBooks: filterBooks,
-        });
-
-        for (let [accountId, account] of Object.entries(await accounts.all())) {
-            let books = filterBooks.get(account);
-            let selectedBook = await accounts.getSelectedFilterBook(account);
+        if (verbose) {
             console.log("initSelectedFilterBooksSubmenu:", {
-                accountId: accountId,
-                books: books,
-                selectedBook: selectedBook,
+                selectedAccount: selectedAccount,
+                filterBooks: filterBooks,
             });
+        }
+
+        for (let [accountId, account] of Object.entries(await accounts.get())) {
+            let books = filterBooks.get(account);
+            let selectedBook = await accounts.selectedFilterBook(account);
+            if (verbose) {
+                console.log("initSelectedFilterBooksSubmenu:", {
+                    accountId: accountId,
+                    books: books,
+                    selectedBook: selectedBook,
+                });
+            }
             for (let book of books) {
                 let id = "rmfSelectedFilterBook_" + accountId + "_" + book.name;
                 let properties = menu.rmfSelectedFilterBook.properties;
@@ -418,7 +769,7 @@ async function initAddSenderSubmenu(menuId, info, tab) {
         for (let [id, account] of Object.entries(accounts)) {
             let menuId = "rmfSelectedAccount_" + id;
             let properties = menu.rmfSelectedAccount.properties;
-            properties.title = account.name;
+            properties.title = accountEmail(account);
             properties.checked = account.id === selectedAccount.id;
             properties.type = "checkbox";
             await updateMenu(id, properties);
@@ -469,6 +820,7 @@ async function onMenuConnectFilterBooks(info) {
     }
 }
 
+/*
 async function getEditorPort(wait) {
     try {
         if (verbose) {
@@ -483,11 +835,12 @@ async function getEditorPort(wait) {
         console.error(e);
     }
 }
+*/
 
-async function focusEditorWindow(sendAccountId) {
+async function focusEditorWindow(sendAccountId = undefined) {
     try {
         if (verbose) {
-            console.debug("focusEditorWindow");
+            console.debug("focusEditorWindow:", sendAccountId);
         }
 
         if (!(await optInApproved())) {
@@ -519,14 +872,15 @@ async function focusEditorWindow(sendAccountId) {
             await messenger.tabs.create({ url: "./editor.html" });
         }
 
-        if (!port) {
-            port = await getEditorPort();
-        }
+        //if (!port) {
+        //    port = await getEditorPort();
+        //}
 
-        await requests.sendMessage(port, { id: "selectEditorTab", name: "classes" });
-        if (sendAccountId) {
-            await requests.sendMessage(port, { id: "selectAccount", accountId: sendAccountId });
-        }
+        // FIXME: try letting editor request what it needs
+        //await requests.sendMessage(port, { id: "selectEditorTab", name: "classes" });
+        //if (sendAccountId) {
+        //    await requests.sendMessage(port, { id: "selectAccount", accountId: sendAccountId });
+        //}
     } catch (e) {
         console.error(e);
     }
@@ -540,20 +894,28 @@ async function focusEditorWindow(sendAccountId) {
 
 async function onMenuAddSenderToFilterBook(info, tab) {
     try {
-        console.log("onMenuAddSenderToFilterBook:", { info: info, tab: tab });
+        if (verbose) {
+            console.log("onMenuAddSenderToFilterBook:", { info: info, tab: tab });
+        }
         const messageList = await messenger.messageDisplay.getDisplayedMessages(tab.id);
-        console.log("messageList:", messageList);
+        if (verbose) {
+            console.debug("messageList:", messageList);
+        }
         for (const message of messageList.messages) {
             const account = await accounts.get(message.folder.accountId);
             const headers = await getMessageHeaders(message);
-            console.log({ account: account, author: message.author, message: message, headers: headers });
+            if (verbose) {
+                console.debug({ account: account, author: message.author, message: message, headers: headers });
+            }
             const selectedBookName = "testbook";
             var sender = String(message.author)
                 .replace(/^[^<]*</g, "")
                 .replace(/>.*$/g, "");
             const command = "mkaddr " + selectedBookName + " " + sender;
             const response = await sendEmailRequest(account, command);
-            console.log({ response: response });
+            if (verbose) {
+                console.debug({ response: response });
+            }
         }
     } catch (e) {
         console.error(e);
@@ -562,7 +924,9 @@ async function onMenuAddSenderToFilterBook(info, tab) {
 
 async function onMessageDisplayActionClicked(tab, info) {
     try {
-        console.log("message display action clicked, relaying to menu clicked handler");
+        if (verbose) {
+            console.debug("message display action clicked, relaying to menu clicked handler");
+        }
         await onMenuAddSenderToFilterBook(info, tab);
     } catch (e) {
         console.error(e);
@@ -580,7 +944,7 @@ messenger.messageDisplayAction.onClicked.addListener(onMessageDisplayActionClick
 async function loadFilterClasses(force = false) {
     try {
         const classes = await getFilterClasses();
-        for (const account of Object.values(await accounts.all())) {
+        for (const account of Object.values(await accounts.get())) {
             await classes.get(account, force);
         }
         await saveFilterClasses(classes);
@@ -593,7 +957,7 @@ async function getFilterClasses() {
     try {
         if (classesState === null) {
             const state = await config.session.get("filterClassesState");
-            classesState = new FilterClasses(state, await accounts.all(), await findEditorTab());
+            classesState = new FilterClasses(state, await accounts.get(), await findEditorTab());
         }
         return classesState;
     } catch (e) {
@@ -610,75 +974,6 @@ async function saveFilterClasses(classes) {
     }
 }
 
-async function getClassLevels(message) {
-    try {
-        const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        const levels = await classes.get(account);
-        return levels;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function setClassLevels(message) {
-    try {
-        const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        const validationResult = await classes.set(account, message.levels);
-        await saveFilterClasses(classes);
-        return validationResult;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function sendClassLevels(message) {
-    try {
-        const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        let validationResult = await classes.set(account, message.levels);
-        if (validationResult.valid) {
-            validationResult = await await classes.send(account);
-        }
-        await saveFilterClasses(classes);
-        return validationResult;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function sendAllClassLevels(message) {
-    try {
-        const classes = await getFilterClasses();
-        const result = await classes.sendAll(await accounts.all(), message.force);
-        await saveFilterClasses(classes);
-        return result;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function refreshAllClassLevels() {
-    try {
-        await loadFilterClasses(true);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function setDefaultLevels(message) {
-    try {
-        const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        const result = await classes.setDefaultItems(account);
-        await saveFilterClasses(classes);
-        return result;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 //
 //  FilterBooks data management
@@ -690,7 +985,7 @@ async function getFilterBooks() {
     try {
         if (filterBooksState === null) {
             const state = await config.session.get("filterBooksState");
-            filterBooksState = new FilterBooks(state, accounts, await findEditorTab());
+            filterBooksState = new FilterBooks(state, await accounts.get(), await findEditorTab());
         }
         return filterBooksState;
     } catch (e) {
@@ -701,7 +996,7 @@ async function getFilterBooks() {
 async function loadFilterBooks(force = false) {
     try {
         const books = await getFilterBooks();
-        for (const account of Object.values(accounts.all())) {
+        for (const account of Object.values(accounts.get())) {
             await books.get(account, force);
         }
         await saveFilterBooks(books);
@@ -760,7 +1055,7 @@ async function sendAccountAddressBooks(message) {
 async function sendAllAddressBooks(message) {
     try {
         const filterBooks = await getFilterBooks();
-        const result = await filterBooks.sendAll(await accounts.all(), message.force);
+        const result = await filterBooks.sendAll(await accounts.get(), message.force);
         await saveFilterBooks(filterBooks);
         return result;
     } catch (e) {
@@ -785,8 +1080,7 @@ async function refreshAllAddressBooks() {
 async function onRuntimeMessage(message, sender, callback) {
     try {
         if (verbose) {
-            console.debug("background listener received:", message.id);
-            console.debug("background listener received message:", message, sender, callback);
+            console.debug("background received broadcast message:", message, sender, callback);
         }
         switch (message.id) {
             case "focusEditorWindow":
@@ -798,80 +1092,86 @@ async function onRuntimeMessage(message, sender, callback) {
     }
 }
 
-// requests port message handler
-async function onPortMessage(message, sender) {
-    try {
-        if (verbose) {
-            console.log("background port received:", message.id);
-            console.debug("background port received message:", message);
-        }
-        // resolve responses to our request messages
-        if (await requests.resolveResponses(message)) {
-            return;
-        }
-        if (await requests.resolveRequests(message, sender)) {
-            return;
-        }
-        // message not handled by requests
-        switch (message.id) {
-            case "ping":
-                sender.postMessage({ id: "pong", src: "background" });
-                break;
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onPortDisconnect(port) {
-    try {
-        if (verbose) {
-            console.debug("background got disconnect:", port);
-        }
-        ports.remove(port);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onPortConnect(port) {
-    try {
-        if (verbose) {
-            console.debug("background got connection:", port);
-        }
-        ports.add(port);
-        port.onMessage.addListener(onPortMessage);
-        port.onDisconnect.addListener(onPortDisconnect);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 //
 //  runtime and requests RPC handlers
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-async function handleGetAccounts() {
-    try {
-        return accounts.all();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleGetSelectedAccount() {
-    try {
-        return accounts.selected();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleSetSelectedAccount(message) {
+/*
+async function handleSelectAccount(message) {
     try {
         return accounts.select(message.account);
+    } catch (e) {
+        console.error(e);
+    }
+}
+*/
+
+async function handleGetClassLevels(message) {
+    try {
+        const account = await accounts.get(message.accountId);
+        const classes = await getFilterClasses();
+        const levels = await classes.get(account);
+        return levels;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSetClassLevels(message) {
+    try {
+        const account = await accounts.get(message.accountId);
+        const classes = await getFilterClasses();
+        const validationResult = await classes.set(account, message.levels);
+        await saveFilterClasses(classes);
+        return validationResult;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSendClassLevels(message) {
+    try {
+        const account = await accounts.get(message.accountId);
+        const classes = await getFilterClasses();
+        let validationResult = await classes.set(account, message.levels);
+        if (validationResult.valid) {
+            validationResult = await await classes.send(account);
+        }
+        await saveFilterClasses(classes);
+        return validationResult;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSendAllClassLevels(message) {
+    try {
+        const classes = await getFilterClasses();
+        const result = await classes.sendAll(await accounts.get(), message.force);
+        await saveFilterClasses(classes);
+        return result;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleRefreshAllClassLevels() {
+    try {
+        await loadFilterClasses(true);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSetDefaultLevels(message) {
+    try {
+        const account = await accounts.get(message.accountId);
+        const classes = await getFilterClasses();
+        const result = await classes.setDefaultItems(account);
+        await saveFilterClasses(classes);
+        return result;
     } catch (e) {
         console.error(e);
     }
@@ -910,7 +1210,7 @@ async function handleSendCommand(message) {
         if (message.accountId !== undefined) {
             account = await accounts.get(message.accountId);
         } else {
-            account = await accounts.getSelected();
+            account = await accounts.selected();
         }
         var command = message.command.trim();
         if (message.argument) {
@@ -922,13 +1222,39 @@ async function handleSendCommand(message) {
     }
 }
 
-async function handleSetActiveDomains(message) {
+/*
+async function handleGetDomains() {
+    try {
+        return await accounts.domains();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleGetEnabledDomains() {
+    try {
+        return await accounts.enabledDomains();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSetDomains(message) {
     try {
         return await accounts.setDomains(message.domains);
     } catch (e) {
         console.error(e);
     }
 }
+
+async function handleSetDomainEnabled(message) {
+    try {
+        return await accounts.setDomainEnabled(message.domain, message.enabled);
+    } catch (e) {
+        console.error(e);
+    }
+}
+*/
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -938,7 +1264,9 @@ async function handleSetActiveDomains(message) {
 
 async function onWindowCreated(info) {
     try {
-        console.log("onWindowCreated:", info);
+        if (verbose) {
+            console.debug("onWindowCreated:", info);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -946,7 +1274,9 @@ async function onWindowCreated(info) {
 
 async function onTabCreated(tab) {
     try {
-        console.log("onTabCreated:", tab);
+        if (verbose) {
+            console.debug("onTabCreated:", tab);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -954,7 +1284,9 @@ async function onTabCreated(tab) {
 
 async function onTabActivated(tab) {
     try {
-        console.log("onTabActivated:", tab);
+        if (verbose) {
+            console.debug("onTabActivated:", tab);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -965,9 +1297,13 @@ async function onTabActivated(tab) {
 
 async function onTabUpdated(tabId, changeInfo, tab) {
     try {
-        console.log("onTabUpdated:", { tabId: tabId, changeInfo: changeInfo, tab: tab });
+        if (verbose) {
+            console.debug("onTabUpdated:", { tabId: tabId, changeInfo: changeInfo, tab: tab });
+        }
         if (tab.status === "complete" && tab.type === "addressBook") {
-            console.log("address book tab opened");
+            if (verbose) {
+                console.log("address book tab opened");
+            }
         }
     } catch (e) {
         console.error(e);
@@ -976,7 +1312,9 @@ async function onTabUpdated(tabId, changeInfo, tab) {
 
 async function onTabRemoved(tabId, removeInfo) {
     try {
-        console.log("onTabRemoved:", { tabId: tabId, removeInfo: removeInfo });
+        if (verbose) {
+            console.debug("onTabRemoved:", { tabId: tabId, removeInfo: removeInfo });
+        }
     } catch (e) {
         console.error(e);
     }
@@ -984,9 +1322,13 @@ async function onTabRemoved(tabId, removeInfo) {
 
 async function getConnectedFilterBooks() {
     try {
-        console.log("getConnectedFilterBooks");
+        if (verbose) {
+            console.log("getConnectedFilterBooks");
+        }
         const books = await messenger.cardDAV.getBooks();
-        console.log("connected cardDAV books:", books);
+        if (verbose) {
+            console.log("connected cardDAV books:", books);
+        }
         return books;
     } catch (e) {
         console.error(e);
@@ -1016,40 +1358,11 @@ async function createAddressBook() {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-// requests message handlers
-requests.addHandler("getAccounts", handleGetAccounts);
-requests.addHandler("getSelectedAccount", handleGetSelectedAccount);
-requests.addHandler("setSelectedAccount", handleSetSelectedAccount);
-
-requests.addHandler("getAccountDomains", accounts.domains);
-requests.addHandler("getActiveDomains", accounts.activeDomains);
-requests.addHandler("setActiveDomains", handleSetActiveDomains);
-
-requests.addHandler("setClassLevels", setClassLevels);
-requests.addHandler("getClassLevels", getClassLevels);
-requests.addHandler("sendClassLevels", sendClassLevels);
-requests.addHandler("sendAllClassLevels", sendAllClassLevels);
-requests.addHandler("refreshAllClassLevels", refreshAllClassLevels);
-requests.addHandler("setDefaultLevels", setDefaultLevels);
-
-requests.addHandler("setAccountAddressBooks", setAccountAddressBooks);
-requests.addHandler("getAccountAddressBooks", getAccountAddressBooks);
-requests.addHandler("sendAccountAddressBooks", sendAccountAddressBooks);
-requests.addHandler("sendAllAddressBooks", sendAllAddressBooks);
-requests.addHandler("refreshAllAddressBooks", refreshAllAddressBooks);
-
-requests.addHandler("setConfigValue", handleSetConfigValue);
-requests.addHandler("getConfigValue", handleGetConfigValue);
-requests.addHandler("resetConfigToDefaults", handleResetConfigToDefaults);
-
-requests.addHandler("sendCommand", handleSendCommand);
-
 // API event handlers
 messenger.runtime.onStartup.addListener(onStartup);
 messenger.runtime.onInstalled.addListener(onInstalled);
 messenger.runtime.onSuspend.addListener(onSuspend);
 messenger.runtime.onSuspendCanceled.addListener(onSuspendCanceled);
-messenger.runtime.onConnect.addListener(onPortConnect);
 messenger.runtime.onMessage.addListener(onRuntimeMessage);
 
 messenger.windows.onCreated.addListener(onWindowCreated);
@@ -1061,5 +1374,9 @@ messenger.tabs.onRemoved.addListener(onTabRemoved);
 
 messenger.menus.onClicked.addListener(onMenuClick);
 messenger.menus.onShown.addListener(onMenuShown);
+
+//requests = new Requests();
+//messenger.runtime.OnConnect.addListener(async (port) => {await requests.onConnect(port);});
+messenger.runtime.onConnect.addListener(onConnect);
 
 console.log("background page loaded");

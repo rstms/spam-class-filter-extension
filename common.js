@@ -113,3 +113,19 @@ export function selectedAccountId(accountSelect) {
         console.error(e);
     }
 }
+
+export function accountEmail(account) {
+    try {
+        return account.identities[0].email;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export function accountDomain(account) {
+    try {
+        return domainPart(account.identities[0].email);
+    } catch (e) {
+        console.error(e);
+    }
+}
