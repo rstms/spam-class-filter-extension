@@ -486,11 +486,21 @@ export class ClassesTab {
         }
     }
 
-    async onRefreshClick() {
+    async onRefreshAllClick() {
         try {
             await this.setStatusPending("requesting all classes...");
             await this.sendMessage("refreshAllClassLevels");
             const levels = await this.getClasses(this.accountId());
+            await this.populate(levels);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async onRefreshClick() {
+        try {
+            await this.setStatusPending("requesting classes...");
+            const levels = await this.sendMessage({ id: "refreshClassLevels", accountId: this.accountId() });
             await this.populate(levels);
         } catch (e) {
             console.error(e);

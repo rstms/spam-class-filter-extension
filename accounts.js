@@ -4,7 +4,7 @@ import { accountEmail, accountDomain } from "./common.js";
 /* globals messenger, console */
 
 // control flags
-const verbose = true;
+const verbose = false;
 
 ///////////////////////////////////////////////////////////////////////////////
 //

@@ -1,5 +1,4 @@
 import { FilterClasses, FilterBooks } from "./classes.js";
-//import { Requests } from "./requests.js";
 import { config } from "./config.js";
 import { Accounts } from "./accounts.js";
 import * as ports from "./ports.js";
@@ -7,24 +6,22 @@ import { findEditorTab, accountEmail } from "./common.js";
 import { sendEmailRequest, getMessageHeaders } from "./email.js";
 import { generateUUID } from "./common.js";
 
-/* globals messenger, console, setTimeout, clearTimeout  */
-
-const CONNECTION_HANDSHAKE_TIMEOUT = 5 * 1024;
+/* globals messenger, console */
 
 // FIXME: test when no imap accounts are present
 // FIXME  test when no domains are selected
 
 // control flags
-const verbose = true;
+const verbose = false;
 
 // Menus, Classes, Filterbooks data management objects
 let classesState = null;
 let filterBooksState = null;
 
 let accounts = null;
-let pendingConnections = new Map();
-let cids = new Map();
 
+let pendingConnections = new Map();
+const backgroundId = "background-" + generateUUID();
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -130,10 +127,7 @@ async function onInstalled() {
 async function onSuspend() {
     try {
         console.log("background suspending");
-        const port = await ports.get("editor", ports.NO_WAIT);
-        if (port) {
-            port.postMessage({ id: "backgroundSuspending" });
-        }
+        await messenger.runtime.sendMessage({ id: "backgroundSuspending", src: backgroundId });
     } catch (e) {
         console.error(e);
     }
@@ -153,43 +147,19 @@ async function onSuspendCanceled() {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-let pendingConnections = new Map();
-
 async function onConnect(port) {
     try {
         if (verbose) {
-            console.debug("background.onConnect:", port);
+            console.debug("onConnect:", port);
         }
         port.onMessage.addListener(onPortMessage);
         port.onDisconnect.addListener(onDisconnect);
-        let cid = generateUUID();
-	console.debug("connection pending:", port, cid);
-	pendingConnections.set(port, cid)
-
-	/*
-	let connection = {
-	    cid: cid, 
-	    port: port
-	    timer: setTimeout(() => {
-		if (pendingConnections.has(port)) {
-		    console.error("pending connection timeout:", cid);
-		    pendingConnections.delete(cid)
-		}
-
-            if (pendingConnections[port] !== undefined) {
-		pendingConnections.delete(port)
-                delete pendingConnections[cid];
-            }
-        }, CONNECTION_HANDSHAKE_TIMEOUT);
-
-	pendingConnections.set(port, connection);
-
-        let enquiry = { id: "ENQ", src: "background", dst: port.name, cid: cid };
-        console.debug("background.onConnect: sending:", enquiry);
-        let response = await messenger.runtime.SendMessage(port.postMessage(enquiry);
-        console.debug("ENQ response:", response);
-
-	*/
+        if (pendingConnections.has(port.name)) {
+            console.warn("onConnect: pending connection exists:", port.name);
+        }
+        pendingConnections.set(port.name, port);
+        console.log("background received connection request:", port.name);
+        port.postMessage({ id: "ENQ", src: backgroundId, dst: port.name });
 
         if (verbose) {
             console.debug("returning from onConnect");
@@ -199,66 +169,78 @@ async function onConnect(port) {
     }
 }
 
-/*
-async function doHandshake(cid) {
+async function onPortMessage(message, sender) {
     try {
         if (verbose) {
-            console.debug("background.doHandshake:", cid);
+            console.debug("background.onPortMessage:", message, sender);
         }
-        let port = pendingConnections[cid];
-        delete pendingConnections[cid];
-        console.debug("doHandshake port:", port, pendingConnections);
-        let enquiry = { id: "ENQ", src: "background", dst: port.name, cid: cid };
-        console.debug("sending:", enquiry);
-        let response = port.postMessage(enquiry);
-        console.debug("response:", response);
-        if (typeof response === "object" && response.id === "ACK" && response.cid == cid) {
-            ports.add(port);
-            console.log("background accepted connection from", response.src);
-            return "accepted";
-        } else {
-            port.onMessage.removeListener(onMessage);
-            port.onMessage.removeListener(onDisconnect);
-            port.disconnect();
-            console.error("rejected connection:", port);
-            return "rejected";
-        }
+        console.error("unexpected port message:", message, sender);
     } catch (e) {
         console.error(e);
     }
 }
-*/
 
-async function onMessage(message, sender, sendResponse) {
+async function onMessage(message, sender) {
     try {
         if (verbose) {
-            console.debug("background.onMessage:", message, sender, sendResponse);
+            console.debug("background.onMessage:", message, sender);
         }
+
         let response = undefined;
+
+        // process messages not requiring connection
         switch (message.id) {
-            case "ENQ":
-                await handleENQ(message, sender);
-                break;
+            case "focusEditorWindow":
+                await focusEditorWindow(message.accountId);
+                return false;
+        }
+
+        if (message.src === undefined || message.dst === undefined) {
+            console.error("missing src/dst, discarding:", message);
+            return false;
+        }
+
+        if (message.dst !== backgroundId) {
+            console.error("unexpected dst ID, discarding:", message);
+            return false;
+        }
+
+        let port = undefined;
+
+        if (message.id === "ACK") {
+            port = pendingConnections.get(message.src);
+        } else {
+            port = ports.get(message.src, ports.NO_WAIT);
+        }
+
+        if (port === undefined) {
+            console.error("unexpected src ID, discarding:", message);
+            return false;
+        }
+
+        switch (message.id) {
             case "ACK":
-                await handleACK(message, sender);
+                console.log("background accepted connection:", port.name);
+                ports.add(port);
+                pendingConnections.delete(port.name);
+                response = { background: backgroundId };
+                response[ports.portLabel(port)] = port.name;
                 break;
-            case "NAK":
-                await handleNAK(message, sender);
-                break;
+
             case "getAccounts":
                 response = await accounts.get();
                 break;
             case "getSelectedAccount":
                 response = await accounts.selected();
                 break;
-            case "setSelectedAccount":
-                response = await accounts.select(message.accountId);
+            case "selectAccount":
+                response = await accounts.select(message.account);
                 break;
-            case "getAllDomains":
-                response = await accounts.allDomains();
+            case "getDomains":
+                response = await accounts.domains();
                 break;
             case "getEnabledDomains":
-                response = await accounts.domains();
+                response = await accounts.enabledDomains();
                 break;
             case "setDomains":
                 response = await accounts.setDomains(message.domains);
@@ -280,6 +262,9 @@ async function onMessage(message, sender, sendResponse) {
                 break;
             case "sendAllClassLevels":
                 response = await handleSendAllClassLevels(message);
+                break;
+            case "refreshClassLevels":
+                response = await handleRefreshClassLevels(message);
                 break;
             case "refreshAllClassLevels":
                 response = await handleRefreshAllClassLevels(message);
@@ -315,7 +300,7 @@ async function onMessage(message, sender, sendResponse) {
                 response = await handleSendCommand(message);
                 break;
             default:
-                console.error("background: received unexpected message:", message, sender, sendResponse);
+                console.error("background: received unexpected message:", message, sender);
                 break;
         }
         if (response !== undefined) {
@@ -323,10 +308,8 @@ async function onMessage(message, sender, sendResponse) {
                 response = { result: response };
             }
             console.debug("background.onMessage: sending response:", response);
-            sendResponse(response);
-            return true;
         }
-        return false;
+        return response;
     } catch (e) {
         console.error(e);
     }
@@ -338,85 +321,6 @@ async function onDisconnect(port) {
             console.debug("onDisconnect:", port);
         }
         ports.remove(port);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleENQ(message, sender) {
-    try {
-        if (verbose) {
-            console.debug("background.handleENQ:", message, sender);
-        }
-        if (message.dst !== "background") {
-            console.error("received ENQ for incorrect destination", message.dst);
-            return {id: "NAK", src: "background", dst: sender.name, detail: "invalid destination"};
-        }
-	if (!pendingConnections.has(sender) {
-            console.error("background received unexpected ENQ", message);
-	    return;
-	}
-        let port = pendingConnections.get(sender);
-        if (port === undefined) {
-        }
-        clearTimeout(pending.timer);
-        console.debug("pending:", pending);
-        console.debug("pending===sender:", pending.port === sender);
-        console.log("accepted connection from:", pending.port.name);
-        ports.add(pending.port);
-        return "connected";
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleACK(message, sender) {
-    try {
-        if (verbose) {
-            console.debug("background.handleACK:", message, sender);
-        }
-        if (message.dst !== "background") {
-            console.error("received ACK for incorrect destination", message.dst);
-            return "invalid destination";
-        }
-        let cid = message.cid;
-        let pending = pendingConnections[cid];
-        delete pendingConnections[cid];
-        if (cid === undefined || pending === undefined || pending.port === undefined) {
-            console.error("background received unexpected ACK", cid, pending.port);
-            return "unknown";
-        }
-        clearTimeout(pending.timer);
-        console.debug("pending:", pending);
-        console.debug("pending===sender:", pending.port === sender);
-        console.log("accepted connection from:", pending.port.name);
-        ports.add(pending.port);
-        return "connected";
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleNAK(message, sender) {
-    try {
-        if (verbose) {
-            console.debug("background.handleNAK:", message, sender);
-        }
-        if (message.dst !== "background") {
-            console.error("received NAK for incorrect destination:", message.dst);
-            return "invalid destination";
-        }
-        let cid = message.cid;
-        let pending = pendingConnections[cid];
-        delete pendingConnections[cid];
-        if (cid === undefined || pending === undefined || pending.port === undefined) {
-            console.error("background received unexpected NAK:", cid, pending.port);
-            return "unknown";
-        }
-        clearTimeout(pending.timer);
-        console.log("background received NAK, disconnecting:", cid, pending.port);
-        pending.port.disconnect();
-        return "disconnected";
     } catch (e) {
         console.error(e);
     }
@@ -820,23 +724,6 @@ async function onMenuConnectFilterBooks(info) {
     }
 }
 
-/*
-async function getEditorPort(wait) {
-    try {
-        if (verbose) {
-            console.log("awaiting editor port connection...");
-        }
-        var port = await ports.get("editor", ports, wait);
-        if (verbose) {
-            console.log("detected editor port connection");
-        }
-        return port;
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
 async function focusEditorWindow(sendAccountId = undefined) {
     try {
         if (verbose) {
@@ -863,7 +750,7 @@ async function focusEditorWindow(sendAccountId = undefined) {
                 if (verbose) {
                     console.log("sending activated notification");
                 }
-                messenger.runtime.sendMessage({ id: "backgroundActivated" });
+                await messenger.runtime.sendMessage({ id: "backgroundActivated", src: backgroundId });
                 if (verbose) {
                     console.log("activated notificaton sent");
                 }
@@ -1016,7 +903,7 @@ async function saveFilterBooks(filterBooks) {
 
 async function getAccountAddressBooks(message) {
     try {
-        const account = await accounts.get(message.accountId);
+        const account = await accounts.get(message.account);
         const filterBooks = await getFilterBooks();
         const books = await filterBooks.get(account);
         return books;
@@ -1073,28 +960,7 @@ async function refreshAllAddressBooks() {
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-//  runtime and requests message and connnection handlers
-//
-///////////////////////////////////////////////////////////////////////////////
-
-async function onRuntimeMessage(message, sender, callback) {
-    try {
-        if (verbose) {
-            console.debug("background received broadcast message:", message, sender, callback);
-        }
-        switch (message.id) {
-            case "focusEditorWindow":
-                await focusEditorWindow(message.accountId);
-                break;
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  runtime and requests RPC handlers
+//  runtime message handlers
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1152,6 +1018,17 @@ async function handleSendAllClassLevels(message) {
         const result = await classes.sendAll(await accounts.get(), message.force);
         await saveFilterClasses(classes);
         return result;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleRefreshClassLevels(message) {
+    try {
+        const account = await accounts.get(message.accountId);
+        const classes = await getFilterClasses();
+        const levels = await classes.get(account, true);
+        return levels;
     } catch (e) {
         console.error(e);
     }
@@ -1363,7 +1240,6 @@ messenger.runtime.onStartup.addListener(onStartup);
 messenger.runtime.onInstalled.addListener(onInstalled);
 messenger.runtime.onSuspend.addListener(onSuspend);
 messenger.runtime.onSuspendCanceled.addListener(onSuspendCanceled);
-messenger.runtime.onMessage.addListener(onRuntimeMessage);
 
 messenger.windows.onCreated.addListener(onWindowCreated);
 
@@ -1375,8 +1251,7 @@ messenger.tabs.onRemoved.addListener(onTabRemoved);
 messenger.menus.onClicked.addListener(onMenuClick);
 messenger.menus.onShown.addListener(onMenuShown);
 
-//requests = new Requests();
-//messenger.runtime.OnConnect.addListener(async (port) => {await requests.onConnect(port);});
 messenger.runtime.onConnect.addListener(onConnect);
+messenger.runtime.onMessage.addListener(onMessage);
 
 console.log("background page loaded");

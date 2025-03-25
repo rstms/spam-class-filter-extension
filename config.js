@@ -2,16 +2,18 @@ import { differ } from "./common.js";
 
 /* globals console, messenger */
 
-const verbose = false;
+const verbose = true;
 const readback = true;
+
+const READBACK_TRIES = 5;
 
 const DEFAULTS = {
     editorTitle: "Mail Filter Control",
-    optInApproved: false,
+    optInApproved: true,
     advancedTabVisible: false,
     autoDelete: true,
     autoOpen: true,
-    autoClearConsole: false,
+    autoClearConsole: true,
     minimizeCompose: true,
     preferredTheme: "auto",
     domain: {
@@ -27,34 +29,56 @@ class ConfigBase {
     constructor(storage, name) {
         this.storage = storage;
         this.name = name;
+        this.locked = false;
+        this.waiting = [];
     }
 
-    async reset() {
+    async lock() {
         try {
-            const current = await this.storage.get();
-            var result = "(already empty)";
-            if (Object.keys(current).length !== 0) {
-                await this.storage.clear();
-                result = "cleared";
+            while (this.locked) {
+                await new Promise((resolve) => this.waiting.push(resolve));
             }
+            this.locked = true;
+        } catch (e) {
+            console.error(e);
+        }
+    }
 
-            if (readback) {
-                const readbackValues = await this.storage.get();
-                if (Object.keys(readbackValues).length !== 0) {
-                    throw new Error("reset readback failed:", readbackValues);
-                }
-            }
-
-            if (verbose) {
-                console.debug("reset:", this.name, result);
+    unlock() {
+        try {
+            this.locked = false;
+            if (this.waiting.length > 0) {
+                const next = this.waiting.shift();
+                next();
             }
         } catch (e) {
             console.error(e);
         }
     }
 
+    async reset() {
+        try {
+            await this.lock();
+            const current = await this.storage.get();
+            var result = "(already empty)";
+            if (Object.keys(current).length !== 0) {
+                await this.storage.clear();
+                result = "cleared";
+            }
+            await this.checkReadback("reset", undefined, undefined);
+            if (verbose) {
+                console.debug("reset:", this.name, result);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            this.unlock();
+        }
+    }
+
     async get(key = undefined, useDefaults = true) {
         try {
+            await this.lock();
             if (verbose) {
                 console.debug("get:", this.name, key);
             }
@@ -85,53 +109,84 @@ class ConfigBase {
             return value;
         } catch (e) {
             console.error(e);
+        } finally {
+            this.unlock();
+        }
+    }
+
+    async checkReadback(action, key, expected) {
+        try {
+            if (verbose) {
+                console.debug("checkReadback:", action, key, expected);
+            }
+            if (!readback) {
+                console.debug("readback disabled");
+                return;
+            }
+
+            for (let i = 0; i < READBACK_TRIES; i++) {
+                if (key === undefined) {
+                    const readback = await this.storage.get();
+                    if (Object.keys(readback).length === 0) {
+                        if (verbose) {
+                            console.debug("readback success:", action);
+                        }
+                        return;
+                    }
+                } else {
+                    const updated = await this.storage.get([key]);
+                    const readback = updated[key];
+                    if (!differ(readback, expected)) {
+                        if (verbose) {
+                            console.debug("readback success:", action, readback, expected);
+                        }
+                        return;
+                    }
+                    console.debug("readback mismatch:", {
+                        retry: i + 1,
+                        action: action,
+                        key: key,
+                        expected: expected,
+                        readback: readback,
+                    });
+                }
+                console.warn("readback mismatch: try:", i + 1);
+            }
+            throw new Error("config readback failed");
+        } catch (e) {
+            console.error(e);
         }
     }
 
     async set(key, value) {
         try {
+            await this.lock();
             if (verbose) {
                 console.debug("set:", this.name, key, value);
             }
-
             const update = {};
             update[key] = value;
             await this.storage.set(update);
-
-            if (readback) {
-                const updated = await this.storage.get([key]);
-                const readbackValue = updated[key];
-                if (differ(value, readbackValue)) {
-                    console.error("config.set: readback failed:", {
-                        key: key,
-                        value: value,
-                        readback: readbackValue,
-                    });
-                    throw new Error("set: readback failed:");
-                }
-            }
+            await this.checkReadback("set", key, value);
         } catch (e) {
             console.error(e);
+        } finally {
+            this.unlock();
         }
     }
 
     async remove(key) {
         try {
+            await this.lock();
             if (verbose) {
                 console.debug("remove:", this.name, key);
             }
-
             await this.storage.remove([key]);
-
-            if (readback) {
-                const updated = await this.storage.get([key]);
-                const readbackValue = updated[key];
-                if (readbackValue !== undefined) {
-                    throw new Error("remove: readback failed:", readbackValue);
-                }
-            }
+            await this.checkReadback("remove", key, undefined);
         } catch (e) {
             console.error(e);
+        } finally {
+            this.unlock();
         }
     }
 }

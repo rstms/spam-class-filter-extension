@@ -17,7 +17,9 @@ export class BooksTab {
 
     async populate() {
         try {
-            console.log("populateBooks");
+            console.debug("populate");
+            let books = await this.sendMessage({ id: "getAccountAddressBooks", account: this.selectedAccount.id });
+            console.log("books:", books);
             await this.enableControls(true);
         } catch (e) {
             console.error(e);

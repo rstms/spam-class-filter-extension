@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
         <title>Mail Filter Control</title>
         <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css?h=2a67f89353a72f7ee4500027c27d0b66" />
-        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=8bbd71b5d48eb7c402ba6d9908d303da" />
+        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=6c0b46eb0fbfdfea37c9684e6adbb529" />
         <script type="module" src="editor.js"></script>
     </head>
 
@@ -13,7 +13,6 @@
         <div class="container-xl">
             <div class="vstack gap-1">
                 <h4 class="bg-secondary-subtle my-2 py-1 px-1 ps-1 mt-0 mb-1 ms-0 me-0">Mail Filter Control</h4>
-                <div></div>
                 <div></div>
                 <div id="editor-tabs">
                     <ul class="nav nav-pills" role="tablist">
@@ -72,7 +71,7 @@
                                         <span
                                             class="bg-light-subtle border rounded-0 flex-fill py-1 px-1"
                                             id="classes-status-message-span"
-                                            >Text</span
+                                            >Requesting data...</span
                                         >
                                     </div>
                                 </div>
@@ -235,19 +234,58 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="row d-flex">
-                                    <div class="col d-flex">
-                                        <button class="btn btn-primary btn-sm" id="defaults-button" type="button">Set Defaults</button
-                                        ><label class="form-label d-flex">&nbsp; Reset classes to default values</label>
-                                    </div>
-                                </div>
-                                <div class="row d-flex">
-                                    <div class="col d-flex">
-                                        <button class="btn btn-primary btn-sm d-flex" id="refresh-button" type="button">
-                                            Refresh All&nbsp;</button
-                                        ><label class="form-label d-flex"
-                                            >&nbsp; Reload classes from mail server for all accounts</label
-                                        >
+                                <div class="row">
+                                    <div class="col">
+                                        <div class="vstack gap-2">
+                                            <div class="row d-flex">
+                                                <div class="col-2 d-flex">
+                                                    <button
+                                                        class="btn btn-primary btn-sm flex-grow-1"
+                                                        id="defaults-button"
+                                                        type="button"
+                                                    >
+                                                        Set Defaults
+                                                    </button>
+                                                </div>
+                                                <div class="col-auto">
+                                                    <label class="col-form-label" for="defaults-button"
+                                                        >Reset classes to default values</label
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="row d-flex">
+                                                <div class="col-2 d-flex">
+                                                    <button
+                                                        class="btn btn-primary btn-sm flex-grow-1"
+                                                        id="refresh-button"
+                                                        type="button"
+                                                    >
+                                                        Refresh&nbsp;
+                                                    </button>
+                                                </div>
+                                                <div class="col-auto">
+                                                    <label class="col-form-label" for="refresh-button"
+                                                        >Reload filter data for selected account</label
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="row d-flex">
+                                                <div class="col-2 d-flex">
+                                                    <button
+                                                        class="btn btn-primary btn-sm flex-grow-1"
+                                                        id="refresh-all-button"
+                                                        type="button"
+                                                    >
+                                                        Refresh All&nbsp;
+                                                    </button>
+                                                </div>
+                                                <div class="col-auto">
+                                                    <label class="col-form-label" for="refresh-all-button"
+                                                        >Reload filter data for all accounts</label
+                                                    >
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -278,7 +316,7 @@
                                     <div class="col-2 d-flex">
                                         <div class="input-group input-group-sm d-flex">
                                             <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
-                                                >Filter Book</span
+                                                >Selected Book</span
                                             >
                                         </div>
                                     </div>
@@ -300,16 +338,16 @@
                                             >
                                         </div>
                                     </div>
-                                    <div class="col-10 d-flex justify-content-md-start align-items-md-center">
+                                    <div class="col-10">
                                         <div class="vstack">
                                             <div class="form-check">
                                                 <input
                                                     class="form-check-input"
                                                     type="checkbox"
-                                                    id="book-selected-checkbox"
+                                                    id="book-selected-checkbox-1"
                                                     disabled=""
-                                                /><label class="form-check-label" for="book-selected-checkbox"
-                                                    >Selected for "Add Sender" Command</label
+                                                /><label class="form-check-label" for="book-selected-checkbox-1"
+                                                    >Selected Filter Book for "Add Sender Address"</label
                                                 >
                                             </div>
                                             <div class="form-check">
@@ -320,6 +358,19 @@
                                                     disabled=""
                                                 /><label class="form-check-label" for="book-connected-checkbox"
                                                     >Connected to Address Books</label
+                                                >
+                                            </div>
+                                            <div class="form-check">
+                                                <input
+                                                    class="form-check-input visually-hidden"
+                                                    type="checkbox"
+                                                    id="book-selected-checkbox"
+                                                    disabled=""
+                                                /><label
+                                                    class="form-check-label"
+                                                    id="book-address-count-label"
+                                                    for="book-selected-checkbox"
+                                                    >Addresses: 12</label
                                                 >
                                             </div>
                                         </div>
@@ -337,7 +388,7 @@
                                         <span
                                             class="bg-light-subtle border rounded-0 flex-fill py-1 px-1"
                                             id="books-status-message-span"
-                                            >Text</span
+                                            >Requesting data...</span
                                         >
                                     </div>
                                 </div>
@@ -345,28 +396,37 @@
                                 <div class="border rounded-0" style="margin: 10px; padding: 10px">
                                     <div class="vstack gap-2">
                                         <div class="vstack gap-1">
-                                            <label class="form-label">Selected Filter Book Operations:</label>
+                                            <label class="form-label">Filter Book Operations:</label>
                                             <div class="hstack gap-2">
                                                 <button class="btn btn-primary" id="books-select-button" type="button">
-                                                    Set "Add Sender" Filter Book</button
-                                                ><button class="btn btn-primary" id="books-show-button" type="button">
-                                                    Show in Address Books</button
+                                                    Select Filter Book for "Add Sender"</button
+                                                ><button class="btn btn-primary" id="books-connect-button" type="button">
+                                                    Connect Filter Book&nbsp; to Address Books</button
                                                 ><button class="btn btn-primary" id="books-disconnect-button" type="button">
-                                                    Remove All from Address Books</button
-                                                ><button class="btn btn-primary" id="books-delete-button" type="button">
-                                                    Delete Book and All Addresses
+                                                    Disconnect All Filter Books From Address Books
                                                 </button>
                                             </div>
                                             <div></div>
                                             <div></div>
                                             <div class="input-group">
                                                 <span class="input-group-text">Add New Filter Book</span
-                                                ><input class="form-control" type="text" id="books-add-text" /><button
-                                                    class="btn btn-primary"
+                                                ><input class="form-control" type="text" id="books-add-input" /><button
+                                                    class="btn btn-primary btn-sm"
                                                     id="books-add-button"
                                                     type="button"
                                                 >
                                                     Add
+                                                </button>
+                                            </div>
+                                            <div></div>
+                                            <div class="input-group">
+                                                <span class="input-group-text">Delete Filter Book and All Addresses</span
+                                                ><input class="form-control" type="text" id="books-delete-input" /><button
+                                                    class="btn btn-danger btn-sm"
+                                                    id="books-delete-button"
+                                                    type="button"
+                                                >
+                                                    Delete
                                                 </button>
                                             </div>
                                         </div>
@@ -614,7 +674,7 @@
                                     </div>
                                     <div class="col-10 d-flex justify-content-md-start align-items-md-center">
                                         <span class="bg-light-subtle border rounded-0 flex-fill py-1 px-1" id="advanced-status-span"
-                                            >Initializing...</span
+                                            >Requesting data...</span
                                         >
                                     </div>
                                 </div>
@@ -632,7 +692,7 @@
                                 <div class="row">
                                     <div class="col">
                                         <div class="bg-light-subtle border rounded-0">
-                                            <p id="help-text" style="padding: 4px">Refreshing help...</p>
+                                            <p id="help-text" style="padding: 4px">Requesting data...</p>
                                         </div>
                                     </div>
                                 </div>
@@ -640,8 +700,6 @@
                         </div>
                     </div>
                 </div>
-                <div></div>
-                <div></div>
                 <div></div>
                 <div class="hstack gap-2 d-sm-flex justify-content-sm-end align-items-sm-end">
                     <button class="btn btn-primary btn-sm" id="apply-button" type="button">Apply</button

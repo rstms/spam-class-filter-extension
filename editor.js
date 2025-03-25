@@ -1,11 +1,12 @@
 import { initThemeSwitcher } from "./theme_switcher.js";
 import { config } from "./config.js";
 import { differ, accountEmail } from "./common.js";
-import { ClassesTab } from "./classes_tab.js";
-import { BooksTab } from "./books_tab.js";
-import { OptionsTab } from "./options_tab.js";
-import { AdvancedTab } from "./advanced_tab.js";
-import { HelpTab } from "./help_tab.js";
+import { ClassesTab } from "./tab_classes.js";
+import { BooksTab } from "./tab_books.js";
+import { OptionsTab } from "./tab_options.js";
+import { AdvancedTab } from "./tab_advanced.js";
+import { HelpTab } from "./tab_help.js";
+import { generateUUID } from "./common.js";
 
 // FIXME: add refresh command to filterctl to get classes, books,  account data in one filterctl response
 
@@ -13,7 +14,7 @@ import { HelpTab } from "./help_tab.js";
 // FIXME: share controls container between this page and all tab objects
 
 /* globals messenger, window, document, console */
-const verbose = true;
+const verbose = false;
 
 initThemeSwitcher();
 
@@ -35,8 +36,10 @@ let accountIndex = {};
 let accounts = undefined;
 let selectedAccount = undefined;
 
-// port: connected to listening background page
+// connection state vars
 let port = null;
+let editorCID = null;
+let backgroundCID = null;
 
 let controls = {};
 
@@ -65,7 +68,7 @@ let tab = {
 async function populateAccounts(updateAccounts = undefined, updateSelectedAccount = undefined) {
     try {
         if (verbose) {
-            console.log("BEGIN populateAccounts");
+            console.debug("BEGIN populateAccounts");
         }
 
         if (updateAccounts === undefined) {
@@ -87,12 +90,19 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
             tab.advanced.controls.selectedAccount.value = "";
 
             // initialize the select control dropdown lists
-            console.log("editor.populateAccounts:", { updateAccounts: updateAccounts, updateSelectedAccount: updateSelectedAccount });
+            if (verbose) {
+                console.debug("editor.populateAccounts:", {
+                    updateAccounts: updateAccounts,
+                    updateSelectedAccount: updateSelectedAccount,
+                });
+            }
 
             let i = 0;
             accountIndex = {};
             for (let [id, account] of Object.entries(updateAccounts)) {
-                console.log({ i: i, id: id, account: account });
+                if (verbose) {
+                    console.debug({ i: i, id: id, account: account });
+                }
                 accountIndex[account.id] = i;
                 accountIndex[i] = account.id;
                 addAccountSelectRow(tab.classes.controls.accountSelect, id, accountEmail(account));
@@ -133,13 +143,15 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
         await selectAccount(updateSelectedAccount.id);
 
         if (bufferedSelectTab) {
-            console.log("applying buffered tab selection:", bufferedSelectTab);
+            if (verbose) {
+                console.log("applying buffered tab selection:", bufferedSelectTab);
+            }
             await selectTab(bufferedSelectTab);
             bufferedSelectTab = undefined;
         }
 
         if (verbose) {
-            console.log("END populateAccountSelect", { accounts: accounts, selectedAccount: selectedAccount });
+            console.debug("END populateAccountSelect", { accounts: accounts, selectedAccount: selectedAccount });
         }
     } catch (e) {
         console.error(e);
@@ -151,7 +163,9 @@ function addAccountSelectRow(control, id, name) {
         const option = document.createElement("option");
         option.setAttribute("data-account-id", id);
         option.textContent = name;
-        console.log("addAccountSelectRow:", control, id, name);
+        if (verbose) {
+            console.debug("addAccountSelectRow:", control, id, name);
+        }
         control.appendChild(option);
     } catch (e) {
         console.error(e);
@@ -180,27 +194,36 @@ function addAccountSelectRow(control, id, name) {
 async function selectAccount(accountId) {
     try {
         if (verbose) {
-            console.log("selectAccount:", accountId);
+            console.debug("selectAccount:", accountId);
         }
         if (typeof accountId !== "string") {
             throw new Error("selectAccount: unexpected accountId type:", accountId);
         }
         let index = accountIndex[accountId];
-        const account = accounts[accountId];
-        if (index === undefined || account === undefined) {
+        selectedAccount = accounts[accountId];
+        if (index === undefined || selectedAccount === undefined) {
             console.error("selectAccount: unknown accountId:", accountId);
-            return false;
+            throw new Error("unknown account");
+            //return false;
         }
+
+        // classes
         tab.classes.controls.accountSelect.selectedIndex = index;
+        tab.classes.selectedAccount = selectedAccount;
         await tab.classes.populate();
+
+        // books
         tab.books.controls.accountSelect.selectedIndex = index;
+        tab.books.selectedAccount = selectedAccount;
         tab.books.populate();
-        tab.advanced.controls.selectedAccount.value = accountEmail(account);
-        tab.advanced.selectedAccount = account;
-        selectedAccount = account;
-        tab.classes.selectedAccount = account;
-        tab.books.selectedAccount = account;
-        tab.options.selectedAccount = account;
+
+        // advanced
+        tab.advanced.controls.selectedAccount.value = accountEmail(selectedAccount);
+        tab.advanced.selectedAccount = selectedAccount;
+
+        if (verbose) {
+            console.log("account selected:", accountEmail(selectedAccount));
+        }
         return true;
     } catch (e) {
         console.error(e);
@@ -222,7 +245,7 @@ async function onAccountSelectChange(sender) {
     try {
         const index = sender.target.selectedIndex;
         if (verbose) {
-            console.log("onAccountSelectChange:", index, sender.target.id);
+            console.debug("onAccountSelectChange:", index, sender.target.id);
         }
         if (sender.target === tab.classes.controls.accountSelect || sender.target === tab.books.controls.accountSelect) {
             const accountId = accountIndex[index];
@@ -293,11 +316,13 @@ function enableTab(name, enabled) {
         } else {
             tabControls.navlink.classList.add("disabled");
         }
-        console.log(enabled ? "enabled tab: " : "disabled tab:", {
-            tabId: tabControls.tab.id,
-            link: tabControls.link.id,
-            navLink: tabControls.navlink.id,
-        });
+        if (verbose) {
+            console.log(enabled ? "enabled tab: " : "disabled tab:", {
+                tabId: tabControls.tab.id,
+                link: tabControls.link.id,
+                navLink: tabControls.navlink.id,
+            });
+        }
     } catch (e) {
         console.error(e);
     }
@@ -306,7 +331,7 @@ function enableTab(name, enabled) {
 async function onTabShow(sender) {
     try {
         if (verbose) {
-            console.log("handleTabShow:", sender);
+            console.debug("handleTabShow:", sender);
         }
         switch (sender.srcElement) {
             case controls.classesNavLink:
@@ -330,7 +355,9 @@ async function onTabShow(sender) {
                 await populateUsageControls();
                 break;
         }
-        console.log("active tab:", activeTab);
+        if (verbose) {
+            console.log("active tab:", activeTab);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -381,11 +408,11 @@ async function requestUsage() {
         };
 
         if (verbose) {
-            console.log("requesting usage:", message);
+            console.debug("requesting usage:", message);
         }
         const response = await sendMessage(message);
         if (verbose) {
-            console.log("usageResponse:", response);
+            console.debug("usageResponse:", response);
         }
         return response;
     } catch (e) {
@@ -399,24 +426,10 @@ async function requestUsage() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-async function handleENQ(message) {
-    try {
-        console.debug("editor.HandleENQ:", message);
-        let response = { id: "ACK", src: "editor", dst: message.src, cid: message.cid };
-        if (message.dst !== "editor") {
-            response.id = "NAK";
-        }
-        console.debug("returning:", response);
-        return response;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 async function handleUpdateEditorAccounts(message) {
     try {
         if (verbose) {
-            console.log("handleUpdateEditorAccounts:", message);
+            console.debug("handleUpdateEditorAccounts:", message);
         }
         await populateAccounts(message.accounts, message.selectedAccount);
         return true;
@@ -428,7 +441,7 @@ async function handleUpdateEditorAccounts(message) {
 async function handleUpdateEditorSelectedAccount(message) {
     try {
         if (verbose) {
-            console.log("handleUpdateEditorSelectedAccount:", message);
+            console.debug("handleUpdateEditorSelectedAccount:", message);
         }
         let warnings = [];
         let success = false;
@@ -460,7 +473,7 @@ async function handleUpdateEditorSelectedAccount(message) {
 async function handleSelectEditorTab(message) {
     try {
         if (verbose) {
-            console.log("handleSelectEditorTab:", message);
+            console.debug("handleSelectEditorTab:", message);
         }
         let tabName = message.name;
         let success = await selectTab(tabName);
@@ -478,7 +491,7 @@ async function handleSelectEditorTab(message) {
 async function selectTab(name) {
     try {
         if (verbose) {
-            console.log("selectTab:", name);
+            console.debug("selectTab:", name);
         }
         let link = undefined;
         switch (name) {
@@ -517,7 +530,9 @@ async function selectTab(name) {
 
 async function disableEditorControl(id, disable) {
     try {
-        console.log("disableEditorControl:", id, disable);
+        if (verbose) {
+            console.log("disableEditorControl:", id, disable);
+        }
         let control = controls[id];
         control.disabled = disable;
     } catch (e) {
@@ -534,43 +549,102 @@ async function disableEditorControl(id, disable) {
 async function connect() {
     try {
         if (port === null) {
-            console.log("editor: requesting background page...");
+            if (verbose) {
+                console.debug("editor: requesting background page...");
+            }
             const background = await messenger.runtime.getBackgroundPage();
             backgroundSuspended = false;
-            console.debug("background: page:", { url: background, suspended: backgroundSuspended });
+            if (verbose) {
+                console.debug("background: page:", { url: background, suspended: backgroundSuspended });
+            }
 
-            console.log("editor: connecting to background ...");
-            port = await messenger.runtime.connect(undefined, { name: "editor" });
-            await port.onMessage.addListener(async (m, s, c) => {
-                await onMessage(m, s, c, port);
-            });
-            await port.onDisconnect.addListener(onDisconnect);
-            console.log("editor: connection pending on port:", port);
+            editorCID = "editor-" + generateUUID();
+            backgroundCID = null;
+            if (verbose) {
+                console.log("editor connecting to background as:", editorCID);
+            }
+            port = await messenger.runtime.connect(undefined, { name: editorCID });
+            port.onMessage.addListener(onPortMessage);
+            port.onDisconnect.addListener(onDisconnect);
+            if (verbose) {
+                console.debug("editor: connection pending on port:", port);
+            }
         }
     } catch (e) {
         console.error(e);
     }
 }
 
-async function onMessage(message, sender, sendResponse, port = undefined) {
+async function onPortMessage(message, sender) {
     try {
         if (verbose) {
-            console.debug("editor.onMessage:", message, sender, sendResponse, port);
+            console.debug("editor.onPortMessage:", message, sender);
         }
         let response = undefined;
         switch (message.id) {
             case "ENQ":
-                response = await handleENQ(message);
+                if (message.dst !== editorCID) {
+                    throw new Error("destination CID mismatch");
+                }
+                backgroundCID = message.src;
+                if (verbose) {
+                    console.debug("editor: set background CID:", backgroundCID);
+                }
+                response = await messenger.runtime.sendMessage({ id: "ACK", src: editorCID, dst: backgroundCID });
+                if (verbose) {
+                    console.debug("ACK response:", response);
+                    console.log("editor connected to:", backgroundCID);
+                }
+                // complete initialization now that we're connected to the background page
+                await populateAccounts();
                 break;
+            default:
+                throw new Error("unexpected port message");
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
 
+async function onMessage(message, sender) {
+    try {
+        if (verbose) {
+            console.debug("editor.onMessage:", message, sender);
+        }
+
+        // process messages allowed without connection
+        switch (message.id) {
             case "backgroundActivated":
                 await connect();
-                break;
-
+                return;
             case "backgroundSuspending":
                 backgroundSuspended = true;
-                break;
+                return;
+        }
 
+        if (editorCID === undefined || backgroundCID === undefined) {
+            console.error("not connected, discarding:", message);
+            return;
+        }
+
+        if (message.src === undefined || message.dst === undefined) {
+            console.error("missing src/dst, discarding:", message);
+            return;
+        }
+
+        if (message.src !== backgroundCID) {
+            console.error("unexpected src ID, discarding:", message);
+            return;
+        }
+
+        if (message.dst !== editorCID) {
+            console.error("unexpected dst ID, discarding:", message);
+            return;
+        }
+
+        let response = undefined;
+
+        switch (message.id) {
             case "selectEditorTab":
                 response = await handleSelectEditorTab(message);
                 break;
@@ -584,18 +658,18 @@ async function onMessage(message, sender, sendResponse, port = undefined) {
                 break;
 
             default:
-                console.error("background: received unexpected message:", message, sender, sendResponse);
+                console.error("unknown message ID:", message);
                 break;
         }
         if (response !== undefined) {
             if (typeof response !== "object") {
-                response = { result: response };
+                response = { response: response };
             }
-            console.debug("editor.onMessage: sending response:", response);
-            sendResponse(response);
-            return true;
+            if (verbose) {
+                console.debug("editor.onMessage: sending response:", response);
+            }
         }
-        return false;
+        return response;
     } catch (e) {
         console.error(e);
     }
@@ -603,8 +677,10 @@ async function onMessage(message, sender, sendResponse, port = undefined) {
 
 async function onDisconnect(port) {
     try {
-        console.log("editor: disconnected:", port);
-        console.log("editor: backgroundSuspended:", backgroundSuspended);
+        if (verbose) {
+            console.log("editor: disconnected:", port);
+            console.log("editor: backgroundSuspended:", backgroundSuspended);
+        }
         port = null;
     } catch (e) {
         console.error(e);
@@ -613,13 +689,22 @@ async function onDisconnect(port) {
 
 async function sendMessage(message) {
     try {
-        if (port === null) {
-            console.debug("SendMessage:", { port: port, message: message });
+        if (port === null || editorCID === undefined || backgroundCID === undefined) {
+            console.error("SendMessage: port not connected:", port, editorCID, backgroundCID, message);
             throw new Error("SendMessage: port not connected");
         }
-        console.log("editor.sendMessage:", message);
-        let result = await port.postMessage(message);
-        console.log("editor.sendMessage returned:", result);
+        if (typeof message === "string") {
+            message = { id: message };
+        }
+        message.src = editorCID;
+        message.dst = backgroundCID;
+        if (verbose) {
+            console.debug("editor.sendMessage:", message);
+        }
+        let result = await messenger.runtime.sendMessage(message);
+        if (verbose) {
+            console.debug("editor.sendMessage returned:", result);
+        }
         return result;
     } catch (e) {
         console.error(e);
@@ -634,7 +719,9 @@ async function sendMessage(message) {
 
 async function onLoad() {
     try {
-        console.debug("editor page loading");
+        if (verbose) {
+            console.debug("editor page loading");
+        }
 
         if (hasLoaded) {
             throw new Error("redundant load event");
@@ -654,9 +741,9 @@ async function onLoad() {
 
         await connect();
 
-        //await populateAccounts();
-
-        console.debug("editor page loaded");
+        if (verbose) {
+            console.debug("editor page loaded");
+        }
     } catch (e) {
         console.error(e);
     }
@@ -665,7 +752,7 @@ async function onLoad() {
 async function enableAccountControls(enabled) {
     try {
         if (verbose) {
-            console.log("enableAccountControls:", enabled);
+            console.debug("enableAccountControls:", enabled);
         }
         await tab.classes.enableControls(enabled);
         await tab.books.enableControls(enabled);
@@ -832,6 +919,9 @@ addTabControl(tab.classes, "defaultsButton", "defaults-button", "click", () => {
 addTabControl(tab.classes, "refreshButton", "refresh-button", "click", () => {
     tab.classes.onRefreshClick();
 });
+addTabControl(tab.classes, "refreshAllButton", "refresh-all-button", "click", () => {
+    tab.classes.onRefreshAllClick();
+});
 
 // books tab controls
 addTabControl(tab.books, "accountSelect", "books-account-select", "change", onAccountSelectChange);
@@ -840,11 +930,12 @@ addTabControl(tab.books, "filterBookSelect", "books-filterbook-select", "change"
 });
 addTabControl(tab.books, "selectedCheckbox", "book-selected-checkbox");
 addTabControl(tab.books, "connectedCheckbox", "book-connected-checkbox");
+addTabControl(tab.books, "addressCountLabel", "book-address-count-label");
 addTabControl(tab.books, "statusMessage", "books-status-message-span");
 addTabControl(tab.books, "selectButton", "books-select-button", "click", () => {
     tab.books.onSelect;
 });
-addTabControl(tab.books, "showButton", "books-show-button", "click", () => {
+addTabControl(tab.books, "connectButton", "books-connect-button", "click", () => {
     tab.books.onShow;
 });
 addTabControl(tab.books, "disconnectButton", "books-disconnect-button", "click", () => {
@@ -856,7 +947,12 @@ addTabControl(tab.books, "deleteButton", "books-delete-button", "click", () => {
 addTabControl(tab.books, "addButton", "books-add-button", "click", () => {
     tab.books.onAdd;
 });
-addTabControl(tab.books, "addText", "books-add-text");
+addTabControl(tab.books, "addInput", "books-add-input", "change", () => {
+    tab.books.onAddInputChange;
+});
+addTabControl(tab.books, "deleteInput", "books-delete-input", "change", () => {
+    tab.books.onDeleteInputChange;
+});
 
 // options tab controls
 addTabControl(tab.options, "autoDelete", "options-auto-delete-checkbox", "change", () => {

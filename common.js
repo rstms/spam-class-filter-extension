@@ -129,3 +129,43 @@ export function accountDomain(account) {
         console.error(e);
     }
 }
+
+export function deepCopy(obj) {
+    try {
+        console.debug("deepCopy:", obj);
+        if (obj === undefined) {
+            console.warn("deepCopy undefined");
+        }
+        const json = JSON.stringify(obj);
+        console.debug("deepCopy parsed:", json);
+        const result = JSON.parse(json);
+        console.debug("deepCopy returning:", result);
+        return result;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export function isValidEmail(address) {
+    try {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (typeof address !== "string") {
+            return false;
+        }
+        return emailRegex.test(address);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export function isValidBookName(name) {
+    try {
+        const bookNameRegex = /^[a-zA-Z][a-zA-Z0-9\\.%+_-]*[a-zA-Z0-9]$/;
+        if (typeof name !== "string") {
+            return false;
+        }
+        return bookNameRegex.test(name);
+    } catch (e) {
+        console.error(e);
+    }
+}
