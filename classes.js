@@ -23,7 +23,6 @@ function isValidScore(score) {
     return isFinite(parsedValue) && !isNaN(parsedValue) && parsedValue.toString() === stringValue;
 }
 
-
 function validateLevelName(name) {
     if (typeof name !== "string") {
         throw new Error("class name type not string");
@@ -31,39 +30,31 @@ function validateLevelName(name) {
     name = name.trim();
     name = name.replace(/\s/g, "_");
     if (name.length === 0) {
-	throw new Error("missing class name");
+        throw new Error("missing class name");
     }
-    if (!/^[a-zA-Z]/.test(level.name)) {
-	throw new Error("class names must start with a letter");
+    if (!/^[a-zA-Z]/.test(name)) {
+        throw new Error("class names must start with a letter");
     }
-    if (!/^[a-zA-Z0-9_-]+$/.test(level.name)) {
-	throw new Error(`illegal characters in class name: '${name}'`);
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+        throw new Error(`illegal characters in class name: '${name}'`);
     }
     return name;
 }
 
-function typeCheckEmailAddress(address) {
-    if (!isValidEmailAddress(address)) {
-        throw new Error("not a valid email address string");
-    }
-    return address;
-}
-
-function typeCheckLevelScore(score) {
+function validateLevelScore(score) {
     if (typeof score !== "number" && typeof score !== "string") {
         throw new Error("score type must be string or number");
     }
 
     // check score string value
     if (typeof score === "string") {
-
-        score = level.score.trim();
+        score = score.trim();
         if (score.length === 0) {
-	    throw new Error("missing threshold value");
-	}
-	if (!/^(-|)(([0-9]+(\.|)[0-9]*)|([0-9]*(\.|)[0-9]+))$/.test(score)) {
-	    throw new Error(`illegal characters in threshold: '${score}'`);
-	}
+            throw new Error("missing threshold value");
+        }
+        if (!/^(-|)(([0-9]+(\.|)[0-9]*)|([0-9]*(\.|)[0-9]+))$/.test(score)) {
+            throw new Error(`illegal characters in threshold: '${score}'`);
+        }
     }
 
     if (!isValidScore(score)) {
@@ -103,7 +94,7 @@ export class Level {
     constructor(name, score) {
         try {
             this.name = validateLevelName(name);
-	    this.score = validateLevelThreshold(score);
+            this.score = validateLevelScore(score);
         } catch (e) {
             console.error(e);
         }
@@ -143,8 +134,8 @@ export class Classes {
     }
 
     empty() {
-	try {
-	    return this.levels.length === 0;
+        try {
+            return this.levels.length === 0;
         } catch (e) {
             console.error(e);
         }
@@ -279,57 +270,53 @@ export class Classes {
         }
     }
 
-    validateLevels() {
-	try {
-	    if (this.levels.length < 2) {
-		throw new Error("level count below minimum");
-	    }
-
-	    let lastScore === undefined;
-	    let spamClassFound = false;
-	    let uniqueNames = new Set();
-	    let uniqueScores = new Set();
-
-	    for (const level of this.levels) {
-
-	    if (uniqueNames.has(level.name)) {
-		throw new Error("duplicate class name");
-	    }
-	    uniqueNames.add(level.name);
-
-	    if (uniqueScores.has(level.score)) {
-		throw new Error(`duplicate threshold value '${level.score}'`);
-	    }
-	    uniqueScores.add(level.score);
-
-            if (lastScore !== undefined && level.score < lastScore) {
-		throw new Error("thresholds not in ascending order");
+    validate() {
+        try {
+            if (this.levels.length < 2) {
+                throw new Error("level count below minimum");
             }
-	    
-	    if level.name === "spam" ) {
-		spamClassFound = true;
 
-		if ( level.score !== SPAM_SCORE ) {
-		    throw new Error("unexpected spam class threshold");
-		}
-	    } else {
-                if (level.score < MIN_SCORE || level.score > MAX_SCORE) {
-		    throw new Error(`threshold out of range: '${level.score}'`);
-		}
-	    }
+            let lastScore = undefined;
+            let spamClassFound = false;
+            let uniqueNames = new Set();
+            let uniqueScores = new Set();
 
-	    }
+            for (const level of this.levels) {
+                if (uniqueNames.has(level.name)) {
+                    throw new Error("duplicate class name");
+                }
+                uniqueNames.add(level.name);
+
+                if (uniqueScores.has(level.score)) {
+                    throw new Error(`duplicate threshold value '${level.score}'`);
+                }
+                uniqueScores.add(level.score);
+
+                if (lastScore !== undefined && level.score < lastScore) {
+                    throw new Error("thresholds not in ascending order");
+                }
+
+                if (level.name === "spam") {
+                    spamClassFound = true;
+
+                    if (level.score !== SPAM_SCORE) {
+                        throw new Error("unexpected spam class threshold");
+                    }
+                } else {
+                    if (level.score < MIN_SCORE || level.score > MAX_SCORE) {
+                        throw new Error(`threshold out of range: '${level.score}'`);
+                    }
+                }
+            }
 
             if (!spamClassFound) {
-		throw new Error("missing spam class");
-	    }
-
-	} catch(e) {
-	    console.error(e);
-	}
+                throw new Error("missing spam class");
+            }
+        } catch (e) {
+            console.error(e);
+        }
     }
 }
-
 
 export class Books {
     constructor(renderable = undefined) {
@@ -346,8 +333,8 @@ export class Books {
     }
 
     empty() {
-	try {
-	    return this.books.size === 0;
+        try {
+            return this.books.size === 0;
         } catch (e) {
             console.error(e);
         }
@@ -377,7 +364,7 @@ export class Books {
     addAddress(bookName, address) {
         try {
             bookName = validateBookName(bookName);
-	    address = validateEmailAddress(address);
+            address = validateEmailAddress(address);
             let addresses = this.books.get(bookName);
             if (addresses === undefined) {
                 throw new Error("unknown book name");
@@ -407,7 +394,6 @@ export class Books {
 
     addresses(bookName) {
         try {
-            typeCheckBookName(bookName);
             let addresses = this.books.get(bookName);
             if (addresses === undefined) {
                 throw new Error("unknown book name");
@@ -541,7 +527,6 @@ export class Books {
     }
 }
 
-
 /*
 export class AccountFilterData {
     constructor(accountId) {
@@ -554,92 +539,103 @@ export class AccountFilterData {
 
 export class FilterData {
     constructor(state, accounts, type, defaultItems, editorTab) {
-        this.msg = {};
-        this.type = type;
-        this.emailRequestTimeout = undefined;
-        this.editorTab = editorTab;
-        this.defaultItems = defaultItems;
-        switch (this.type) {
-            case CLASSES:
-                this.msg.notFound = "Class not present";
-                this.msg.updateOk = "Classes updated successfully";
-                this.msg.updateFail = "Failed to update all changed classes";
-                this.msg.validateFail = "Set classes failed validation:";
-                this.resultKey = "Classes";
-                break;
-            case BOOKS:
-                this.msg.notFound = "Address book not present";
-                this.msg.updateOk = "Address book updated successfully";
-                this.msg.updateFail = "Failed to update all changed address books";
-                this.msg.validateFail = "Set address books failed validation:";
-                this.resultKey = "Books";
-                break;
-            default:
-                throw new Error("unexpected type:", this.type);
-        }
+        try {
+            this.msg = {};
+            this.type = type;
+            this.emailRequestTimeout = undefined;
+            this.editorTab = editorTab;
+            this.defaultItems = defaultItems;
+            switch (this.type) {
+                case CLASSES:
+                    this.msg.notFound = "Class not present";
+                    this.msg.updateOk = "Classes updated successfully";
+                    this.msg.updateFail = "Failed to update all changed classes";
+                    this.msg.validateFail = "Set classes failed validation:";
+                    this.resultKey = "Classes";
+                    break;
+                case BOOKS:
+                    this.msg.notFound = "Address book not present";
+                    this.msg.updateOk = "Address book updated successfully";
+                    this.msg.updateFail = "Failed to update all changed address books";
+                    this.msg.validateFail = "Set address books failed validation:";
+                    this.resultKey = "Books";
+                    break;
+                default:
+                    throw new Error("unexpected type:", this.type);
+            }
 
-        if (typeof state !== "object") {
-            state = {};
-        }
+            if (typeof state !== "object") {
+                state = {};
+            }
 
-        if (!("classes" in state)) {
-            state.classes = {
-                dirty: {},
-                server: {},
-            };
-        }
+            if (!("classes" in state)) {
+                state.classes = {
+                    dirty: {},
+                    server: {},
+                };
+            }
 
-        this.classes = {dirty: this.parseFromState(state.dirty), server: this.parseFromState(state.server)};
-        this.accounts = accounts;
+            this.classes = { dirty: this.parseFromState(state.dirty), server: this.parseFromState(state.server) };
+            this.accounts = accounts;
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     state() {
-        return {
-	    classes: {dirty: this.renderState(this.classes.dirty), server: renderState(this.classes.server)};
-        };
+        try {
+            return { classes: { dirty: this.renderToState(this.classes.dirty), server: this.renderToState(this.classes.server) } };
+        } catch (e) {
+            console.errors(e);
+        }
     }
 
     parseFromState(state) {
-	try {
-	    console.debug("parseFromState:", state);
-	    let classes = {};
-	    for(let [accountId, renderable] of Object.entries(state)) {
-		let emailAddress = accountEmail(this.accounts[accountId]);
-		let filters = this.newDataClass(renderable);
-		console.assert(filters.emailAddress === emailAddress, "state import account email address mismatch", renderable, filters);
-		filters.setAccount(accountId, emailAddress);
-		classes[accountId] = filters;
-	    }
-	    console.debug("parseFromState returning:", classes);
-	    return classes;
-	} catch(e) {
-	    console.error(e);
-	}
+        try {
+            console.debug("parseFromState:", state);
+            let classes = {};
+            for (let [accountId, renderable] of Object.entries(state)) {
+                let emailAddress = accountEmail(this.accounts[accountId]);
+                let filters = this.newDataClass(renderable);
+                console.assert(
+                    filters.emailAddress === emailAddress,
+                    "state import account email address mismatch",
+                    renderable,
+                    filters,
+                );
+                filters.setAccount(accountId, emailAddress);
+                classes[accountId] = filters;
+            }
+            console.debug("parseFromState returning:", classes);
+            return classes;
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     renderToState(classes) {
-	try {
-	    console.debug("renderToState:", classes);
-	    let state = {};
-	    for (let [accountId, filters] of Object.entries(classes)) {
-		state[accountId] = filter.render();
-	    }
-	    console.debug("renderToState returning:", state);
-	    return state;
-	} catch(e) {
-	    console.error(e);
-	}
+        try {
+            console.debug("renderToState:", classes);
+            let state = {};
+            for (let [accountId, filters] of Object.entries(classes)) {
+                state[accountId] = filters.render();
+            }
+            console.debug("renderToState returning:", state);
+            return state;
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     all() {
         try {
-	    let classes = {}; 
+            let classes = {};
             for (const [accountId, filterData] of Object.entries(this.classes.server)) {
-		if (accountId in this.classes.dirty) {
-		    classes[accountId] = this.classes.dirty[accountId].clone();
-		} else {
-		    classes[accountId] = filterData.clone();
-		}
+                if (accountId in this.classes.dirty) {
+                    classes[accountId] = this.classes.dirty[accountId].clone();
+                } else {
+                    classes[accountId] = filterData.clone();
+                }
             }
             return classes;
         } catch (e) {
@@ -650,11 +646,11 @@ export class FilterData {
     items(account) {
         try {
             if (account.id in this.classes.server) {
-		if (account.id in this.classes.dirty) {
-		    return this.classes.dirty[account.id].clone();
-		}
-		return this.classes.server[account.id].clone();
-	    }
+                if (account.id in this.classes.dirty) {
+                    return this.classes.dirty[account.id].clone();
+                }
+                return this.classes.server[account.id].clone();
+            }
             throw new Error(this.msg.notFound);
         } catch (e) {
             console.error(e);
@@ -681,48 +677,48 @@ export class FilterData {
 
     async get(account, force = false) {
         try {
-	    if (!force) {
-		if (account.id in this.classes.server) {
-		    let items = this.items(account);
-		    if (! items.emtpy() {
-			return items;
-		    }
-		}
-	    }
-                let result = undefined;
-                let username = accountEmail(account);
-
-                result = await sendEmailRequest(account, "dump", "", this.emailRequestTimeout, this.editorTab);
-                if (verbose) {
-		    console.log("dump result:", result);
+            if (!force) {
+                if (account.id in this.classes.server) {
+                    let items = this.items(account);
+                    if (!items.emtpy()) {
+                        return items;
+                    }
                 }
+            }
+            let result = undefined;
 
-                if (!result) {
-                    return { items: null, valid: false, message: "filterctl request failed; please contact support" };
-		}
+            result = await sendEmailRequest(account, "dump", "", this.emailRequestTimeout, this.editorTab);
+            if (verbose) {
+                console.log("dump result:", result);
+            }
 
-		const returned = undefined;
-		try {
-		    returned = this.NewDataClass(result);
-		} catch(error) {
-                    console.error("server response failed validation:", error, result);
-		}
+            if (!result) {
+                return { items: null, valid: false, message: "filterctl request failed; please contact support" };
+            }
 
-                if (verbose) {
-                    console.debug("returned:", returned);
-                }
-		
-		const validationResult = validateFilterClassLevels(
-                const validated = this.validate(account, returned);
-                if (verbose) {
-                    console.debug("validated:", validated);
-                }
-                if (validated.error) {
-                }
+            await accountPasswords.set(account.id, result.Password);
 
-                delete this.classes.dirty[account.id];
-                this.classes.server[account.id] = validated.items.clone();
-                return validated.items;
+            const resultItems = this.NewDataClass(result);
+
+            if (verbose) {
+                console.debug("get: resultItems:", resultItems);
+            }
+
+            const validated = this.validate(account, resultItems);
+            if (verbose) {
+                console.debug("get: validated:", validated);
+            }
+
+            if (!validated.valid) {
+                console.error("server response failed validation:", {
+                    result: result,
+                    resultItems: resultItems,
+                    validated: validated,
+                });
+            }
+            delete this.classes.dirty[account.id];
+            this.classes.server[account.id] = validated.items.clone();
+            return validated.items;
         } catch (e) {
             console.error(e);
         }
@@ -731,12 +727,12 @@ export class FilterData {
     setItems(account, items) {
         try {
             let dirty = items.diff(this.classes.server[account.id]);
-	    if (dirty) {
+            if (dirty) {
                 this.classes.dirty[account.id] = items.clone();
-	    } else {
+            } else {
                 delete this.classes.dirty[account.id];
             }
-	    return dirty;
+            return dirty;
         } catch (e) {
             console.error(e);
         }
@@ -744,7 +740,9 @@ export class FilterData {
 
     async set(account, items) {
         try {
-	    return this.validate(account, items);
+            let validated = this.validate(account, items);
+            validated.dirty = this.setItems(account, validated.items);
+            return validated;
         } catch (e) {
             console.error(e);
         }
@@ -785,22 +783,22 @@ export class FilterData {
     }
 
     validate(account, items = undefined) {
-
         try {
-	    let result = {
-		items: items,
-		valid: true,
-		message: "",
-	    };
-	    try {
-		items.validate();
-	    } catch(error) {
-		result.message = error;
-		result.valid = false;
+            if (items === undefined) {
+                items = this.items(account);
+            }
+            let result = {};
+            try {
+                items.validate();
+                result.message = "validated";
+                result.valid = true;
+            } catch (error) {
+                result.message = error;
+                result.valid = false;
                 console.warn("filter data failed validation:", error);
-	    }
-	    result.dirty = this.setItems(account, items);
-            return result
+            }
+            result.items = items;
+            return result;
         } catch (e) {
             console.error(e);
         }
@@ -808,15 +806,15 @@ export class FilterData {
 
     async getPassword(account) {
         try {
-	    if (! await accountPasswords.has(accountId) ) {
+            if (!(await accountPasswords.has(account.id))) {
                 await this.get(account, true);
-	    }
-	    let password = await accountPasswords.get(accountId);
-	    if (password === undefined) {
-		throw new Error("CardDAV password query failed");
+            }
+            let password = await accountPasswords.get(account.id);
+            if (password === undefined) {
+                throw new Error("CardDAV password query failed");
             }
             //FIXME: remvoe this after debugging
-            console.debug("getPassword:", account, result);
+            console.debug("getPassword:", account, password);
             return password;
         } catch (e) {
             console.error(e);
@@ -826,65 +824,69 @@ export class FilterData {
 
 export class FilterClasses extends FilterData {
     constructor(state, accounts, editorTab) {
-        const defaultItems = new Classes();
-	defaultItems.addLevel("ham", 0);
-	defaultitems.addLevel("possible", 5);
-	defaultItems.addLevel("spam", 999);
+        let defaultItems = new Classes();
+        defaultItems.addLevel("ham", 0);
+        defaultItems.addLevel("possible", 5);
+        defaultItems.addLevel("spam", 999);
         super(state, accounts, CLASSES, defaultItems, editorTab);
     }
 
     newDataClass(renderable) {
-	try {
-	    return new Classes(renderable);
-	} catch(e) {
-	    console.error(e);
-	}
+        try {
+            return new Classes(renderable);
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     async send(account, force) {
         try {
             const validated = this.validate(account);
             if (!validated.valid) {
-		throw new Error(`Validation failed: ${validated.message}`);
+                throw new Error(`Validation failed: ${validated.message}`);
             }
 
             if (force || validated.dirty) {
-
-                    var values = [];
-                    for (const level of validated.items.levels) {
-                        values.push(`${level.name}=${level.score}`);
-                    }
-                    await responseCache.pop(accountEmail(account));
-                    const subject = "reset " + values.join(" ");
-                    const result = await sendEmailRequest(account, subject, "", this.emailRequestTimeout, this.editorTab);
-                    if (verbose) {
-                        console.log("result", result);
-                    }
-                    const returned = result.Classes;
-                    if (verbose) {
-                        console.log("returned classes", returned);
-                    }
-                    const validatedReturn = this.validateItems(returned);
-                    if (validatedReturn.error) {
-                        console.debug("account:", account);
-                        console.debug("returned:", returned);
-                        console.error("failure: reset result failed validation:", validatedReturn.error);
-                        throw new Error(`send result failed validation: ${validatedReturn.error}`);
-                    }
-                    if (differ(validated.items, validatedReturn.items)) {
-                        console.debug("FilterClasses.send: readback mismatch:", {
-                            account: account,
-                            validatedItems: validated.items,
-                            validatedReturn: validatedReturn,
-                            items: items,
-                            returned: returned,
-                        });
-                        throw new Error("send result failed: readback mismatch");
-                    }
-                    delete this.classes.dirty[account.id];
-                    this.classes.server[account.id] = validated.items;
-                    return { success: true, error: false, message: "classes sent successfully" };
+                var values = [];
+                for (const level of validated.items.levels) {
+                    values.push(`${level.name}=${level.score}`);
                 }
+                const subject = "reset " + values.join(" ");
+                const result = await sendEmailRequest(account, subject, "", this.emailRequestTimeout, this.editorTab);
+                if (verbose) {
+                    console.log("result", result);
+                }
+
+                if (verbose) {
+                    console.log("parsing send response");
+                }
+                const resultClass = this.newDataClass(result);
+                if (verbose) {
+                    console.log("parsed send response:", resultClass);
+                }
+
+                const validatedResult = this.validateItems(resultClass);
+                if (validatedResult.error) {
+                    console.debug("account:", account);
+                    console.debug("result", result);
+                    console.debug("resultClass:", resultClass);
+                    console.debug("validatedResult:", validatedResult);
+                    console.error("send result failed validation:", validatedResult.message);
+                    throw new Error(`send result failed validation: ${validatedResult.messasge}`);
+                }
+                if (validated.items.diff(validatedResult.items)) {
+                    console.debug("FilterClasses.send: readback mismatch:", {
+                        account: account,
+                        result: result,
+                        resultClass: resultClass,
+                        validated: validated,
+                        validatedResult: validatedResult,
+                    });
+                    throw new Error("send result failed: readback mismatch");
+                }
+                delete this.classes.dirty[account.id];
+                this.classes.server[account.id] = validated.items.clone();
+                return { success: true, error: false, message: "classes sent successfully" };
             }
             return { success: true, error: false, message: "classes unchanged" };
         } catch (e) {
@@ -894,20 +896,18 @@ export class FilterClasses extends FilterData {
     }
 }
 
-
-
 export class FilterBooks extends FilterData {
     constructor(state, accounts, editorTab) {
-	let defaultItems = new Books();
+        let defaultItems = new Books();
         super(state, accounts, BOOKS, defaultItems, editorTab);
     }
 
     newDataClass(renderable) {
-	try {
-	    return new Books(renderable);
-	} catch(e) {
-	    console.error(e);
-	}
+        try {
+            return new Books(renderable);
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     async send(account, force) {
