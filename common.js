@@ -114,7 +114,17 @@ export function selectedAccountId(accountSelect) {
     }
 }
 
-export function accountEmail(account) {
+export function selectedAccountEmailAddress(accountSelect) {
+    try {
+        const index = accountSelect.selectedIndex;
+        const selectedOption = accountSelect.options[index];
+        return selectedOption.getAttribute("data-account-id");
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export function accountEmailAddress(account) {
     try {
         return account.identities[0].email;
     } catch (e) {
@@ -146,7 +156,7 @@ export function deepCopy(obj) {
     }
 }
 
-export function isValidEmail(address) {
+export function isValidEmailAddress(address) {
     try {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (typeof address !== "string") {

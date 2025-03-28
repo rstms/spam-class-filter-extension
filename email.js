@@ -6,7 +6,7 @@ import { config } from "./config.js";
 /* global console, messenger, setTimeout, clearTimeout, setInterval, clearInterval, window */
 
 const verbose = false;
-const logQueue = false;
+const logQueue = true;
 
 const DEFAULT_TIMEOUT = 60 * 1024;
 const NO_TIMEOUT = 0;
@@ -257,7 +257,7 @@ async function sendmail(request) {
         }
         if (await config.local.get("autoDelete")) {
             for (const message of sent.messages) {
-                deleteMessage(message);
+                await deleteMessage(message);
             }
         }
         await checkPending();
@@ -334,15 +334,17 @@ async function receive(folder, messageList) {
             }
 
             if (message.subject === "filterctl response") {
+                const headers = await getMessageHeaders(message);
+                let requestId = null;
                 if (await processedMessages.has(message.headerMessageId)) {
                     console.warn("receive: Message-Id has been processed, discarding duplicate 'new' message:", message);
-                    continue;
+                } else {
+                    // this header contains the message-id of the request email message
+                    requestId = stripMessageId(headers["x-filterctl-request-id"][0]);
+                    if (!requestId) {
+                        console.error("filterctl response message has no requestId:", message, headers);
+                    }
                 }
-
-                const headers = await getMessageHeaders(message);
-
-                // this header contains the message-id of the request email message
-                var requestId = stripMessageId(headers["x-filterctl-request-id"][0]);
 
                 if (requestId) {
                     if (verbose) {
@@ -388,12 +390,9 @@ async function receive(folder, messageList) {
                     if (logQueue) {
                         console.log("receive: added to pendingResponses:", requestId, response);
                     }
-
-                    // do a check without waiting for the timer
-                    await checkPending();
-                } else {
-                    console.error("filterctl response message has no requestId:", message, headers);
                 }
+                // do a check without waiting for the timer
+                await checkPending();
             }
         }
     } catch (e) {
@@ -434,10 +433,12 @@ export async function sendEmailRequest(account, command, body = undefined, timeo
     }
 }
 
+/*
 async function onComposeStateChange(tab, state) {
     console.log("composeStateChanged:", tab, state);
 }
+messenger.compose.onComposeStateChanged.addListener(onComposeStateChange);
+*/
 
 window.addEventListener("load", handleLoad);
 window.addEventListener("beforeunload", handleUnload);
-messenger.compose.onComposeStateChanged.addListener(onComposeStateChange);

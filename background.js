@@ -1,10 +1,10 @@
-import { FilterClasses, FilterBooks } from "./classes.js";
 import { config } from "./config.js";
 import { Accounts } from "./accounts.js";
 import * as ports from "./ports.js";
-import { findEditorTab, accountEmail } from "./common.js";
+import { findEditorTab } from "./common.js";
 import { sendEmailRequest, getMessageHeaders } from "./email.js";
 import { generateUUID } from "./common.js";
+import { FilterDataController } from "./filterctl.js";
 
 /* globals messenger, console */
 
@@ -14,14 +14,12 @@ import { generateUUID } from "./common.js";
 // control flags
 const verbose = false;
 
-// Menus, Classes, Filterbooks data management objects
-let classesState = null;
-let filterBooksState = null;
-
 let accounts = null;
 
 let pendingConnections = new Map();
 const backgroundId = "background-" + generateUUID();
+
+let filterctlState = null;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -34,13 +32,16 @@ async function initialize(mode) {
         const manifest = await messenger.runtime.getManifest();
         console.log(manifest.name + " v" + manifest.version + " (" + mode + ")");
         switch (mode) {
-            case "installed":
+            case "Installed":
                 if (await config.local.get("autoClearConsole")) {
                     console.clear();
                 }
                 if (verbose) {
                     console.log("configuration:", await config.local.get());
                 }
+                break;
+            default:
+                console.log("FIXME");
                 break;
         }
         if (accounts === null) {
@@ -59,58 +60,9 @@ async function initialize(mode) {
     }
 }
 
-/*
-async function initRequests() {
-    try {
-        if (requests === null) {
-            requests = new Requests("background", handleConnected, handleDisconnected);
-            await requests.addHandler("getAccounts", handleGetAccounts);
-            await requests.addHandler("getSelectedAccount", handleGetSelectedAccount);
-            await requests.addHandler("selectAccount", handleSelectAccount);
-            await requests.addHandler("getDomains", handleGetDomains);
-            await requests.addHandler("getEnabledDomains", handleGetEnabledDomains);
-            await requests.addHandler("setDomains", handleSetDomains);
-            await requests.addHandler("setDomainEnabled", handleSetDomainEnabled);
-            await requests.addHandler("setClassLevels", handleSetClassLevels);
-            await requests.addHandler("getClassLevels", handleGetClassLevels);
-            await requests.addHandler("sendClassLevels", handleSendClassLevels);
-            await requests.addHandler("sendAllClassLevels", handleSendAllClassLevels);
-            await requests.addHandler("refreshAllClassLevels", handleRefreshAllClassLevels);
-            await requests.addHandler("setDefaultLevels", handleSetDefaultLevels);
-            await requests.addHandler("setAccountAddressBooks", setAccountAddressBooks);
-            await requests.addHandler("getAccountAddressBooks", getAccountAddressBooks);
-            await requests.addHandler("sendAccountAddressBooks", sendAccountAddressBooks);
-            await requests.addHandler("sendAllAddressBooks", sendAllAddressBooks);
-            await requests.addHandler("refreshAllAddressBooks", refreshAllAddressBooks);
-            await requests.addHandler("setConfigValue", handleSetConfigValue);
-            await requests.addHandler("getConfigValue", handleGetConfigValue);
-            await requests.addHandler("resetConfigToDefaults", handleResetConfigToDefaults);
-            await requests.addHandler("sendCommand", handleSendCommand);
-            //await messenger.runtime.onConnect.addListener(async (port) => {
-            //    await requests.onConnect(port);
-            //});
-            await requests.listen(
-                async (port) => {
-                    await requests.onConnect(port);
-                },
-                async (port) => {
-                    await requests.onMessage(port);
-                },
-                async (port) => {
-                    await requests.onDisconnect(port);
-                },
-            );
-            console.log("background: requests initialized:", requests);
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
 async function onStartup() {
     try {
-        await initialize("startup");
+        await initialize("Startup");
     } catch (e) {
         console.error(e);
     }
@@ -118,7 +70,7 @@ async function onStartup() {
 
 async function onInstalled() {
     try {
-        await initialize("installed");
+        await initialize("Installed");
     } catch (e) {
         console.error(e);
     }
@@ -135,7 +87,8 @@ async function onSuspend() {
 
 async function onSuspendCanceled() {
     try {
-        await initialize("suspendCanceled");
+        await messenger.runtime.sendMessage({ id: "backgroundSuspendCanceled", src: backgroundId });
+        //await initialize("SuspendCanceled");
     } catch (e) {
         console.error(e);
     }
@@ -251,26 +204,26 @@ async function onMessage(message, sender) {
             case "disableDomain":
                 response = await accounts.disableDomain(message.domain);
                 break;
-            case "setClassLevels":
-                response = await handleSetClassLevels(message);
+            case "setClasses":
+                response = await handleSetClasses(message);
                 break;
-            case "getClassLevels":
-                response = await handleGetClassLevels(message);
+            case "getClasses":
+                response = await handleGetClasses(message);
                 break;
-            case "sendClassLevels":
-                response = await handleSendClassLevels(message);
+            case "sendClasses":
+                response = await handleSendClasses(message);
                 break;
-            case "sendAllClassLevels":
-                response = await handleSendAllClassLevels(message);
+            case "sendAllClasses":
+                response = await handleSendAllClasses(message);
                 break;
-            case "refreshClassLevels":
-                response = await handleRefreshClassLevels(message);
+            case "refreshClasses":
+                response = await handleRefreshClasses(message);
                 break;
-            case "refreshAllClassLevels":
-                response = await handleRefreshAllClassLevels(message);
+            case "refreshAllClasses":
+                response = await handleRefreshAllClasses(message);
                 break;
-            case "setDefaultLevels":
-                response = await handleSetDefaultLevels(message);
+            case "setDefaultClasses":
+                response = await handleSetDefaultClasses(message);
                 break;
             case "setAccountAddressBooks":
                 response = await setAccountAddressBooks(message);
@@ -285,7 +238,7 @@ async function onMessage(message, sender) {
                 response = await sendAllAddressBooks(message);
                 break;
             case "refreshAllAddressBooks":
-                response = await refreshAllAddressBooks(message);
+                response = await handleRefreshAllAddressBooks();
                 break;
             case "setConfigValue":
                 response = await handleSetConfigValue(message);
@@ -298,6 +251,9 @@ async function onMessage(message, sender) {
                 break;
             case "sendCommand":
                 response = await handleSendCommand(message);
+                break;
+            case "getPassword":
+                response = await handleGetPassword(message);
                 break;
             default:
                 console.error("background: received unexpected message:", message, sender);
@@ -604,6 +560,7 @@ async function initSelectedAccountSubmenu(menuId, info, tab) {
         if (verbose) {
             console.debug("initSelectedAccountSubmenu:", menuId, info, tab);
         }
+        /*
         let selectedAccount = await accounts.selected();
         for (let [accountId, account] of Object.entries(await accounts.get())) {
             let id = "rmfSelectedAccount_" + accountId;
@@ -616,6 +573,7 @@ async function initSelectedAccountSubmenu(menuId, info, tab) {
             await updateMenu(id, properties);
         }
         await messenger.menus.refresh();
+	*/
     } catch (e) {
         console.error(e);
     }
@@ -626,17 +584,18 @@ async function initSelectedFilterBookSubmenu(menuId, info, tab) {
         if (verbose) {
             console.debug("initSelectedFilterBookSubmenu:", menuId, info, tab);
         }
+        /*
         let selectedAccount = await accounts.selected();
-        let filterBooks = await getFilterBooks();
+        let filterctl = await getFilterDataController();
         if (verbose) {
             console.log("initSelectedFilterBooksSubmenu:", {
                 selectedAccount: selectedAccount,
-                filterBooks: filterBooks,
+                filterctl: filterctl,
             });
         }
 
         for (let [accountId, account] of Object.entries(await accounts.get())) {
-            let books = filterBooks.get(account);
+            let books = filterctl.getBooks(account);
             let selectedBook = await accounts.selectedFilterBook(account);
             if (verbose) {
                 console.log("initSelectedFilterBooksSubmenu:", {
@@ -657,6 +616,7 @@ async function initSelectedFilterBookSubmenu(menuId, info, tab) {
             }
         }
         await messenger.menus.refresh();
+	*/
     } catch (e) {
         console.error(e);
     }
@@ -824,78 +784,25 @@ messenger.messageDisplayAction.onClicked.addListener(onMessageDisplayActionClick
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-//  FilterClasses data management
+//  Filter Data Controller
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-async function loadFilterClasses(force = false) {
+async function getFilterDataController() {
     try {
-        const classes = await getFilterClasses();
-        for (const account of Object.values(await accounts.get())) {
-            await classes.get(account, force);
+        if (filterctlState === null) {
+            const state = await config.session.get("fdcState");
+            filterctlState = new FilterDataController(await accounts.get(), state);
         }
-        await saveFilterClasses(classes);
+        return filterctlState;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function getFilterClasses() {
+async function saveFilterData(filterctl) {
     try {
-        if (classesState === null) {
-            const state = await config.session.get("filterClassesState");
-            classesState = new FilterClasses(state, await accounts.get(), await findEditorTab());
-        }
-        return classesState;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function saveFilterClasses(classes) {
-    try {
-        classesState = classes;
-        await config.session.set("filterClassesState", classes.state());
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//  FilterBooks data management
-//
-///////////////////////////////////////////////////////////////////////////////
-
-// return new or cached FilterBooks object
-async function getFilterBooks() {
-    try {
-        if (filterBooksState === null) {
-            const state = await config.session.get("filterBooksState");
-            filterBooksState = new FilterBooks(state, await accounts.get(), await findEditorTab());
-        }
-        return filterBooksState;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function loadFilterBooks(force = false) {
-    try {
-        const books = await getFilterBooks();
-        for (const account of Object.values(accounts.get())) {
-            await books.get(account, force);
-        }
-        await saveFilterBooks(books);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function saveFilterBooks(filterBooks) {
-    try {
-        filterBooksState = filterBooks;
-        await config.session.set("filterBooksState", filterBooks.state());
+        await config.session.set("fdcState", filterctl.state());
     } catch (e) {
         console.error(e);
     }
@@ -904,8 +811,9 @@ async function saveFilterBooks(filterBooks) {
 async function getAccountAddressBooks(message) {
     try {
         const account = await accounts.get(message.account);
-        const filterBooks = await getFilterBooks();
-        const books = await filterBooks.get(account);
+        const filterctl = await getFilterDataController();
+        const force = message.force ? true : false;
+        const books = await filterctl.getBooks(account, force);
         return books;
     } catch (e) {
         console.error(e);
@@ -915,10 +823,10 @@ async function getAccountAddressBooks(message) {
 async function setAccountAddressBooks(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterBooks = await getFilterBooks();
-        const validationResult = await filterBooks.set(account, message.books);
-        await saveFilterBooks(filterBooks);
-        return validationResult;
+        const filterctl = await getFilterDataController();
+        const result = await filterctl.setBooks(account, message.books);
+        await saveFilterData(filterctl);
+        return result;
     } catch (e) {
         console.error(e);
     }
@@ -927,13 +835,13 @@ async function setAccountAddressBooks(message) {
 async function sendAccountAddressBooks(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterBooks = await getFilterBooks();
-        let validationResult = await filterBooks.set(account, message.books);
-        if (validationResult.valid) {
-            validationResult = await filterBooks.send(account);
+        const filterctl = await getFilterDataController();
+        let result = await filterctl.setBooks(account, message.books);
+        if (result.books.valid) {
+            result = await filterctl.sendBooks(account);
         }
-        await saveFilterBooks(filterBooks);
-        return validationResult;
+        await saveFilterData(filterctl);
+        return result;
     } catch (e) {
         console.error(e);
     }
@@ -941,18 +849,22 @@ async function sendAccountAddressBooks(message) {
 
 async function sendAllAddressBooks(message) {
     try {
-        const filterBooks = await getFilterBooks();
-        const result = await filterBooks.sendAll(await accounts.get(), message.force);
-        await saveFilterBooks(filterBooks);
+        const filterctl = await getFilterDataController();
+        const result = await filterctl.sendAllBooks(message.force);
+        await saveFilterData(filterctl);
         return result;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function refreshAllAddressBooks() {
+async function handleRefreshAllAddressBooks() {
     try {
-        await loadFilterBooks(true);
+        const filterctl = await getFilterDataController();
+        for (const account of Object.values(accounts.get())) {
+            await filterctl.getBooks(account, true);
+        }
+        await saveFilterData(filterctl);
     } catch (e) {
         console.error(e);
     }
@@ -974,81 +886,102 @@ async function handleSelectAccount(message) {
 }
 */
 
-async function handleGetClassLevels(message) {
+async function handleGetClasses(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        const levels = await classes.get(account);
-        return levels;
+        const filterctl = await getFilterDataController();
+        const classes = await filterctl.getClasses(account);
+        return classes;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handleSetClassLevels(message) {
+async function handleSetClasses(message) {
     try {
+        console.debug("handleSetClasses:", message);
         const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        const validationResult = await classes.set(account, message.levels);
-        await saveFilterClasses(classes);
-        return validationResult;
+        const filterctl = await getFilterDataController();
+        const result = await filterctl.setClasses(account, message.classes);
+        await saveFilterData(filterctl);
+        return result;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handleSendClassLevels(message) {
+async function handleSendClasses(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        let validationResult = await classes.set(account, message.levels);
-        if (validationResult.valid) {
-            validationResult = await await classes.send(account);
+        const filterctl = await getFilterDataController();
+        let setResult = await filterctl.setClassses(account, message.classes);
+        let sendResult = undefined;
+        console.debug("setClasses result:", setResult);
+        if (setResult.classes.valid) {
+            sendResult = await await filterctl.sendClasses(account);
+            console.debug("filterctl.send result:", sendResult);
         }
-        await saveFilterClasses(classes);
-        return validationResult;
+        await saveFilterData(filterctl);
+        return sendResult;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handleSendAllClassLevels(message) {
+async function handleSendAllClasses(message) {
     try {
-        const classes = await getFilterClasses();
-        const result = await classes.sendAll(await accounts.get(), message.force);
-        await saveFilterClasses(classes);
+        const filterctl = await getFilterDataController();
+        const result = await filterctl.sendAllClasses(message.force);
+        console.debug("sendAllClasses result:", result);
+        await saveFilterData(filterctl);
         return result;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handleRefreshClassLevels(message) {
+async function handleRefreshClasses(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        const levels = await classes.get(account, true);
-        return levels;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleRefreshAllClassLevels() {
-    try {
-        await loadFilterClasses(true);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleSetDefaultLevels(message) {
-    try {
-        const account = await accounts.get(message.accountId);
-        const classes = await getFilterClasses();
-        const result = await classes.setDefaultItems(account);
-        await saveFilterClasses(classes);
+        const filterctl = await getFilterDataController();
+        const result = await filterctl.getClasses(account, true);
+        console.debug("getClasses result:", result);
         return result;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleRefreshAllClasses() {
+    try {
+        const filterctl = await getFilterDataController();
+        for (const account of Object.values(await accounts.get())) {
+            await filterctl.getClasses(account, true);
+        }
+        await saveFilterData(filterctl);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSetDefaultClasses(message) {
+    try {
+        const account = await accounts.get(message.accountId);
+        const filterctl = await getFilterDataController();
+        const result = await filterctl.setClassesDefaults(account);
+        console.debug("setDefaultClasses result:", result);
+        await saveFilterData(filterctl);
+        return result;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleGetPassword(message) {
+    try {
+        const account = await accounts.get(message.accountId);
+        const filterctl = await getFilterDataController();
+        return await filterctl.getPassword(account);
     } catch (e) {
         console.error(e);
     }

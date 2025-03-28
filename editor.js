@@ -1,6 +1,6 @@
 import { initThemeSwitcher } from "./theme_switcher.js";
 import { config } from "./config.js";
-import { differ, accountEmail } from "./common.js";
+import { differ, accountEmailAddress } from "./common.js";
 import { ClassesTab } from "./tab_classes.js";
 import { BooksTab } from "./tab_books.js";
 import { OptionsTab } from "./tab_options.js";
@@ -15,6 +15,8 @@ import { generateUUID } from "./common.js";
 
 /* globals messenger, window, document, console */
 const verbose = false;
+
+const disconnectOnBackgroundSuspend = false;
 
 initThemeSwitcher();
 
@@ -38,8 +40,8 @@ let selectedAccount = undefined;
 
 // connection state vars
 let port = null;
-let editorCID = null;
 let backgroundCID = null;
+const editorCID = "editor-" + generateUUID();
 
 let controls = {};
 
@@ -52,7 +54,7 @@ let tab = {
         CellDelete: onClassesCellDelete,
         CellInsert: onClassesCellInsert,
     }),
-    books: new BooksTab(sendMessage),
+    books: new BooksTab(disableEditorControl, sendMessage),
     options: new OptionsTab(sendMessage, { DomainCheckboxChange: onOptionsDomainCheckboxChange }),
     advanced: new AdvancedTab(sendMessage),
     help: new HelpTab(sendMessage),
@@ -105,8 +107,8 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
                 }
                 accountIndex[account.id] = i;
                 accountIndex[i] = account.id;
-                addAccountSelectRow(tab.classes.controls.accountSelect, id, accountEmail(account));
-                addAccountSelectRow(tab.books.controls.accountSelect, id, accountEmail(account));
+                addAccountSelectRow(tab.classes.controls.accountSelect, id, accountEmailAddress(account));
+                addAccountSelectRow(tab.books.controls.accountSelect, id, accountEmailAddress(account));
                 i++;
             }
 
@@ -218,11 +220,11 @@ async function selectAccount(accountId) {
         tab.books.populate();
 
         // advanced
-        tab.advanced.controls.selectedAccount.value = accountEmail(selectedAccount);
+        tab.advanced.controls.selectedAccount.value = accountEmailAddress(selectedAccount);
         tab.advanced.selectedAccount = selectedAccount;
 
         if (verbose) {
-            console.log("account selected:", accountEmail(selectedAccount));
+            console.log("account selected:", accountEmailAddress(selectedAccount));
         }
         return true;
     } catch (e) {
@@ -385,6 +387,8 @@ async function setAdvancedTabVisible(visible = undefined) {
 async function populateUsageControls() {
     try {
         if (!usagePopulated) {
+            tab.advanced.setStatus("Updating commands...");
+            tab.help.controls.helpText.innerHTML = "Updating help...";
             usagePopulated = true;
             const response = await requestUsage();
             if (response) {
@@ -431,7 +435,7 @@ async function handleUpdateEditorAccounts(message) {
         if (verbose) {
             console.debug("handleUpdateEditorAccounts:", message);
         }
-        await populateAccounts(message.accounts, message.selectedAccount);
+        //FIXME: await populateAccounts(message.accounts, message.selectedAccount);
         return true;
     } catch (e) {
         console.error(e);
@@ -558,7 +562,6 @@ async function connect() {
                 console.debug("background: page:", { url: background, suspended: backgroundSuspended });
             }
 
-            editorCID = "editor-" + generateUUID();
             backgroundCID = null;
             if (verbose) {
                 console.log("editor connecting to background as:", editorCID);
@@ -575,12 +578,32 @@ async function connect() {
     }
 }
 
+async function disconnect() {
+    try {
+        if (port !== null) {
+            if (verbose) {
+                console.debug("editor disconnecting:", {
+                    port: port,
+                    editor: editorCID,
+                    background: backgroundCID,
+                });
+            }
+            await port.disconnect();
+            // FIXME: maybe let the onDisconnect clear these?
+            port = null;
+            backgroundCID = null;
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function onPortMessage(message, sender) {
     try {
         if (verbose) {
             console.debug("editor.onPortMessage:", message, sender);
         }
-        let response = undefined;
+        let ret = undefined;
         switch (message.id) {
             case "ENQ":
                 if (message.dst !== editorCID) {
@@ -590,9 +613,9 @@ async function onPortMessage(message, sender) {
                 if (verbose) {
                     console.debug("editor: set background CID:", backgroundCID);
                 }
-                response = await messenger.runtime.sendMessage({ id: "ACK", src: editorCID, dst: backgroundCID });
+                ret = await messenger.runtime.sendMessage({ id: "ACK", src: editorCID, dst: backgroundCID });
                 if (verbose) {
-                    console.debug("ACK response:", response);
+                    console.debug("ACK returned:", ret);
                     console.log("editor connected to:", backgroundCID);
                 }
                 // complete initialization now that we're connected to the background page
@@ -615,14 +638,24 @@ async function onMessage(message, sender) {
         // process messages allowed without connection
         switch (message.id) {
             case "backgroundActivated":
+                backgroundSuspended = false;
                 await connect();
                 return;
+            case "backgroundSuspendCanceled":
+                if (backgroundSuspended) {
+                    await connect();
+                }
+                return;
             case "backgroundSuspending":
-                backgroundSuspended = true;
+                if (disconnectOnBackgroundSuspend) {
+                    await disconnect();
+                }
+                //backgroundSuspended = true;
+                //await onUnload();
                 return;
         }
 
-        if (editorCID === undefined || backgroundCID === undefined) {
+        if (backgroundCID === null) {
             console.error("not connected, discarding:", message);
             return;
         }
@@ -678,10 +711,16 @@ async function onMessage(message, sender) {
 async function onDisconnect(port) {
     try {
         if (verbose) {
-            console.log("editor: disconnected:", port);
-            console.log("editor: backgroundSuspended:", backgroundSuspended);
+            console.log("editor: onDisconnect:", {
+                port: port,
+                editor: editorCID,
+                background: backgroundCID,
+                backgroundSuspended: backgroundSuspended,
+            });
         }
         port = null;
+        backgroundCID = null;
+        backgroundSuspended = true;
     } catch (e) {
         console.error(e);
     }
@@ -689,7 +728,7 @@ async function onDisconnect(port) {
 
 async function sendMessage(message) {
     try {
-        if (port === null || editorCID === undefined || backgroundCID === undefined) {
+        if (port === null || backgroundCID === null) {
             console.error("SendMessage: port not connected:", port, editorCID, backgroundCID, message);
             throw new Error("SendMessage: port not connected");
         }
@@ -763,10 +802,7 @@ async function enableAccountControls(enabled) {
 
 async function onUnload() {
     try {
-        if (port !== null) {
-            await port.disconnect();
-            port = null;
-        }
+        await disconnect();
     } catch (e) {
         console.error(e);
     }
@@ -907,6 +943,7 @@ async function onClassesCellInsert(sender) {
 // classes tab controls
 addTabControl(tab.classes, "accountSelect", "classes-account-select", "change", onAccountSelectChange);
 addTabControl(tab.classes, "statusMessage", "classes-status-message-span");
+addTabControl(tab.classes, "statusLabel", "classes-status-label-span");
 addTabControl(tab.classes, "classTable", "class-table", "change", (sender) => {
     tab.classes.onTableChange(sender);
 });
@@ -925,33 +962,45 @@ addTabControl(tab.classes, "refreshAllButton", "refresh-all-button", "click", ()
 
 // books tab controls
 addTabControl(tab.books, "accountSelect", "books-account-select", "change", onAccountSelectChange);
-addTabControl(tab.books, "filterBookSelect", "books-filterbook-select", "change", () => {
-    tab.books.onBookSelectChange;
+addTabControl(tab.books, "bookSelect", "books-filterbook-select", "change", (e) => {
+    tab.books.onBookSelectChange(e);
 });
-addTabControl(tab.books, "selectedCheckbox", "book-selected-checkbox");
-addTabControl(tab.books, "connectedCheckbox", "book-connected-checkbox");
-addTabControl(tab.books, "addressCountLabel", "book-address-count-label");
+addTabControl(tab.books, "addressesSelect", "books-addresses-select", "change", (e) => {
+    tab.books.onAddressesSelectChange(e);
+});
 addTabControl(tab.books, "statusMessage", "books-status-message-span");
-addTabControl(tab.books, "selectButton", "books-select-button", "click", () => {
-    tab.books.onSelect;
+
+addTabControl(tab.books, "selectedSpan", "books-add-sender-span");
+addTabControl(tab.books, "selectButton", "books-add-sender-button", "click", () => {
+    tab.books.onSelectClick();
 });
-addTabControl(tab.books, "connectButton", "books-connect-button", "click", () => {
-    tab.books.onShow;
+
+addTabControl(tab.books, "connectedLabel", "books-connected-label");
+addTabControl(tab.books, "connectedCheckbox", "books-connected-check", "change", (e) => {
+    tab.books.onConnectedChange(e);
+});
+addTabControl(tab.books, "scanButton", "books-scan-button", "click", () => {
+    tab.books.onScanClick();
+});
+addTabControl(tab.books, "connectionsSelect", "books-connections-select", "change", (e) => {
+    tab.books.onConnectionsSelectChange(e);
 });
 addTabControl(tab.books, "disconnectButton", "books-disconnect-button", "click", () => {
-    tab.books.onDisconnect;
+    tab.books.onDisconnectClick();
 });
-addTabControl(tab.books, "deleteButton", "books-delete-button", "click", () => {
-    tab.books.onDelete;
+
+addTabControl(tab.books, "addInput", "books-add-input", "keyup", (e) => {
+    tab.books.onAddInputKeyup(e);
 });
 addTabControl(tab.books, "addButton", "books-add-button", "click", () => {
-    tab.books.onAdd;
+    tab.books.onAddClick();
 });
-addTabControl(tab.books, "addInput", "books-add-input", "change", () => {
-    tab.books.onAddInputChange;
+
+addTabControl(tab.books, "deleteInput", "books-delete-input", "keyup", (e) => {
+    tab.books.onDeleteInputKeyup(e);
 });
-addTabControl(tab.books, "deleteInput", "books-delete-input", "change", () => {
-    tab.books.onDeleteInputChange;
+addTabControl(tab.books, "deleteButton", "books-delete-button", "click", () => {
+    tab.books.onDeleteClick();
 });
 
 // options tab controls

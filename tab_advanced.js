@@ -69,6 +69,7 @@ export class AdvancedTab {
             }
             console.log("commandUsage:", this.commandUsage);
             this.setOutput(firstUsage.join("\n"));
+            this.setStatus("Ready");
             this.enableControls(true);
         } catch (e) {
             console.error(e);

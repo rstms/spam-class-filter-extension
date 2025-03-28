@@ -2,7 +2,7 @@ import { differ } from "./common.js";
 
 /* globals console, messenger */
 
-const verbose = true;
+const verbose = false;
 const readback = true;
 
 const READBACK_TRIES = 5;

@@ -78,7 +78,11 @@ export function portLabel(port) {
         if (verbose) {
             console.debug("portLabel:", port);
         }
-        return port.name.replace(/-.$/, "");
+        let label = port.name.replace(/-.*$/g, "");
+        if (verbose) {
+            console.debug("portLabel returning:", label);
+        }
+        return label;
     } catch (e) {
         console.error(e);
     }

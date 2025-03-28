@@ -1,4 +1,5 @@
-import { differ, selectedAccountId } from "./common.js";
+import { selectedAccountId, accountEmailAddress } from "./common.js";
+import { Classes, Level, classesFactory } from "./filterctl.js";
 
 /* globals document, console, setTimeout, clearTimeout */
 
@@ -17,6 +18,7 @@ export class ClassesTab {
         this.cellTemplate = null;
         this.handlers = handlers;
         this.selectedAccount = undefined;
+        this.classes = undefined;
     }
 
     selectAccount(account) {
@@ -27,39 +29,86 @@ export class ClassesTab {
         }
     }
 
-    async getClasses(accountId) {
+    async getClasses(disablePopulate = false, disableUpdateStatus = false) {
         try {
             if (verbose) {
-                console.log("ClassesTab.getClasses:", this, accountId);
+                console.debug("ClassesTab.getClasses:", disablePopulate, disableUpdateStatus, this);
             }
-            await this.setStatusPending("requesting classes...");
-            return await this.sendMessage({ id: "getClassLevels", accountId: accountId });
+            await this.setStatusPending("Requesting classes...");
+            let response = await this.sendMessage({ id: "getClasses", accountId: this.selectedAccount.id });
+            let classes = await this.handleResponse(response, disablePopulate, disableUpdateStatus);
+            if (verbose) {
+                console.debug("getClasses returning:", classes);
+            }
+            return classes;
         } catch (e) {
             console.error(e);
         }
     }
 
-    getLevels() {
+    async handleResponse(response, disablePopulate = false, disableUpdateStatus = false) {
         try {
-            let ret = [];
+            if (verbose) {
+                console.log("handleResponse:", response);
+            }
+
+            let classes = response.classes;
+            if (typeof classes !== "undefined") {
+                if (typeof classes === "object") {
+                    if (classes instanceof Classes) {
+                        console.assert(classes instanceof Classes, "unexpected: classes IS an instance of Classes");
+                    }
+                    // parse message object into a Classes
+                    console.assert(response.accountId === this.selectedAccount.id, "server response account ID mismatch");
+                    classes = classesFactory(response.classes, this.selectedAccount);
+                    console.warn("ClassesTab.handleResponse:", response.valid, classes.valid, classes, response);
+                }
+                response.classes = classes;
+                console.assert(classes instanceof Classes, "classes is not an instance of Classes");
+
+                if (!disablePopulate) {
+                    await this.populate(classes);
+                }
+            }
+
+            if (!disableUpdateStatus) {
+                await this.updateStatus(response);
+            }
+            if (verbose) {
+                console.debug("handleResponse: returning:", response.classes);
+            }
+            return response.classes;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    getLevels(asClasses = false) {
+        try {
             let i = 0;
+            let classes = classesFactory();
+            classes.setAccount(this.selectedAccount.id, accountEmailAddress(this.selectedAccount));
+            console.log("getLevels: initialized classes:", classes);
             while (true) {
-                let nameElement = document.getElementById(`level-name-${i}`);
+                const nameElement = document.getElementById(`level-name-${i}`);
                 if (!nameElement) {
-                    return ret;
+                    break;
                 }
-                let scoreElement = document.getElementById(`level-score-${i}`);
-                let level = {
-                    name: nameElement.value,
-                };
-                if (level.name === "spam") {
-                    level.score = "999";
-                } else {
-                    level.score = String(parseFloat(scoreElement.value));
-                }
-                ret.push(level);
+                const name = nameElement.value;
+                const scoreElement = document.getElementById(`level-score-${i}`);
+                const score = name === "spam" ? 999 : scoreElement.value;
+                console.log("getLevels: adding:", i, name, score);
+                classes.addLevel(name, score);
                 i += 1;
             }
+            try {
+                classes.validate();
+            } catch (e) {
+                console.log(e);
+            }
+            let ret = asClasses ? classes : classes.render().Classes;
+            console.debug("getLevels: returning:", ret);
+            return ret;
         } catch (e) {
             console.error(e);
         }
@@ -82,10 +131,10 @@ export class ClassesTab {
                 console.log("cell delete");
             }
             const row = parseInt(event.srcElement.getAttribute("data-row"));
-            var levels = this.getLevels();
-            levels.splice(row, 1);
-            await this.sendMessage({ id: "setClassLevels", accountId: this.accountId(), levels: levels });
-            await this.populate(levels);
+            let asClasses = true;
+            var classes = this.getLevels(asClasses);
+            classes.levels.splice(row, 1);
+            await this.updateClasses(classes);
         } catch (e) {
             console.error(e);
         }
@@ -157,17 +206,17 @@ export class ClassesTab {
             if (verbose) {
                 console.log("cellInsert:", event, row);
             }
-            let levels = this.getLevels();
-            let newScore = parseFloat(levels[row].score);
-            let nextScore = parseFloat(levels[row + 1].score);
+            let asClasses = true;
+            let classes = this.getLevels(asClasses);
+            let newScore = parseFloat(classes.levels[row].score);
+            let nextScore = parseFloat(classes.levels[row + 1].score);
             if (nextScore === 999) {
                 newScore += 1;
             } else {
                 newScore += (nextScore - newScore) / 2;
             }
-            levels.splice(row + 1, 0, { name: this.newLevelName(levels), score: String(newScore) });
-            await this.sendMessage({ id: "setClassLevels", accountId: this.accountId(), levels: levels });
-            await this.populate(levels);
+            classes.levels.splice(row + 1, 0, new Level(this.newLevelName(classes.levels), String(newScore)));
+            await this.updateClasses(classes);
         } catch (e) {
             console.error(e);
         }
@@ -287,7 +336,7 @@ export class ClassesTab {
         }
     }
 
-    async populate(levels = undefined) {
+    async populate(classes = undefined) {
         try {
             if (verbose) {
                 console.log("BEGIN populateRows");
@@ -300,23 +349,25 @@ export class ClassesTab {
                 throw new Error("ClassesTab.populate: invalid accountId", accountId);
             }
 
-            if (levels == undefined) {
-                levels = await this.getClasses(this.accountId());
+            if (classes == undefined) {
+                // disablePopulate to prevent infinite loop
+                classes = await this.getClasses(true);
             }
+            this.classes = classes;
 
+            console.debug("ClassesTab.populate: classes:", classes);
+            let levels = classes.render().Classes;
             console.debug("ClassesTab.populate: levels:", levels);
 
-            if (!levels) {
+            if (!levels || !Array.isArray(levels)) {
                 throw new Error("ClassesTab.populate: invalid levels", levels);
             }
-
-            console.debug("ClassesTab.populate: levels:", levels);
 
             if (!this.cellTemplate) {
                 if (dumpHTML) {
                     console.log(this.controls.tableBody.innerHTML);
                 }
-                this.initCellTemplate();
+                await this.initCellTemplate();
             }
             this.controls.tableBody.innerHTML = "";
             var index = 0;
@@ -356,16 +407,21 @@ export class ClassesTab {
             }
 
             // check that editedLevels returns the same data we set
-            const controlLevels = this.getLevels();
+            const controlLevels = this.getLevels(true);
+            /*
             if (differ(levels, controlLevels)) {
-                console.log("getClasses:", levels);
+                console.log("classesLevels:", levels);
                 console.log("controlLevels:", controlLevels);
                 throw new Error("editedLevels() return differs from background getClasses() return");
             }
+	    */
+            let mismatch = classes.diff(controlLevels);
+            if (mismatch) {
+                throw new Error("editedLevels() return differs from background getClasses() return");
+            }
+            console.warn("populate: controls data valid:", controlLevels.valid);
 
-            await this.updateClasses();
-
-            await this.enableControls(true);
+            await this.enableControls(classes.valid);
 
             if (verbose) {
                 console.log("END populateRows");
@@ -375,22 +431,29 @@ export class ClassesTab {
         }
     }
 
-    async updateClasses(sendToServer = false) {
+    async updateClasses(classes = undefined, sendToServer = false) {
         try {
+            console.debug("updateClasses: classes", classes);
+            if (classes === undefined) {
+                classes = this.getLevels(true);
+            }
+            let message = {
+                id: sendToServer ? "sendClasses" : "setClasses",
+                accountId: classes.accountId,
+                classes: classes.render(),
+            };
             await this.setStatusPending("sending classes...");
-            let state = await this.sendMessage({
-                id: sendToServer ? "sendClassLevels" : "setClassLevels",
-                accountId: this.accountId(),
-                levels: this.getLevels(),
-            });
-            await this.updateClassesStatus(state);
+            console.debug("updateClasses: sending:", message);
+            let response = await this.sendMessage(message);
+            console.debug("updateClasses: received:", response);
+            await this.handleResponse(response);
         } catch (e) {
             console.error(e);
         }
     }
 
     async statusPendingTimeout() {
-        await this.updateClassesStatus({ error: true, message: "Pending operation timed out." });
+        await this.updateStatus({ success: false, message: "Pending operation timed out." });
     }
 
     async setStatusPending(message) {
@@ -399,57 +462,46 @@ export class ClassesTab {
                 clearTimeout(this.statusPendingTimer);
             }
             this.statusPendingTimer = setTimeout(this.statusPendingTimeout, STATUS_PENDING_TIMEOUT);
-            await this.updateClassesStatus({ message: message, disable: true });
+            await this.updateStatus({ success: true, message: message, disable: true });
         } catch (e) {
             console.error(e);
         }
     }
 
-    async updateClassesStatus(state = undefined) {
+    async updateStatus(state = undefined) {
         try {
+            if (verbose) {
+                console.debug("updateStatus:", state);
+            }
+
+            if (state === undefined) {
+                console.warn("ignoring undefined status update");
+                return;
+            }
+
             if (this.statusPendingTimer) {
                 clearTimeout(this.statusPendingTimer);
                 this.statusPendingTimer = null;
             }
 
-            if (state == undefined) {
-                state = {
-                    error: true,
-                    message: "unknown error",
-                };
-            }
-
-            if (verbose) {
-                console.log("updateClassesStatus:", state);
-            }
-
-            let parts = [];
-
-            if (state.error) {
-                parts.push("Error");
-            } else {
-                if (state.dirty) {
-                    if (state.valid) {
-                        parts.push("Unsaved Validated Changes");
+            let statusText = "Status";
+            this.valid = false;
+            if ("classes" in state) {
+                this.valid = state.classes.valid;
+                if (!this.valid) {
+                    console.warn("status not valid");
+                }
+                this.dirty = state.dirty ? true : false;
+                if (this.dirty) {
+                    if (this.valid) {
+                        statusText = "Status (Unsaved Changes)";
                     } else {
-                        parts.push("Validatation Failed");
-                        state.disable = true;
+                        statusText = "Status (Save Disabled)";
                     }
-                } else if (state.dirty === false) {
-                    parts.push("Unchanged");
                 }
             }
-
-            if (state.message) {
-                let prefix = "";
-                if (parts.length > 0) {
-                    prefix = ": ";
-                }
-                parts.push(prefix + state.message.trim());
-            }
-            this.controls.statusMessage.innerHTML = parts.join(" ");
-
-            await this.enableControls(state.disable ? false : true);
+            this.controls.statusLabel.innerHTML = statusText;
+            this.controls.statusMessage.innerHTML = typeof state.message === "string" ? state.message : "";
         } catch (e) {
             console.error(e);
         }
@@ -458,7 +510,7 @@ export class ClassesTab {
     async enableControls(enabled) {
         try {
             this.controls.accountSelect.disabled = !enabled;
-            await this.disableEditorControl("applyButton", !enabled);
+            await this.disableEditorControl("applyButton", !this.dirty);
             await this.disableEditorControl("okButton", !enabled);
         } catch (e) {
             console.error(e);
@@ -468,19 +520,21 @@ export class ClassesTab {
     async saveChanges() {
         try {
             await this.setStatusPending("sending changed classes...");
-            const state = await this.sendMessage({ id: "sendAllClassLevels", force: false });
-            await this.updateClassesStatus(state);
-            return state;
+            const response = await this.sendMessage({ id: "sendAllClasses", force: false });
+            console.debug("saveChanges: sendAllClasses returned:", response);
+            await this.handleResponse(response);
+            return response;
         } catch (e) {
             console.error(e);
-            await this.updateClassesStatus({ error: true, message: "Pending operation failed." });
+            await this.updateStatus({ success: false, message: "Pending operation failed." });
         }
     }
 
     async onDefaultsClick() {
         try {
-            const levels = await this.sendMessage({ id: "setDefaultLevels", accountId: this.accountId() });
-            await this.populate(levels);
+            const response = await this.sendMessage({ id: "setDefaultClasses", accountId: this.accountId() });
+            console.debug("onDefaultsClick: setDefaultClasses returned:", response);
+            await this.handleResponse(response);
         } catch (e) {
             console.error(e);
         }
@@ -488,10 +542,12 @@ export class ClassesTab {
 
     async onRefreshAllClick() {
         try {
-            await this.setStatusPending("requesting all classes...");
-            await this.sendMessage("refreshAllClassLevels");
-            const levels = await this.getClasses(this.accountId());
-            await this.populate(levels);
+            await this.setStatusPending("Requesting all classes...");
+            await this.sendMessage("refreshAllClasses");
+            console.debug("onRefreshAllClick: refreshAllClasses returned:", response);
+            const response = await this.getClasses();
+            console.debug("onRefreshAllClick: getClasses returned:", response);
+            await this.handleResponse(response);
         } catch (e) {
             console.error(e);
         }
@@ -499,9 +555,10 @@ export class ClassesTab {
 
     async onRefreshClick() {
         try {
-            await this.setStatusPending("requesting classes...");
-            const levels = await this.sendMessage({ id: "refreshClassLevels", accountId: this.accountId() });
-            await this.populate(levels);
+            await this.setStatusPending("Requesting classes...");
+            const response = await this.sendMessage({ id: "refreshClasses", accountId: this.accountId() });
+            console.debug("onRefreshClick: refreshClasses returned:", response);
+            await this.handleResponse(response);
         } catch (e) {
             console.error(e);
         }

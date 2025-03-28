@@ -12,19 +12,37 @@ var cardDAV = class extends ExtensionCommon.ExtensionAPI {
     getAPI(context) {
         return {
             cardDAV: {
-                async getBooks(populate) {
+                async getConnectedBooks(populate) {
                     console.log("getBooks:", populate);
                     console.log("abManager:", abManager);
                     console.log("context:", context);
-                    let names = [];
+                    let books = {};
                     for (const dir of abManager.directories) {
                         console.log(dir);
-                        if (dir.isRemote || dir.dirType === abManager.CARDDAV_DIRECTORY_TYPE) {
+                        if (dir.dirType === abManager.CARDDAV_DIRECTORY_TYPE) {
+			    books[dir.UID] = {
+				UID: dir.UID,
+				URI: dir.URI,
+				name: dir.dirName,
+				description: dir.description,
+				fileName: dir.fileName,
+				useForAutoComplete: dir.useForAutoComplete(),
+				serverURL: dir.getStringValue("carddav.url", ""),
+				username: dir.getStringValue("carddav.username", ""),
+				
+			    }
                             names.push({ name: dir.dirName, URI: dir.URI, UID: dir.UID });
                         }
                     }
                     return names;
                 },
+		async getServerBooks(username, password) {
+                    console.log("connect:", name, username, password);
+                    let hostname = "https://" + username.split("@")[1];
+                    let books = await CardDAVUtils.detectAddressBooks(username, password, hostname, false);
+                    console.log("detected cardDAV books:", books);
+		    return books;
+		}
                 async connect(name, URI, username, password) {
                     console.log("connect:", name, URI, username, password);
                     let hostname = "https://" + username.split("@")[1];

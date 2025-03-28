@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { accountEmail, accountDomain } from "./common.js";
+import { accountEmailAddress, accountDomain } from "./common.js";
 
 /* globals messenger, console */
 
@@ -328,7 +328,7 @@ export class Accounts {
                 selected = {};
             }
             selected[account.id] = bookName;
-            console.log("FilterBook selected:", accountEmail(account), bookName);
+            console.log("FilterBook selected:", accountEmailAddress(account), bookName);
             await config.local.set("selectedFilterBookNames", selected);
         } catch (e) {
             console.error(e);
