@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
         <title>Mail Filter Control</title>
         <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css?h=2a67f89353a72f7ee4500027c27d0b66" />
-        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=6f87442f908bf28f4c13e8f1900c2eab" />
+        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=8a01b9900b6955e2cde1469fe2ebfb3c" />
         <script type="module" src="editor.js"></script>
     </head>
 
@@ -44,7 +44,7 @@
                                 <div class="row gx-2 d-flex">
                                     <div class="col-2 d-flex">
                                         <div class="input-group input-group-sm d-flex">
-                                            <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                            <span class="d-flex d-md-flex flex-fill justify-content-end input-group-text"
                                                 >Account</span
                                             >
                                         </div>
@@ -63,7 +63,7 @@
                                     <div class="col-2 text-end d-flex">
                                         <div class="input-group input-group-sm d-flex">
                                             <span
-                                                class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                                class="d-flex d-md-flex flex-fill justify-content-end input-group-text"
                                                 id="classes-status-label-span"
                                                 >Status</span
                                             >
@@ -71,14 +71,15 @@
                                     </div>
                                     <div class="col-10 d-flex">
                                         <span
-                                            class="bg-light-subtle border rounded-0 flex-fill py-1 px-1"
+                                            class="bg-light-subtle border rounded-0 d-flex d-md-flex flex-grow-1 py-1 px-1"
                                             id="classes-status-message-span"
                                             >Requesting data...</span
                                         >
                                     </div>
                                 </div>
+                                <div></div>
                                 <div class="row d-flex" id="table-grid-row">
-                                    <div class="col" id="table-grid-column">
+                                    <div class="col-auto" id="table-grid-column">
                                         <div class="border rounded-0" id="level-table-div">
                                             <div class="table-responsive d-inline-flex" id="class-table">
                                                 <table class="table table-sm">
@@ -236,6 +237,7 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div></div>
                                 <div class="row">
                                     <div class="col">
                                         <div class="vstack gap-2">
@@ -243,14 +245,30 @@
                                                 <div class="col-2 d-flex">
                                                     <button
                                                         class="btn btn-primary btn-sm flex-grow-1"
-                                                        id="defaults-button"
+                                                        id="classes-save-button"
                                                         type="button"
                                                     >
-                                                        Set Defaults
+                                                        Save Changes
                                                     </button>
                                                 </div>
-                                                <div class="col-auto">
-                                                    <label class="col-form-label" for="defaults-button"
+                                                <div class="col-auto d-flex">
+                                                    <label class="col-form-label" for="classes-save-button"
+                                                        >Upload Changes to Mail Filter Server</label
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="row d-flex">
+                                                <div class="col-2 d-flex">
+                                                    <button
+                                                        class="btn btn-primary btn-sm flex-grow-1"
+                                                        id="classes-defaults-button"
+                                                        type="button"
+                                                    >
+                                                        Reset To Defaults
+                                                    </button>
+                                                </div>
+                                                <div class="col-auto d-flex">
+                                                    <label class="col-form-label" for="classes-defaults-button"
                                                         >Reset classes to default values</label
                                                     >
                                                 </div>
@@ -259,15 +277,15 @@
                                                 <div class="col-2 d-flex">
                                                     <button
                                                         class="btn btn-primary btn-sm flex-grow-1"
-                                                        id="refresh-button"
+                                                        id="classes-refresh-button"
                                                         type="button"
                                                     >
-                                                        Refresh&nbsp;
+                                                        Revert Changes
                                                     </button>
                                                 </div>
-                                                <div class="col-auto">
-                                                    <label class="col-form-label" for="refresh-button"
-                                                        >Reload filter data for selected account</label
+                                                <div class="col-auto d-flex">
+                                                    <label class="col-form-label" for="classes-refresh-button"
+                                                        >Abandon unsaved changes to this account</label
                                                     >
                                                 </div>
                                             </div>
@@ -275,15 +293,15 @@
                                                 <div class="col-2 d-flex">
                                                     <button
                                                         class="btn btn-primary btn-sm flex-grow-1"
-                                                        id="refresh-all-button"
+                                                        id="classes-refresh-all-button"
                                                         type="button"
                                                     >
-                                                        Refresh All&nbsp;
+                                                        Revert All Changes
                                                     </button>
                                                 </div>
-                                                <div class="col-auto">
-                                                    <label class="col-form-label" for="refresh-all-button"
-                                                        >Reload filter data for all accounts</label
+                                                <div class="col-auto d-flex">
+                                                    <label class="col-form-label" for="classes-refresh-all-button"
+                                                        >Abandon unsaved changes for all accounts</label
                                                     >
                                                 </div>
                                             </div>

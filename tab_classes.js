@@ -1,21 +1,27 @@
-import { selectedAccountId, accountEmailAddress } from "./common.js";
+import { selectedAccountId } from "./common.js";
 import { Classes, Level, classesFactory } from "./filterctl.js";
 
 /* globals document, console, setTimeout, clearTimeout */
 
 const verbose = true;
-const dumpHTML = false;
+const dumpHTML = true;
 
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 16;
+//const MIN_SCORE = -20;
+const MAX_SCORE = 20;
+
 const STATUS_PENDING_TIMEOUT = 5120;
 
 export class ClassesTab {
-    constructor(disableEditorControl, sendMessage, handlers) {
+    constructor(disableEditorControl, sendMessage, enableTab, handlers) {
         this.controls = {};
         this.disableEditorControl = disableEditorControl;
         this.sendMessage = sendMessage;
+        this.enableTab = enableTab;
+        this.accounts = undefined;
         this.cellTemplate = null;
+        this.tableRendered = false;
         this.handlers = handlers;
         this.selectedAccount = undefined;
         this.classes = undefined;
@@ -60,7 +66,7 @@ export class ClassesTab {
                     }
                     // parse message object into a Classes
                     console.assert(response.accountId === this.selectedAccount.id, "server response account ID mismatch");
-                    classes = classesFactory(response.classes, this.selectedAccount);
+                    classes = await classesFactory(this.accounts, response.classes, this.selectedAccount);
                     console.warn("ClassesTab.handleResponse:", response.valid, classes.valid, classes, response);
                 }
                 response.classes = classes;
@@ -83,11 +89,11 @@ export class ClassesTab {
         }
     }
 
-    getLevels(asClasses = false) {
+    async getLevels(asClasses = false) {
         try {
             let i = 0;
-            let classes = classesFactory();
-            classes.setAccount(this.selectedAccount.id, accountEmailAddress(this.selectedAccount));
+            let classes = await classesFactory(this.accounts);
+            classes.setAccount(this.selectedAccount);
             console.log("getLevels: initialized classes:", classes);
             while (true) {
                 const nameElement = document.getElementById(`level-name-${i}`);
@@ -101,13 +107,10 @@ export class ClassesTab {
                 classes.addLevel(name, score);
                 i += 1;
             }
-            try {
-                classes.validate();
-            } catch (e) {
-                console.log(e);
-            }
             let ret = asClasses ? classes : classes.render().Classes;
-            console.debug("getLevels: returning:", ret);
+            if (verbose) {
+                console.debug("getLevels: returning:", ret);
+            }
             return ret;
         } catch (e) {
             console.error(e);
@@ -132,7 +135,7 @@ export class ClassesTab {
             }
             const row = parseInt(event.srcElement.getAttribute("data-row"));
             let asClasses = true;
-            var classes = this.getLevels(asClasses);
+            var classes = await this.getLevels(asClasses);
             classes.levels.splice(row, 1);
             await this.updateClasses(classes);
         } catch (e) {
@@ -145,9 +148,38 @@ export class ClassesTab {
             if (verbose) {
                 console.log("slider moved");
             }
+            let asClasses = true;
+            var classes = await this.getLevels(asClasses);
             const row = parseInt(event.srcElement.getAttribute("data-row"));
+
+            // get the element value rounded to tenths
+            let sliderValue = Math.round(parseFloat(event.srcElement.value) * 10) / 10;
+
+            // limit slider to stay below the next level
+            if (row < classes.levels.length - 1) {
+                let nextLevelValue = Math.round(classes.levels[row + 1].score * 10) / 10;
+                if (sliderValue >= nextLevelValue) {
+                    sliderValue = nextLevelValue - 0.1;
+                }
+            }
+
+            // limit slider to stay above the previous level
+            if (row > 0) {
+                let lastLevelValue = Math.round(classes.levels[row - 1].score * 10) / 10;
+                if (sliderValue <= lastLevelValue) {
+                    sliderValue = lastLevelValue + 0.1;
+                }
+            }
+
+            // round the slider to tenths after the calculations
+            sliderValue = Math.round(sliderValue * 10) / 10;
+
+            event.srcElement.value = sliderValue;
+
             let score = document.getElementById(`level-score-${row}`);
-            score.value = event.srcElement.value;
+            //score.value = event.srcElement.value;
+            score.value = sliderValue;
+
             await this.updateClasses();
         } catch (e) {
             console.error(e);
@@ -207,14 +239,14 @@ export class ClassesTab {
                 console.log("cellInsert:", event, row);
             }
             let asClasses = true;
-            let classes = this.getLevels(asClasses);
+            let classes = await this.getLevels(asClasses);
             let newScore = parseFloat(classes.levels[row].score);
             let nextScore = parseFloat(classes.levels[row + 1].score);
             if (nextScore === 999) {
-                newScore += 1;
-            } else {
-                newScore += (nextScore - newScore) / 2;
+                nextScore = MAX_SCORE;
             }
+            newScore += (nextScore - newScore) / 2;
+            newScore = Math.round(newScore * 10) / 10;
             classes.levels.splice(row + 1, 0, new Level(this.newLevelName(classes.levels), String(newScore)));
             await this.updateClasses(classes);
         } catch (e) {
@@ -342,8 +374,14 @@ export class ClassesTab {
                 console.log("BEGIN populateRows");
             }
 
+            if (this.accounts === undefined) {
+                this.accounts = await this.sendMessage("getAccounts");
+            }
+
             let accountId = this.accountId();
-            console.debug("ClassesTab.populate: accountId:", accountId);
+            if (verbose) {
+                console.debug("ClassesTab.populate: accountId:", accountId);
+            }
 
             if (!accountId) {
                 throw new Error("ClassesTab.populate: invalid accountId", accountId);
@@ -355,9 +393,13 @@ export class ClassesTab {
             }
             this.classes = classes;
 
-            console.debug("ClassesTab.populate: classes:", classes);
+            if (verbose) {
+                console.debug("ClassesTab.populate: classes:", classes);
+            }
             let levels = classes.render().Classes;
-            console.debug("ClassesTab.populate: levels:", levels);
+            if (verbose) {
+                console.debug("ClassesTab.populate: levels:", levels);
+            }
 
             if (!levels || !Array.isArray(levels)) {
                 throw new Error("ClassesTab.populate: invalid levels", levels);
@@ -369,10 +411,16 @@ export class ClassesTab {
                 }
                 await this.initCellTemplate();
             }
-            this.controls.tableBody.innerHTML = "";
+
+            let table = this.controls.tableBody;
+            console.log("table:", table);
+            let tableRows = table.childNodes;
+            if (!this.tableRendered || tableRows.length !== levels.length) {
+                tableRows = null;
+                this.controls.tableBody.innerHTML = "";
+            }
             var index = 0;
             for (const level of levels) {
-                const row = document.createElement("tr");
                 let name = level.name;
                 let score = level.score;
                 let disabled = false;
@@ -380,34 +428,60 @@ export class ClassesTab {
                 if (index === levels.length - 1) {
                     disabled = true;
                     score = "infinite";
-                    sliderValue = "20.0";
+                    sliderValue = String(MAX_SCORE);
                 }
-                const nameControl = this.appendCell(row, index, "level-name", "input", name, disabled);
-                const scoreControl = this.appendCell(row, index, "level-score", "input", score, disabled);
-                const sliderControl = this.appendCell(row, index, "level-slider", "input", sliderValue, disabled);
-                if (!disabled) {
-                    nameControl.addEventListener("keypress", this.handlers.InputKeypress);
-                    nameControl.addEventListener("change", this.handlers.NameChanged);
-                    sliderControl.addEventListener("input", this.handlers.SliderMoved);
-                    scoreControl.addEventListener("change", this.handlers.ScoreChanged);
-                    scoreControl.addEventListener("keypress", this.handlers.InputKeypress);
+                let nameControl = undefined;
+                let scoreControl = undefined;
+                let sliderControl = undefined;
+                if (tableRows == null) {
+                    let row = document.createElement("tr");
+                    nameControl = this.appendCell(row, index, "level-name", "input", name, disabled);
+                    scoreControl = this.appendCell(row, index, "level-score", "input", score, disabled);
+                    sliderControl = this.appendCell(row, index, "level-slider", "input", sliderValue, disabled);
+                    if (!disabled) {
+                        nameControl.addEventListener("keypress", this.handlers.InputKeypress);
+                        nameControl.addEventListener("change", this.handlers.NameChanged);
+                        sliderControl.addEventListener("input", this.handlers.SliderMoved);
+                        scoreControl.addEventListener("change", this.handlers.ScoreChanged);
+                        scoreControl.addEventListener("keypress", this.handlers.InputKeypress);
+                    }
+                    let deleteDisabled = disabled | (levels.length <= MIN_LEVELS);
+                    const deleteButton = this.appendCell(row, index, "level-delete", "button", "delete", deleteDisabled);
+                    if (!deleteDisabled) {
+                        deleteButton.addEventListener("click", this.handlers.CellDelete);
+                    }
+                    let addDisabled = disabled | (levels.length >= MAX_LEVELS);
+                    const insertButton = this.appendCell(row, index, "level-insert", "button", "+", addDisabled);
+                    if (!addDisabled) {
+                        insertButton.addEventListener("click", this.handlers.CellInsert);
+                    }
+                    this.controls.tableBody.appendChild(row);
+                    this.tableRendered = true;
+                } else {
+                    let row = tableRows.item(index);
+                    nameControl = row.childNodes.item(0);
+                    scoreControl = row.childNodes.item(1);
+                    sliderControl = row.childNodes.item(2);
                 }
-                let deleteDisabled = disabled | (levels.length <= MIN_LEVELS);
-                const deleteButton = this.appendCell(row, index, "level-delete", "button", "delete", deleteDisabled);
-                if (!deleteDisabled) {
-                    deleteButton.addEventListener("click", this.handlers.CellDelete);
-                }
-                let addDisabled = disabled | (levels.length >= MAX_LEVELS);
-                const insertButton = this.appendCell(row, index, "level-insert", "button", "+", addDisabled);
-                if (!addDisabled) {
-                    insertButton.addEventListener("click", this.handlers.CellInsert);
-                }
-                this.controls.tableBody.appendChild(row);
+                nameControl.value = name;
+                scoreControl.value = score;
+                sliderControl.value = sliderValue;
+                console.log("setRowValues:", index, {
+                    name: [name, nameControl.id, nameControl.value],
+                    score: [score, scoreControl.id, scoreControl.value],
+                    slider: [sliderValue, sliderControl.id, sliderControl.value],
+                });
                 index += 1;
             }
 
+            for (let i = 0; i < levels.length; i++) {
+                let id = `level-slider-${i}`;
+                const slider = document.getElementById(id);
+                console.log("readback:", i, id, slider.value);
+            }
+
             // check that editedLevels returns the same data we set
-            const controlLevels = this.getLevels(true);
+            const controlLevels = await this.getLevels(true);
             /*
             if (differ(levels, controlLevels)) {
                 console.log("classesLevels:", levels);
@@ -415,13 +489,16 @@ export class ClassesTab {
                 throw new Error("editedLevels() return differs from background getClasses() return");
             }
 	    */
+            await classes.validate();
+            await controlLevels.validate();
             let mismatch = classes.diff(controlLevels);
             if (mismatch) {
+                console.log("classes:", classes);
+                console.log("controls:", controlLevels);
                 throw new Error("editedLevels() return differs from background getClasses() return");
             }
             console.warn("populate: controls data valid:", controlLevels.valid);
-
-            await this.enableControls(classes.valid);
+            await this.enableControls(controlLevels.valid ? true : false);
 
             if (verbose) {
                 console.log("END populateRows");
@@ -433,19 +510,26 @@ export class ClassesTab {
 
     async updateClasses(classes = undefined, sendToServer = false) {
         try {
-            console.debug("updateClasses: classes", classes);
+            if (verbose) {
+                console.debug("updateClasses: classes", classes);
+            }
             if (classes === undefined) {
-                classes = this.getLevels(true);
+                let asClasses = true;
+                classes = await this.getLevels(asClasses);
             }
             let message = {
                 id: sendToServer ? "sendClasses" : "setClasses",
-                accountId: classes.accountId,
+                accountId: classes.account.id,
                 classes: classes.render(),
             };
             await this.setStatusPending("sending classes...");
-            console.debug("updateClasses: sending:", message);
+            if (verbose) {
+                console.debug("updateClasses: sending:", message);
+            }
             let response = await this.sendMessage(message);
-            console.debug("updateClasses: received:", response);
+            if (verbose) {
+                console.debug("updateClasses: received:", response);
+            }
             await this.handleResponse(response);
         } catch (e) {
             console.error(e);
@@ -486,6 +570,7 @@ export class ClassesTab {
 
             let statusText = "Status";
             this.valid = false;
+            let disable = state.disable === true ? true : false;
             if ("classes" in state) {
                 this.valid = state.classes.valid;
                 if (!this.valid) {
@@ -497,11 +582,13 @@ export class ClassesTab {
                         statusText = "Status (Unsaved Changes)";
                     } else {
                         statusText = "Status (Save Disabled)";
+                        disable = true;
                     }
                 }
             }
             this.controls.statusLabel.innerHTML = statusText;
             this.controls.statusMessage.innerHTML = typeof state.message === "string" ? state.message : "";
+            await this.enableControls(!disable);
         } catch (e) {
             console.error(e);
         }
@@ -510,8 +597,10 @@ export class ClassesTab {
     async enableControls(enabled) {
         try {
             this.controls.accountSelect.disabled = !enabled;
-            await this.disableEditorControl("applyButton", !this.dirty);
+            this.controls.saveButton.disabled = !enabled;
+            await this.disableEditorControl("applyButton", !enabled);
             await this.disableEditorControl("okButton", !enabled);
+            await this.enableTab("books", enabled);
         } catch (e) {
             console.error(e);
         }
@@ -521,7 +610,9 @@ export class ClassesTab {
         try {
             await this.setStatusPending("sending changed classes...");
             const response = await this.sendMessage({ id: "sendAllClasses", force: false });
-            console.debug("saveChanges: sendAllClasses returned:", response);
+            if (verbose) {
+                console.debug("saveChanges: sendAllClasses returned:", response);
+            }
             await this.handleResponse(response);
             return response;
         } catch (e) {
@@ -530,10 +621,20 @@ export class ClassesTab {
         }
     }
 
+    async onSaveClick() {
+        try {
+            this.saveChanges();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     async onDefaultsClick() {
         try {
             const response = await this.sendMessage({ id: "setDefaultClasses", accountId: this.accountId() });
-            console.debug("onDefaultsClick: setDefaultClasses returned:", response);
+            if (verbose) {
+                console.debug("onDefaultsClick: setDefaultClasses returned:", response);
+            }
             await this.handleResponse(response);
         } catch (e) {
             console.error(e);
@@ -543,10 +644,11 @@ export class ClassesTab {
     async onRefreshAllClick() {
         try {
             await this.setStatusPending("Requesting all classes...");
-            await this.sendMessage("refreshAllClasses");
-            console.debug("onRefreshAllClick: refreshAllClasses returned:", response);
-            const response = await this.getClasses();
-            console.debug("onRefreshAllClick: getClasses returned:", response);
+            const response = await this.sendMessage("refreshAllClasses");
+            if (verbose) {
+                console.debug("onRefreshAllClick: refreshAllClasses returned:", response);
+            }
+            response.classes = response.results[this.accountId()].classes;
             await this.handleResponse(response);
         } catch (e) {
             console.error(e);
@@ -557,7 +659,9 @@ export class ClassesTab {
         try {
             await this.setStatusPending("Requesting classes...");
             const response = await this.sendMessage({ id: "refreshClasses", accountId: this.accountId() });
-            console.debug("onRefreshClick: refreshClasses returned:", response);
+            if (verbose) {
+                console.debug("onRefreshClick: refreshClasses returned:", response);
+            }
             await this.handleResponse(response);
         } catch (e) {
             console.error(e);

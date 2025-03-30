@@ -2,9 +2,9 @@ import { config } from "./config.js";
 import { Accounts } from "./accounts.js";
 import * as ports from "./ports.js";
 import { findEditorTab } from "./common.js";
-import { sendEmailRequest, getMessageHeaders } from "./email.js";
 import { generateUUID } from "./common.js";
 import { FilterDataController } from "./filterctl.js";
+import { email } from "./email.js";
 
 /* globals messenger, console */
 
@@ -15,11 +15,10 @@ import { FilterDataController } from "./filterctl.js";
 const verbose = false;
 
 let accounts = null;
+let filterctl = null;
 
 let pendingConnections = new Map();
 const backgroundId = "background-" + generateUUID();
-
-let filterctlState = null;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -37,16 +36,17 @@ async function initialize(mode) {
                     console.clear();
                 }
                 if (verbose) {
-                    console.log("configuration:", await config.local.get());
+                    console.debug("configuration:", await config.local.get());
                 }
                 break;
             default:
-                console.log("FIXME");
+                console.error("unexpected mode:", mode);
                 break;
         }
         if (accounts === null) {
             accounts = new Accounts();
         }
+        await initFilterDataController();
         await initMenus();
         const autoOpen = await config.local.get("autoOpen");
         if (autoOpen) {
@@ -78,7 +78,7 @@ async function onInstalled() {
 
 async function onSuspend() {
     try {
-        console.log("background suspending");
+        console.warn("background suspending");
         await messenger.runtime.sendMessage({ id: "backgroundSuspending", src: backgroundId });
     } catch (e) {
         console.error(e);
@@ -87,6 +87,7 @@ async function onSuspend() {
 
 async function onSuspendCanceled() {
     try {
+        console.warn("background suspend canceled");
         await messenger.runtime.sendMessage({ id: "backgroundSuspendCanceled", src: backgroundId });
         //await initialize("SuspendCanceled");
     } catch (e) {
@@ -108,10 +109,12 @@ async function onConnect(port) {
         port.onMessage.addListener(onPortMessage);
         port.onDisconnect.addListener(onDisconnect);
         if (pendingConnections.has(port.name)) {
-            console.warn("onConnect: pending connection exists:", port.name);
+            console.error("onConnect: pending connection exists:", port.name);
         }
         pendingConnections.set(port.name, port);
-        console.log("background received connection request:", port.name);
+        if (verbose) {
+            console.log("background received connection request:", port.name);
+        }
         port.postMessage({ id: "ENQ", src: backgroundId, dst: port.name });
 
         if (verbose) {
@@ -135,9 +138,8 @@ async function onPortMessage(message, sender) {
 
 async function onMessage(message, sender) {
     try {
-        if (verbose) {
-            console.debug("background.onMessage:", message, sender);
-        }
+        console.debug("background.onMessage:", message, sender);
+        console.log("background.OnMessage received:", message.id, message.src);
 
         let response = undefined;
 
@@ -145,7 +147,7 @@ async function onMessage(message, sender) {
         switch (message.id) {
             case "focusEditorWindow":
                 await focusEditorWindow(message.accountId);
-                return false;
+                return;
         }
 
         if (message.src === undefined || message.dst === undefined) {
@@ -204,11 +206,11 @@ async function onMessage(message, sender) {
             case "disableDomain":
                 response = await accounts.disableDomain(message.domain);
                 break;
-            case "setClasses":
-                response = await handleSetClasses(message);
-                break;
             case "getClasses":
                 response = await handleGetClasses(message);
+                break;
+            case "setClasses":
+                response = await handleSetClasses(message);
                 break;
             case "sendClasses":
                 response = await handleSendClasses(message);
@@ -225,20 +227,26 @@ async function onMessage(message, sender) {
             case "setDefaultClasses":
                 response = await handleSetDefaultClasses(message);
                 break;
-            case "setAccountAddressBooks":
-                response = await setAccountAddressBooks(message);
+            case "getBooks":
+                response = await handleGetBooks(message);
                 break;
-            case "getAccountAddressBooks":
-                response = await getAccountAddressBooks(message);
+            case "setBooks":
+                response = await handleSetBooks(message);
                 break;
-            case "sendAccountAddressBooks":
-                response = await sendAccountAddressBooks(message);
+            case "sendBooks":
+                response = await handleSendBooks(message);
                 break;
-            case "sendAllAddressBooks":
-                response = await sendAllAddressBooks(message);
+            case "sendAllBooks":
+                response = await handleSendAllBooks(message);
                 break;
-            case "refreshAllAddressBooks":
-                response = await handleRefreshAllAddressBooks();
+            case "refreshBooks":
+                response = await handleRefreshBooks();
+                break;
+            case "refreshAllBooks":
+                response = await handleRefreshAllBooks();
+                break;
+            case "setDefaultBooks":
+                response = await handleSetDefaultBooks();
                 break;
             case "setConfigValue":
                 response = await handleSetConfigValue(message);
@@ -263,8 +271,8 @@ async function onMessage(message, sender) {
             if (typeof response !== "object") {
                 response = { result: response };
             }
-            console.debug("background.onMessage: sending response:", response);
         }
+        console.log("background.onMessage returning:", response);
         return response;
     } catch (e) {
         console.error(e);
@@ -363,12 +371,12 @@ let menu = {
 async function updateMenu(id, properties) {
     try {
         if (verbose) {
-            console.log("updateMenu:", id, properties);
+            console.debug("updateMenu:", id, properties);
         }
         properties.id = id;
         let menuId = await messenger.menus.create(properties);
         if (verbose) {
-            console.log("updateMenu: created:", properties);
+            console.debug("updateMenu: created:", properties);
         }
         console.assert(menuId === properties.id, "unexpected menuId:", { menuId: menuId, properties: properties, config: config });
     } catch (e) {
@@ -388,10 +396,20 @@ async function initMenus() {
     }
 }
 
+async function onMenuConnectFilterBooks(info, tabs) {
+    try {
+        if (verbose) {
+            console.debug("onConnectFilterBooks:", info, tabs);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function onMenuSelectAccount(info, tabs) {
     try {
         if (verbose) {
-            console.log("onMenuSelectAccount:", info, tabs);
+            console.debug("onMenuSelectAccount:", info, tabs);
         }
     } catch (e) {
         console.error(e);
@@ -401,7 +419,7 @@ async function onMenuSelectAccount(info, tabs) {
 async function onMenuSelectFilterBook(info, tabs) {
     try {
         if (verbose) {
-            console.log("onMenuSelectFilterBook:", info, tabs);
+            console.debug("onMenuSelectFilterBook:", info, tabs);
         }
     } catch (e) {
         console.error(e);
@@ -411,7 +429,7 @@ async function onMenuSelectFilterBook(info, tabs) {
 async function onMenuAddressBookShown(info, tabs) {
     try {
         if (verbose) {
-            console.log("onMenuAddressBookShown:", info, tabs);
+            console.debug("onMenuAddressBookShown:", info, tabs);
         }
     } catch (e) {
         console.error(e);
@@ -440,7 +458,7 @@ async function menuContextAccountId(info) {
             let account = await accounts.get(accountId);
             if (account) {
                 if (verbose) {
-                    console.log("menuContextAccountId: setting selected account:", account);
+                    console.debug("menuContextAccountId: setting selected account:", account);
                 }
                 await accounts.select(account);
             }
@@ -534,7 +552,7 @@ async function initMailFilterSubmenu(menuId, info, tab) {
         let accountId = await menuContextAccountId(info);
         let filterBook = await menuContextFilterBook(info);
         if (verbose) {
-            console.log("initMailFilterSubmenu:", {
+            console.debug("initMailFilterSubmenu:", {
                 menu: menu[menuId],
                 info: info,
                 tab: tab,
@@ -586,7 +604,6 @@ async function initSelectedFilterBookSubmenu(menuId, info, tab) {
         }
         /*
         let selectedAccount = await accounts.selected();
-        let filterctl = await getFilterDataController();
         if (verbose) {
             console.log("initSelectedFilterBooksSubmenu:", {
                 selectedAccount: selectedAccount,
@@ -648,7 +665,7 @@ async function initAddSenderSubmenu(menuId, info, tab) {
 async function onMenuMailFilter(info, tab) {
     try {
         if (verbose) {
-            console.log("onMenuMailFilter clicked:", { info: info, tab: tab });
+            console.debug("onMenuMailFilter clicked:", { info: info, tab: tab });
         }
     } catch (e) {
         console.error(e);
@@ -657,7 +674,9 @@ async function onMenuMailFilter(info, tab) {
 
 async function onMenuTest(info) {
     try {
-        console.log("onMenuTest clicked", info);
+        if (verbose) {
+            console.debug("onMenuTest clicked", info);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -665,20 +684,10 @@ async function onMenuTest(info) {
 
 async function onMenuControlPanel(info) {
     try {
-        console.log("onMenuControlPanel clicked:", info);
-        await focusEditorWindow();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function onMenuConnectFilterBooks(info) {
-    try {
-        console.log("onMenuConnectFilterBooks:", info);
-        let books = getConnectedFilterBooks();
-        for (let book of books) {
-            console.log("book:", book);
+        if (verbose) {
+            console.debug("onMenuControlPanel clicked:", info);
         }
+        await focusEditorWindow();
     } catch (e) {
         console.error(e);
     }
@@ -708,11 +717,11 @@ async function focusEditorWindow(sendAccountId = undefined) {
             if (!port) {
                 // editor is open but port is null; assume we're coming back from being suspended
                 if (verbose) {
-                    console.log("sending activated notification");
+                    console.debug("sending activated notification");
                 }
                 await messenger.runtime.sendMessage({ id: "backgroundActivated", src: backgroundId });
                 if (verbose) {
-                    console.log("activated notificaton sent");
+                    console.debug("activated notificaton sent");
                 }
             }
         } else {
@@ -742,7 +751,7 @@ async function focusEditorWindow(sendAccountId = undefined) {
 async function onMenuAddSenderToFilterBook(info, tab) {
     try {
         if (verbose) {
-            console.log("onMenuAddSenderToFilterBook:", { info: info, tab: tab });
+            console.debug("onMenuAddSenderToFilterBook:", { info: info, tab: tab });
         }
         const messageList = await messenger.messageDisplay.getDisplayedMessages(tab.id);
         if (verbose) {
@@ -750,7 +759,8 @@ async function onMenuAddSenderToFilterBook(info, tab) {
         }
         for (const message of messageList.messages) {
             const account = await accounts.get(message.folder.accountId);
-            const headers = await getMessageHeaders(message);
+            const fullMessage = await messenger.messages.getFull(message.id);
+            const headers = fullMessage.headers;
             if (verbose) {
                 console.debug({ account: account, author: message.author, message: message, headers: headers });
             }
@@ -759,7 +769,7 @@ async function onMenuAddSenderToFilterBook(info, tab) {
                 .replace(/^[^<]*</g, "")
                 .replace(/>.*$/g, "");
             const command = "mkaddr " + selectedBookName + " " + sender;
-            const response = await sendEmailRequest(account, command);
+            const response = await email.sendRequest(account, command);
             if (verbose) {
                 console.debug({ response: response });
             }
@@ -788,30 +798,20 @@ messenger.messageDisplayAction.onClicked.addListener(onMessageDisplayActionClick
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-async function getFilterDataController() {
+async function initFilterDataController() {
     try {
-        if (filterctlState === null) {
-            const state = await config.session.get("fdcState");
-            filterctlState = new FilterDataController(await accounts.get(), state);
+        if (filterctl === null) {
+            filterctl = new FilterDataController(await accounts.get(), email);
+            await filterctl.readState();
         }
-        return filterctlState;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function saveFilterData(filterctl) {
+async function handleGetBooks(message) {
     try {
-        await config.session.set("fdcState", filterctl.state());
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function getAccountAddressBooks(message) {
-    try {
-        const account = await accounts.get(message.account);
-        const filterctl = await getFilterDataController();
+        const account = await accounts.get(message.accountId);
         const force = message.force ? true : false;
         const books = await filterctl.getBooks(account, force);
         return books;
@@ -820,51 +820,70 @@ async function getAccountAddressBooks(message) {
     }
 }
 
-async function setAccountAddressBooks(message) {
+async function handleSetBooks(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterctl = await getFilterDataController();
         const result = await filterctl.setBooks(account, message.books);
-        await saveFilterData(filterctl);
+        await filterctl.writeState();
         return result;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function sendAccountAddressBooks(message) {
+async function handleSendBooks(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterctl = await getFilterDataController();
-        let result = await filterctl.setBooks(account, message.books);
-        if (result.books.valid) {
-            result = await filterctl.sendBooks(account);
-        }
-        await saveFilterData(filterctl);
+        const force = message.force ? true : false;
+        let result = await filterctl.sendBooks(account, force);
+        await filterctl.writeState();
         return result;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function sendAllAddressBooks(message) {
+async function handleSendAllBooks(message) {
     try {
-        const filterctl = await getFilterDataController();
-        const result = await filterctl.sendAllBooks(message.force);
-        await saveFilterData(filterctl);
+        const force = message.force ? true : false;
+        const result = await filterctl.sendAllBooks(force);
+        await filterctl.writeState();
         return result;
     } catch (e) {
         console.error(e);
     }
 }
 
-async function handleRefreshAllAddressBooks() {
+async function handleRefreshBooks() {
     try {
-        const filterctl = await getFilterDataController();
+        let force = true;
         for (const account of Object.values(accounts.get())) {
-            await filterctl.getBooks(account, true);
+            await filterctl.getBooks(account, force);
         }
-        await saveFilterData(filterctl);
+        await filterctl.writeState();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleRefreshAllBooks() {
+    try {
+        let force = true;
+        for (const account of Object.values(accounts.get())) {
+            await filterctl.getBooks(account, force);
+        }
+        await filterctl.writeState();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function handleSetDefaultBooks(message) {
+    try {
+        const account = await accounts.get(message.accountId);
+        const result = await filterctl.setDefaultBooks(account);
+        await filterctl.writeState();
+        return result;
     } catch (e) {
         console.error(e);
     }
@@ -889,8 +908,8 @@ async function handleSelectAccount(message) {
 async function handleGetClasses(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterctl = await getFilterDataController();
-        const classes = await filterctl.getClasses(account);
+        const force = message.force ? true : false;
+        const classes = await filterctl.getClasses(account, force);
         return classes;
     } catch (e) {
         console.error(e);
@@ -901,9 +920,8 @@ async function handleSetClasses(message) {
     try {
         console.debug("handleSetClasses:", message);
         const account = await accounts.get(message.accountId);
-        const filterctl = await getFilterDataController();
         const result = await filterctl.setClasses(account, message.classes);
-        await saveFilterData(filterctl);
+        await filterctl.writeState();
         return result;
     } catch (e) {
         console.error(e);
@@ -913,16 +931,11 @@ async function handleSetClasses(message) {
 async function handleSendClasses(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterctl = await getFilterDataController();
-        let setResult = await filterctl.setClassses(account, message.classes);
-        let sendResult = undefined;
-        console.debug("setClasses result:", setResult);
-        if (setResult.classes.valid) {
-            sendResult = await await filterctl.sendClasses(account);
-            console.debug("filterctl.send result:", sendResult);
-        }
-        await saveFilterData(filterctl);
-        return sendResult;
+        const force = message.force ? true : false;
+        let result = await filterctl.sendClassses(account, force);
+        console.debug("sendClasses result:", result);
+        await filterctl.writeState();
+        return result;
     } catch (e) {
         console.error(e);
     }
@@ -930,10 +943,10 @@ async function handleSendClasses(message) {
 
 async function handleSendAllClasses(message) {
     try {
-        const filterctl = await getFilterDataController();
-        const result = await filterctl.sendAllClasses(message.force);
+        const force = message.force ? true : false;
+        const result = await filterctl.sendAllClasses(force);
         console.debug("sendAllClasses result:", result);
-        await saveFilterData(filterctl);
+        await filterctl.writeState();
         return result;
     } catch (e) {
         console.error(e);
@@ -943,9 +956,8 @@ async function handleSendAllClasses(message) {
 async function handleRefreshClasses(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterctl = await getFilterDataController();
-        const result = await filterctl.getClasses(account, true);
-        console.debug("getClasses result:", result);
+        const force = true;
+        const result = await filterctl.getClasses(account, force);
         return result;
     } catch (e) {
         console.error(e);
@@ -954,11 +966,9 @@ async function handleRefreshClasses(message) {
 
 async function handleRefreshAllClasses() {
     try {
-        const filterctl = await getFilterDataController();
-        for (const account of Object.values(await accounts.get())) {
-            await filterctl.getClasses(account, true);
-        }
-        await saveFilterData(filterctl);
+        const result = await filterctl.refreshAllClasses();
+        await filterctl.writeState();
+        return result;
     } catch (e) {
         console.error(e);
     }
@@ -967,10 +977,8 @@ async function handleRefreshAllClasses() {
 async function handleSetDefaultClasses(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterctl = await getFilterDataController();
         const result = await filterctl.setClassesDefaults(account);
-        console.debug("setDefaultClasses result:", result);
-        await saveFilterData(filterctl);
+        await filterctl.writeState();
         return result;
     } catch (e) {
         console.error(e);
@@ -980,7 +988,6 @@ async function handleSetDefaultClasses(message) {
 async function handleGetPassword(message) {
     try {
         const account = await accounts.get(message.accountId);
-        const filterctl = await getFilterDataController();
         return await filterctl.getPassword(account);
     } catch (e) {
         console.error(e);
@@ -1026,7 +1033,7 @@ async function handleSendCommand(message) {
         if (message.argument) {
             command += " " + message.argument.trim();
         }
-        return await sendEmailRequest(account, command, message.body, message.timeout, await findEditorTab());
+        return await email.sendRequest(account, command, message.body, message.timeout);
     } catch (e) {
         console.error(e);
     }
@@ -1112,7 +1119,7 @@ async function onTabUpdated(tabId, changeInfo, tab) {
         }
         if (tab.status === "complete" && tab.type === "addressBook") {
             if (verbose) {
-                console.log("address book tab opened");
+                console.debug("address book tab opened");
             }
         }
     } catch (e) {
@@ -1125,21 +1132,6 @@ async function onTabRemoved(tabId, removeInfo) {
         if (verbose) {
             console.debug("onTabRemoved:", { tabId: tabId, removeInfo: removeInfo });
         }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function getConnectedFilterBooks() {
-    try {
-        if (verbose) {
-            console.log("getConnectedFilterBooks");
-        }
-        const books = await messenger.cardDAV.getBooks();
-        if (verbose) {
-            console.log("connected cardDAV books:", books);
-        }
-        return books;
     } catch (e) {
         console.error(e);
     }
@@ -1187,4 +1179,4 @@ messenger.menus.onShown.addListener(onMenuShown);
 messenger.runtime.onConnect.addListener(onConnect);
 messenger.runtime.onMessage.addListener(onMessage);
 
-console.log("background page loaded");
+console.warn("background page loaded");

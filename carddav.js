@@ -12,15 +12,17 @@ var cardDAV = class extends ExtensionCommon.ExtensionAPI {
     getAPI(context) {
         return {
             cardDAV: {
-                async getConnectedBooks(populate) {
-                    console.log("getBooks:", populate);
-                    console.log("abManager:", abManager);
+                async connected() {
+                    console.log("connected");
+                    //console.log("abManager:", abManager);
                     console.log("context:", context);
-                    let books = {};
+                    let books = [];
                     for (const dir of abManager.directories) {
                         console.log(dir);
                         if (dir.dirType === abManager.CARDDAV_DIRECTORY_TYPE) {
-			    books[dir.UID] = {
+                            books.push(dir);
+                            /*
+			    books.push({
 				UID: dir.UID,
 				URI: dir.URI,
 				name: dir.dirName,
@@ -30,30 +32,34 @@ var cardDAV = class extends ExtensionCommon.ExtensionAPI {
 				serverURL: dir.getStringValue("carddav.url", ""),
 				username: dir.getStringValue("carddav.username", ""),
 				
-			    }
-                            names.push({ name: dir.dirName, URI: dir.URI, UID: dir.UID });
+			    });
+			    */
+                        }
+                        console.log("connected returning:", books);
+                    }
+                    return books;
+                },
+                async list(username, password) {
+                    console.log("list:", username, password);
+                    let hostname = "https://" + username.split("@")[1];
+                    let books = await CardDAVUtils.detectAddressBooks(username, password, hostname, false);
+                    console.log("list returning:", books);
+                    return books;
+                },
+                async connect(username, password, name, description) {
+                    console.log("connect:", username, password, name, description);
+                    let hostname = "https://" + username.split("@")[1];
+                    let books = await CardDAVUtils.detectAddressBooks(username, password, hostname, false);
+                    let created = undefined;
+                    for (const book of books) {
+                        if (book.name === name) {
+                            console.log("connect: creating:", book);
+                            created = await book.create();
+                            break;
                         }
                     }
-                    return names;
-                },
-		async getServerBooks(username, password) {
-                    console.log("connect:", name, username, password);
-                    let hostname = "https://" + username.split("@")[1];
-                    let books = await CardDAVUtils.detectAddressBooks(username, password, hostname, false);
-                    console.log("detected cardDAV books:", books);
-		    return books;
-		}
-                async connect(name, URI, username, password) {
-                    console.log("connect:", name, URI, username, password);
-                    let hostname = "https://" + username.split("@")[1];
-                    let books = await CardDAVUtils.detectAddressBooks(username, password, hostname, false);
-                    console.log("detected cardDAV books:", books);
-                    let connected = [];
-                    for (const book of books) {
-                        connected.push(await book.create());
-                    }
-                    console.log("connected:", connected);
-                    return connected;
+                    console.log("connectreturning:", created);
+                    return created;
                     /*
 			const bookId = generateUID();
                         console.log("davBook:", davBook);
@@ -71,22 +77,17 @@ var cardDAV = class extends ExtensionCommon.ExtensionAPI {
 			console.log("sync:", syncReturn);
 		    */
                 },
-                async disconnect(UID) {
-                    console.log("disconnect:", UID);
-                    return false;
+                async disconnect(uri) {
+                    console.log("disconnect:", uri);
+                    let ret = abManager.deleteAddressBook(uri);
+                    console.log("disconnect returning:", ret);
+                    return ret;
                 },
-
-                async getAddresses(UID) {
-                    console.log("getAddresses:", UID);
-                    return [];
-                },
-                async addAddress(UID, address) {
-                    console.log("addAddresses:", UID, address);
-                    return false;
-                },
-                async deleteAddress(UID, address) {
-                    console.log("addAddresses:", UID, address);
-                    return false;
+                async get(uri) {
+                    console.log("get:", uri);
+                    let book = abManager.getDirectory(uri);
+                    console.log("get returning:", book);
+                    return;
                 },
             },
         };

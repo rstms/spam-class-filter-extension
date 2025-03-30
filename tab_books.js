@@ -32,7 +32,7 @@ import { accountEmailAddress } from "./common.js";
 // deleteButton
 //
 
-const verbose = true;
+const verbose = false;
 
 export class BooksTab {
     constructor(disableEditorControl, sendMessage) {
@@ -51,7 +51,9 @@ export class BooksTab {
 
     async selectAccount(account) {
         try {
-            console.debug("Books.selectAccount:", account);
+            if (verbose) {
+                console.debug("Books.selectAccount:", account);
+            }
             this.selectedAccount = account;
             // TODO: set selected book to stored value && populate
         } catch (e) {
@@ -69,8 +71,8 @@ export class BooksTab {
                 await this.updateStatus({ message: "Requesting FilterBooks refresh..." });
             }
             const response = await this.sendMessage({
-                id: "getAccountAddressBooks",
-                account: this.selectedAccount.id,
+                id: "getBooks",
+                accountId: this.selectedAccount.id,
                 force: flags.force === true,
             });
             const books = await this.handleResponse(response, flags.disablePopulate === true, flags.disableUpdateStatus === true);
@@ -96,7 +98,7 @@ export class BooksTab {
                 if (typeof books === "object") {
                     // parse the rendered message data into a Books object
                     console.assert(response.accountId === this.selectedAccount.id, "server response account ID mismatch");
-                    books = booksFactory(response.books, this.selectedAccount);
+                    books = await booksFactory(this.accounts, response.books, this.selectedAccount);
                 }
                 console.assert(books instanceof Books, "books is not an instance of Books");
                 response.books = books;
@@ -116,7 +118,6 @@ export class BooksTab {
         }
     }
 
-    // send command email bypassing sendMessage->background->filterctl
     async sendCommand(command, argument) {
         try {
             const message = {
@@ -166,8 +167,8 @@ export class BooksTab {
     async enableControls(enabled) {
         try {
             this.controls.accountSelect.disabled = !enabled;
-            await this.disableEditorControl("applyButton", !enabled);
-            await this.disableEditorControl("okButton", !enabled);
+            //await this.disableEditorControl("applyButton", !enabled);
+            //await this.disableEditorControl("okButton", !enabled);
         } catch (e) {
             console.error(e);
         }
@@ -184,7 +185,9 @@ export class BooksTab {
     async getCardDAVPassword(account) {
         try {
             let response = await this.sendMessage({ id: "getPassword", accountId: account.id });
-            console.debug("getPassword: response:", response);
+            if (verbose) {
+                console.debug("getPassword: response:", response);
+            }
             return response.result;
         } catch (e) {
             console.error(e);
@@ -194,10 +197,12 @@ export class BooksTab {
     async initialize() {
         try {
             await this.getAccounts();
+            /*
             // request a password now for each account to fill filterctl's books cache
             for (const account of Object.values(this.accounts)) {
                 await this.getCardDAVPassword(account);
             }
+	    */
             this.controls.addButton.disabled = true;
             this.controls.deleteButton.disabled = true;
             this.showConnectionControls(false);
@@ -449,7 +454,7 @@ export class BooksTab {
             // FIXME: maybe pass account to getBooks here?
             // if account !== undefined, maybe only scan for connections for the specified account?
             // getBooks seems now to look for connections from all accounts
-            const connections = await messenger.cardDAV.getBooks();
+            const connections = await messenger.cardDAV.connected();
             console.log("initConnectedBooks: cardDAV.getBooks returned:", connections);
             this.setStatus("Address Book scan complete");
             for (const cxn of connections) {
@@ -533,11 +538,10 @@ export class BooksTab {
                 const username = accountEmailAddress(account);
                 const password = await this.getCardDAVPassword(account);
                 // FIXME: URL is unused by cardDAV.connect
-                let URL = "";
                 // FIXME: cardDAV.connect seems to connect all books, ignoring bookName
                 // FIXME: cardDAV.connect should take cxnName and name the connection
-                console.log("connectBook: calling cardDAV.connect:", bookName, URL, username, password);
-                let cxn = await messenger.cardDAV.connect(bookName, URL, username, password);
+                console.log("connectBook: calling cardDAV.connect:", username, password, bookName, connectionName);
+                let cxn = await messenger.cardDAV.connect(username, password, bookName, connectionName);
                 console.log("connectBook: cardDAV.connect returned:", cxn);
                 /*
 		    let response = {

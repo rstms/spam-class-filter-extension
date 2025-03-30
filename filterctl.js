@@ -1,6 +1,6 @@
-import { sendEmailRequest } from "./email.js";
 import { AsyncMap } from "./asyncmap.js";
 import { accountEmailAddress, isValidEmailAddress, isValidBookName } from "./common.js";
+import { config } from "./config.js";
 
 /* global console */
 
@@ -16,7 +16,7 @@ import { accountEmailAddress, isValidEmailAddress, isValidBookName } from "./com
 //   base class representing managed Classes and Books items
 //
 
-const verbose = true;
+const verbose = false;
 
 const DEFAULT_CLASS_LEVELS = {
     ham: 0,
@@ -39,13 +39,27 @@ const BOOKS = "books";
 //let responseCache = new AsyncMap();
 let accountPasswords = new AsyncMap();
 
-function validateType(type) {
+//
+// validation functions
+//
+// validate* functions return { error: MESSAGE|false, value: VALIDATED_VALUE }
+// isValid* return bool
+//
+function validationFailed(error = "validation failed", value = undefined, owner = undefined) {
+    if (owner !== undefined) {
+        owner.errors.push(error);
+        owner.valid = false;
+    }
+    return value;
+}
+
+function validateType(type, owner = undefined) {
     if (typeof type === "string") {
         if (type === CLASSES || type === BOOKS) {
-            return;
+            return type;
         }
     }
-    throw new Error("unexpected type:" + type);
+    return validationFailed("unknown type:" + type, type, owner);
 }
 
 function isValidScore(score) {
@@ -54,69 +68,71 @@ function isValidScore(score) {
     return isFinite(parsedValue) && !isNaN(parsedValue) && parsedValue.toString() === stringValue;
 }
 
-export function validateLevelName(name) {
+export function validateLevelName(name, owner = undefined) {
     if (typeof name !== "string") {
-        throw new Error("class name type not string");
+        return validationFailed("class name type not string", name, owner);
     }
     name = name.trim();
     name = name.replace(/\s/g, "_");
     if (name.length === 0) {
-        throw new Error("missing class name");
+        return validationFailed("missing class name", name, owner);
     }
     if (!/^[a-zA-Z]/.test(name)) {
-        throw new Error("class names must start with a letter");
+        return validationFailed("class names must start with a letter", name, owner);
     }
     if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
-        throw new Error(`illegal characters in class name: '${name}'`);
+        return validationFailed(`illegal characters in class name: '${name}'`, name, owner);
     }
     return name;
 }
 
-export function validateLevelScore(score) {
+export function validateLevelScore(score, owner = undefined) {
     if (typeof score !== "number" && typeof score !== "string") {
-        throw new Error("score type must be string or number");
+        return validationFailed("score type must be string or number", score, owner);
     }
 
     // check score string value
     if (typeof score === "string") {
         score = score.trim();
         if (score.length === 0) {
-            throw new Error("missing threshold value");
+            return validationFailed("missing threshold value", score, owner);
         }
         if (!/^(-|)(([0-9]+(\.|)[0-9]*)|([0-9]*(\.|)[0-9]+))$/.test(score)) {
-            throw new Error(`illegal characters in threshold: '${score}'`);
+            return validationFailed(`illegal characters in threshold: '${score}'`, score, owner);
         }
     }
 
     if (!isValidScore(score)) {
-        throw new Error("illegal score value");
+        return validationFailed("illegal score value", score, owner);
     }
     return parseFloat(score);
 }
 
-function validateAccountId(accountId) {
+/*
+function validateAccountId(accountId, owner = undefined) {
     if (typeof accountId !== "string") {
-        throw new Error("accountId type not string");
+        return validationFailed("accountId type not string", accountId, owner);
     }
     if (!accountId) {
-        throw new Error("invalid accountId");
+        return validationFailed("invalid accountId", accountId, owner);
     }
     return accountId;
 }
+*/
 
-export function validateEmailAddress(emailAddress) {
+export function validateEmailAddress(emailAddress, owner = undefined) {
     if (!isValidEmailAddress(emailAddress)) {
-        throw new Error("emailAddress is not a valid email address string");
+        return validationFailed("invalid email address", emailAddress, owner);
     }
     return emailAddress;
 }
 
-export function validateBookName(bookName) {
+export function validateBookName(bookName, owner = undefined) {
     if (typeof bookName !== "string") {
-        throw new Error("book name type not string");
+        return validationFailed("book name type not string", bookName, owner);
     }
     if (!isValidBookName(bookName)) {
-        throw new Error("invalid book name");
+        return validationFailed("invalid book name", bookName, owner);
     }
     return bookName;
 }
@@ -124,14 +140,13 @@ export function validateBookName(bookName) {
 export class Level {
     constructor(name, score) {
         try {
-            this.valid = false;
-            this.error = null;
-            if (this.set(name, score)) {
-                this.valid = true;
-            }
+            this.errors = [];
+            this.set(name, score);
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
+        } finally {
+            this.valid = this.errors.length === 0;
         }
     }
 
@@ -157,91 +172,114 @@ export class Level {
         }
     }
 
-    set(name, score) {
+    // note: set owner to catch validation errors in the caller instead of this instance
+    set(name, score, owner = undefined) {
         try {
-            this.name = validateLevelName(name);
-            this.score = validateLevelScore(score);
-            return true;
+            this.name = validateLevelName(name, owner === undefined ? this : owner);
+            this.score = validateLevelScore(score, owner === undefined ? this : owner);
+            return this;
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
+            if (owner !== undefined) {
+                owner.errors.push(e);
+            }
             console.error(e);
-            return false;
         }
     }
 }
 
 // base class for Classes, Books dataset items
 export class FilterData {
-    constructor(accountId = undefined, emailAddress = undefined) {
+    constructor(type, accounts) {
         try {
-            this.type = undefined;
-            this.error = null;
+            this.accounts = accounts;
+            this.account = undefined;
             this.valid = false;
-            if (accountId !== undefined) {
-                this.accountId = validateAccountId(accountId);
-            }
-            if (emailAddress !== undefined) {
-                this.emailAddress = validateEmailAddress(emailAddress);
-            }
+            this.errors = [];
+            this.type = validateType(type, this);
         } catch (e) {
-            this.error = e;
+            console.error(e);
+            this.errors.push(e);
+        } finally {
+            this.setValid();
+        }
+    }
+
+    setValid() {
+        try {
+            this.valid = this.errors.length === 0;
+            return this.valid;
+        } catch (e) {
             console.error(e);
         }
     }
 
-    setAccount(accountId, emailAddress) {
+    async setAccount(account) {
         try {
-            this.accountId = validateAccountId(accountId);
-            this.emailAddress = validateEmailAddress(emailAddress);
-            return true;
+            let accountId = account;
+            if (typeof account !== "string") {
+                accountId = account.id;
+            }
+            this.account = this.accounts[accountId];
+            if (this.account === undefined) {
+                this.errors.push("invalid account");
+            }
+            return this.setValid();
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
-            return false;
+            return this.setValid();
         }
     }
 
-    parse(input) {
+    async parse(input) {
         try {
-            console.debug("FilterData.parse:", input);
+            if (verbose) {
+                console.debug("FilterData.parse:", input);
+            }
             if (typeof input === "string") {
                 input = JSON.parse(input);
             }
-            let emailAddress = input.User;
-            if (!isValidEmailAddress(emailAddress)) {
-                throw new Error("input User is not a valid email address");
+            let emailAddress = validateEmailAddress(input.User, this);
+            if (this.account !== undefined && accountEmailAddress(this.account) !== emailAddress) {
+                this.errors.push("parsed User account mismatch");
             }
-            if (this.emailAddress !== undefined && this.emailAddress != emailAddress) {
-                throw new Error("email address mismatch");
+            this.account = undefined;
+            for (const account of Object.values(this.accounts)) {
+                if (accountEmailAddress(account) === emailAddress) {
+                    this.account = account;
+                    break;
+                }
             }
-            this.emailAddress = emailAddress;
+            if (this.account === undefined) {
+                this.errors.push("unknown account");
+            }
             return input;
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
-            return false;
+        } finally {
+            this.setValid();
         }
     }
 }
 
 // Classes filterset element contains spam class filter levels for an account
 export class Classes extends FilterData {
-    constructor(renderable = undefined, accountId = undefined, accountEmail = undefined) {
-        super(accountId, accountEmail);
+    constructor(accounts) {
+        super(CLASSES, accounts);
         try {
-            this.type = CLASSES;
             this.typeName = "FilterClasses";
             this.levels = [];
-            if (renderable !== undefined) {
-                this.parse(renderable);
-            }
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
+        } finally {
+            this.setValid();
         }
     }
 
-    empty() {
+    isEmpty() {
         try {
             return this.levels.length === 0;
         } catch (e) {
@@ -250,14 +288,15 @@ export class Classes extends FilterData {
     }
 
     // return a deep copy of this instance
-    clone() {
+    async clone() {
         try {
-            let dup = new Classes();
-            dup.setAccount(this.accountId, this.emailAddress);
+            let dup = new Classes(this.accounts);
+            await dup.setAccount(this.account);
             for (const level of this.levels) {
                 dup.levels.push(level.clone());
             }
-            if (this.valid != dup.validate()) {
+            await dup.validate();
+            if (this.valid != dup.valid) {
                 throw new Error("Classes: clone validation mismatch");
             }
             return dup;
@@ -283,17 +322,13 @@ export class Classes extends FilterData {
     // add a spam class level with specified name and threshold score
     addLevel(name, score) {
         try {
-            let level = new Level(name, score);
-            if (level.valid) {
-                this.levels.push(level);
-                return true;
-            }
-            this.error = level.error;
-            return false;
+            let level = new Level(name, score, this);
+            this.levels.push(level);
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
-            return false;
+        } finally {
+            this.setValid();
         }
     }
 
@@ -301,10 +336,7 @@ export class Classes extends FilterData {
     diff(other, compareAccounts = true) {
         try {
             if (compareAccounts) {
-                if (this.accountId !== other.accountId) {
-                    return true;
-                }
-                if (this.emailAddress !== other.emailAddress) {
+                if (this.account.id !== other.account.id) {
                     return true;
                 }
             }
@@ -325,11 +357,13 @@ export class Classes extends FilterData {
     // return JSON renderable object
     render() {
         try {
-            let output = { User: this.emailAddress, Classes: [] };
+            let output = { User: accountEmailAddress(this.account), Classes: [] };
             for (const level of this.levels) {
                 output["Classes"].push({ name: String(level.name), score: parseFloat(level.score) });
             }
-            console.debug("Classes.render: returning:", output);
+            if (verbose) {
+                console.debug("Classes.render: returning:", output);
+            }
             return output;
         } catch (e) {
             console.error(e);
@@ -337,38 +371,41 @@ export class Classes extends FilterData {
     }
 
     // parse from object or json string and validate
-    parse(input) {
+    async parse(input) {
         try {
-            console.debug("Classes.parse:", input);
-            input = super.parse(input);
-            if (input === false) {
-                throw new Error(this.error);
-            }
-            let inputList = input.Classes;
-            if (typeof inputList !== "object" || !Array.isArray(inputList)) {
-                throw new Error("input Classes is not a valid list");
+            if (verbose) {
+                console.debug("Classes.parse:", input);
             }
 
+            input = await super.parse(input);
+            let inputList = input.Classes;
+            if (typeof inputList !== "object" || !Array.isArray(inputList)) {
+                this.errors.push("input Classes is not a valid list");
+                inputList = [];
+            }
             for (const item of inputList) {
                 if (typeof item !== "object" || item === null) {
-                    throw new Error("invalid item in Classes list");
-                }
-                if (!this.addLevel(item.name, item.score)) {
-                    throw new Error(this.error);
+                    this.errors.push("invalid item in Classes list: " + String(item));
+                } else {
+                    this.addLevel(item.name, item.score, this);
                 }
             }
-            return this.validate();
+            return await this.validate();
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
-            return false;
+            return this.setValid();
         }
     }
 
-    validate() {
+    async validate() {
         try {
+            if (this.account === undefined || this.accounts[this.account.id] === undefined) {
+                this.errors.push("invalid account");
+            }
+
             if (this.levels.length < 2) {
-                throw new Error("level count below minimum");
+                this.errors.push("level count below minimum");
             }
 
             let lastScore = undefined;
@@ -378,18 +415,18 @@ export class Classes extends FilterData {
 
             for (const level of this.levels) {
                 if (uniqueNames.has(level.name)) {
-                    throw new Error("duplicate class name");
+                    this.errors.push("duplicate class name");
                 }
                 uniqueNames.add(level.name);
 
                 if (uniqueScores.has(level.score)) {
-                    throw new Error(`duplicate threshold value '${level.score}'`);
+                    this.errors.push(`duplicate threshold value '${level.score}'`);
                 }
                 uniqueScores.add(level.score);
 
                 if (lastScore !== undefined) {
                     if (level.score < lastScore) {
-                        throw new Error("thresholds not in ascending order");
+                        this.errors.push("thresholds not in ascending order");
                     }
                 }
                 lastScore = level.score;
@@ -398,25 +435,23 @@ export class Classes extends FilterData {
                     spamClassFound = true;
 
                     if (level.score !== SPAM_SCORE) {
-                        throw new Error("unexpected spam class threshold");
+                        this.errors.push("incorrect spam class threshold");
                     }
                 } else {
                     if (level.score < MIN_SCORE || level.score > MAX_SCORE) {
-                        throw new Error(`threshold out of range: '${level.score}'`);
+                        this.errors.push(`threshold out of range: '${level.score}'`);
                     }
                 }
             }
 
             if (!spamClassFound) {
-                throw new Error("missing spam class");
+                this.errors.push("missing spam class");
             }
-            this.valid = true;
-            return true;
+            return this.setValid();
         } catch (e) {
-            this.error = e;
-            this.valid = false;
+            this.errors.push(e);
             console.error(e);
-            return false;
+            return this.setValid();
         }
     }
 
@@ -437,38 +472,34 @@ export class Classes extends FilterData {
         }
     }
 
-    parseUpdateResponse(response) {
+    /*
+    async parseUpdateResponse(response) {
         try {
             // the regular parser can handle the reset command response too
-            return this.parse(response);
+            return await this.parse(response);
         } catch (e) {
             console.error(e);
         }
     }
+    */
 }
 
 // Books filterset element contains address book filters for an account
 export class Books extends FilterData {
-    constructor(renderable = undefined, accountId = undefined, accountEmail = undefined) {
-        super(accountId, accountEmail);
+    constructor(accounts) {
+        super(BOOKS, accounts);
         try {
-            this.type = BOOKS;
             this.typeName = "FilterBooks";
             this.books = new Map();
-            if (renderable !== undefined) {
-                try {
-                    this.parse(renderable);
-                } catch (e) {
-                    this.error = e;
-                    throw new Error(e);
-                }
-            }
         } catch (e) {
+            this.errors.push(e);
             console.error(e);
+        } finally {
+            this.setValid();
         }
     }
 
-    empty() {
+    isEmpty() {
         try {
             return this.books.size === 0;
         } catch (e) {
@@ -478,26 +509,28 @@ export class Books extends FilterData {
 
     addBook(name) {
         try {
-            name = validateBookName(name);
+            name = validateBookName(name, this);
             if (this.books.has(name)) {
-                throw new Error("book name exists");
+                this.errors.push("book name exists");
+            } else {
+                this.books.set(name, []);
             }
-            this.books.set(name, []);
-            return true;
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
-            return false;
+        } finally {
+            this.setValid();
         }
     }
 
     addAddress(bookName, address) {
         try {
-            bookName = validateBookName(bookName);
-            address = validateEmailAddress(address);
+            bookName = validateBookName(bookName, this);
+            address = validateEmailAddress(address, this);
             let addresses = this.books.get(bookName);
             if (addresses === undefined) {
-                throw new Error("unknown book name");
+                this.errors.push("unknown book name");
+                addresses = [];
             }
             let uniques = new Set();
             addresses.forEach((address) => uniques.add(address));
@@ -506,11 +539,11 @@ export class Books extends FilterData {
             } else {
                 addresses.push(address);
             }
-            return true;
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
-            return false;
+        } finally {
+            this.setValid();
         }
     }
 
@@ -547,14 +580,16 @@ export class Books extends FilterData {
     // return JSON renderable object
     render() {
         try {
-            let output = { User: this.emailAddress, Books: {} };
+            let output = { User: accountEmailAddress(this.account), Books: {} };
             for (const name of this.names()) {
                 output.Books[name] = [];
                 for (const address of this.addresses(name)) {
                     output.Books[name].push(address);
                 }
             }
-            console.debug("Books.render: returning:", output);
+            if (verbose) {
+                console.debug("Books.render: returning:", output);
+            }
             return output;
         } catch (e) {
             console.error(e);
@@ -562,17 +597,18 @@ export class Books extends FilterData {
     }
 
     // return a deep copy of this instance
-    clone() {
+    async clone() {
         try {
-            let dup = new Books();
-            dup.setAccount(this.accountId, this.emailAddress);
+            let dup = new Books(this.accounts);
+            await dup.setAccount(this.account);
             for (const name of this.names()) {
                 dup.addBook(name);
                 for (const address of this.addresses(name)) {
                     dup.addAddress(name, address);
                 }
             }
-            if (this.valid != dup.validate()) {
+            await dup.validate();
+            if (this.valid != dup.valid) {
                 throw new Error("Books: clone validation mismatch");
             }
             return dup;
@@ -585,10 +621,7 @@ export class Books extends FilterData {
     diff(other, compareAccounts = true) {
         try {
             if (compareAccounts) {
-                if (this.accountId !== other.accountId) {
-                    return true;
-                }
-                if (this.emailAddress != other.emailAddress) {
+                if (this.account.id !== other.account.id) {
                     return true;
                 }
             }
@@ -620,65 +653,63 @@ export class Books extends FilterData {
     }
 
     // parse object or json string
-    parse(input) {
+    async parse(input) {
         try {
-            console.debug("Books.parse:", input);
-            input = super.parse(input);
-            if (input === false) {
-                throw new Error(this.error);
+            if (verbose) {
+                console.debug("Books.parse:", input);
             }
-
+            input = await super.parse(input);
             let inputBooks = input.Books;
-
             if (typeof inputBooks !== "object") {
-                throw new Error("input Books not an object");
+                this.errors.push("input Books not an object");
+                inputBooks = {};
             }
-
-            for (const [name, addresses] of Object.entries(inputBooks)) {
-                if (!this.addBook(name)) {
-                    throw new Error(this.error);
-                }
+            for (let [name, addresses] of Object.entries(inputBooks)) {
+                this.addBook(name);
                 if (!Array.isArray(addresses)) {
-                    throw new Error("illegal address list type");
+                    this.errors.push("illegal address list type");
+                    addresses = [];
                 }
                 for (const address of addresses) {
-                    if (!this.addAddress(name, address)) {
-                        throw new Error(this.error);
-                    }
+                    this.addAddress(name, address);
                 }
             }
-            return this.validate();
+            return await this.validate();
         } catch (e) {
-            this.error = e;
+            this.errors.push(e);
             console.error(e);
-            return false;
+            return this.setValid();
         }
     }
 
-    validate() {
+    async validate() {
         try {
+            if (this.accounts === undefined || this.accounts[this.account.id] === undefined) {
+                this.errors.push("invalid account");
+            }
             if (!("books" in this)) {
-                throw new Error("missing books propery");
+                this.errors.push("missing books propery");
+                return;
             }
             if (!(this.books instanceof Map)) {
-                throw new Error("books is not Map type");
+                this.errors.push("books is not Map type");
+                return;
             }
             for (let [name, list] of this.books) {
-                validateBookName(name);
+                validateBookName(name, this);
                 if (!(list instanceof Array)) {
-                    throw new Error("invalid address list type");
+                    this.errors.push("invalid address list:" + String(list));
+                    return;
                 }
                 for (let address of list) {
-                    validateEmailAddress(address);
+                    validateEmailAddress(address, this);
                 }
             }
-            this.valid = true;
-            return true;
+            return this.setValid();
         } catch (e) {
-            this.error = e;
-            this.valid = false;
+            this.errors.push(e);
             console.error(e);
-            return false;
+            return this.setValid();
         }
     }
 
@@ -690,23 +721,26 @@ export class Books extends FilterData {
                 body: { Dump: { Users: {} } },
             };
             request.body.Dump.Users[this.accountEmail] = renderable;
-            console.debug("FilterBooks: request object:", request.body);
-            console.debug("FilterBooks: request JSON:", JSON.stringify(request.body, null, 2));
+            if (verbose) {
+                console.debug("FilterBooks: renderUpdateRequest body:", request.body);
+                console.debug("FilterBooks: request JSON:", JSON.stringify(request.body, null, 2));
+            }
             return request;
         } catch (e) {
             console.error(e);
         }
     }
 
-    parseServerResponse(response) {
+    /*
+    async parseUpdateResponse(response) {
         try {
-            // FIXME
-            console.debug("Books.parseServerResponse:", response);
-            throw new Error("unimplemented");
+            console.debug("Books.parseUpdateResponse:", response);
+            throw new Error("Books parse server response unimplemented");
         } catch (e) {
             console.error(e);
         }
     }
+    */
 }
 
 //
@@ -729,30 +763,48 @@ export class Books extends FilterData {
 //
 
 export class FilterDataController {
-    constructor(accounts, state) {
+    constructor(accounts, email) {
         try {
             this.accounts = accounts;
-            state = this.initState(state);
+            this.email = email;
             this.datasets = {
                 classes: {},
                 books: {},
             };
-            this.datasets.classes.dirty = this.initDatasets(CLASSES, state.classes.dirty);
-            this.datasets.classes.server = this.initDatasets(CLASSES, state.classes.server);
-            this.datasets.books.dirty = this.initDatasets(BOOKS, state.books.dirty);
-            this.datasets.books.server = this.initDatasets(BOOKS, state.books.server);
             //this.dumpResponseCache = new AsyncMap();
         } catch (e) {
             console.error(e);
         }
     }
 
-    validateAccount(account) {
+    async readState() {
         try {
-            console.debug("validateAccount:", account);
+            let state = await this.validateState(await config.session.get("fdcState"));
+            this.datasets.classes.dirty = await this.initDatasets(CLASSES, state.classes.dirty);
+            this.datasets.classes.server = await this.initDatasets(CLASSES, state.classes.server);
+            this.datasets.books.dirty = await this.initDatasets(BOOKS, state.books.dirty);
+            this.datasets.books.server = await this.initDatasets(BOOKS, state.books.server);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async writeState() {
+        try {
+            await config.session.set("fdcState", this.state());
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async validateAccount(account) {
+        try {
+            if (verbose) {
+                console.debug("validateAccount:", account);
+            }
             if (typeof account === "object") {
                 if ("id" in account && "identities" in account) {
-                    if (account.id in this.accounts) {
+                    if (this.accounts[account.id] !== undefined) {
                         return;
                     } else {
                         console.debug("unknown account:", account, this.accounts);
@@ -768,10 +820,12 @@ export class FilterDataController {
     }
 
     // ensure passed-in state object has valid structure
-    initState(state) {
+    async validateState(state) {
         try {
             if (typeof state !== "object") {
-                console.warn("resetting undefined state");
+                if (verbose) {
+                    console.debug("resetting undefined state");
+                }
                 state = {
                     classes: {
                         dirty: {},
@@ -783,10 +837,10 @@ export class FilterDataController {
                     },
                 };
             }
-            this.validateState(state, state.classes.server);
-            this.validateState(state, state.classes.dirty);
-            this.validateState(state, state.books.server);
-            this.validateState(state, state.books.dirty);
+            await this.validateSubState(state, state.classes.server);
+            await this.validateSubState(state, state.classes.dirty);
+            await this.validateSubState(state, state.books.server);
+            await this.validateSubState(state, state.books.dirty);
             return state;
         } catch (e) {
             console.error(e);
@@ -794,12 +848,16 @@ export class FilterDataController {
     }
 
     // ensure that state data subtree contains objects keyed by accountId
-    validateState(state, substate) {
+    async validateSubState(state, substate) {
         try {
             for (let [accountId, renderable] of Object.entries(substate)) {
-                if (!(accountId in this.accounts) || typeof renderable !== "object") {
-                    console.debug("invalid state data", substate, state);
+                if (typeof renderable !== "object") {
+                    console.debug("invalid state data", substate, state, accountId, renderable);
                     throw new Error("invalid state data");
+                }
+                if (this.accounts[accountId] === undefined) {
+                    console.debug("invalid account in state", substate, state, accountId);
+                    throw new Error("invalid state accountId");
                 }
             }
         } catch (e) {
@@ -810,16 +868,16 @@ export class FilterDataController {
     // called with a sub-element of the state object passed to the constructor
     // returns object keyed by accountID with dataset values of type Books or Classes
     // these dataset objects are initialized from the state data and self-validate
-    initDatasets(type, substate) {
+    async initDatasets(type, substate) {
         try {
             validateType(type);
             let result = {};
             for (const [accountId, renderable] of Object.entries(substate)) {
-                let dataset = datasetFactory(type, renderable, this.accounts[accountId]);
+                let dataset = await datasetFactory(type, this.accounts, renderable, accountId);
                 if (dataset.valid) {
                     result[accountId] = dataset;
                 } else {
-                    throw new Error(dataset.error);
+                    throw new Error(dataset.errors);
                 }
             }
             return result;
@@ -849,44 +907,32 @@ export class FilterDataController {
     // return JSON-renderable version of the {accountID: dataset} object
     renderToState(datasets) {
         try {
-            console.debug("renderToState:", datasets);
+            if (verbose) {
+                console.debug("renderToState:", datasets);
+            }
             let output = {};
             for (let [accountId, dataset] of Object.entries(datasets)) {
                 output[accountId] = dataset.render();
             }
-            console.debug("renderToState returning:", output);
+            if (verbose) {
+                console.debug("renderToState returning:", output);
+            }
             return output;
         } catch (e) {
             console.error(e);
         }
     }
 
-    /*
-    // return a new dataset object of specified type
-    datasetFactory(type, renderable = undefined, account = undefined) {
-	try {
-	    validateType(type);
-            switch (type) {
-                case BOOKS:
-                    return BooksFactory(renderable, account);
-                case CLASSES:
-                    return ClassesFactory(renderable, account);
-            }
-	} catch(e) {
-	    console.error(e);
-	}
-    */
-
     // return {accountId: dataset} mapping for all cached datasets including local unsaved changes
-    all(type) {
+    async all(type) {
         try {
             validateType(type);
             let result = {};
             for (const [accountId, dataset] of Object.entries(this.datasets[type].server)) {
                 if (accountId in this.datasets[type].dirty) {
-                    result[accountId] = this.datasets[type].dirty[accountId].clone();
+                    result[accountId] = await this.datasets[type].dirty[accountId].clone();
                 } else {
-                    result[accountId] = dataset.clone();
+                    result[accountId] = await dataset.clone();
                 }
             }
             return result;
@@ -895,32 +941,31 @@ export class FilterDataController {
         }
     }
 
-    allClasses() {
+    async allClasses() {
         try {
-            return this.all(CLASSES);
+            return await this.all(CLASSES);
         } catch (e) {
             console.error(e);
         }
     }
 
-    allBooks() {
+    async allBooks() {
         try {
-            return this.all(BOOKS);
+            return await this.all(BOOKS);
         } catch (e) {
             console.error(e);
         }
     }
 
-    // NOTE: was items(account)
-    getDataset(type, account, throwNotFoundException = false) {
+    async getDataset(type, account, throwNotFoundException = false) {
         try {
             validateType(type);
-            this.validateAccount(account);
+            await this.validateAccount(account);
             if (account.id in this.datasets[type].server) {
                 if (account.id in this.datasets[type].dirty) {
-                    return this.datasets[type].dirty[account.id].clone();
+                    return await this.datasets[type].dirty[account.id].clone();
                 }
-                return this.datasets[type].server[account.id].clone();
+                return await this.datasets[type].server[account.id].clone();
             }
             if (throwNotFoundException) {
                 throw new Error(type + " dataset not found for account " + account.name);
@@ -932,37 +977,37 @@ export class FilterDataController {
     }
 
     // check if data for the specified type and account has been requested and cached
-    isCached(type, account) {
+    async isCached(type, account) {
         try {
             validateType(type);
-            this.validateAccount(account);
+            await this.validateAccount(account);
             return account.id in this.datasets[type].server;
         } catch (e) {
             console.error(e);
         }
     }
 
-    isClassesDatasetCached(account) {
+    async isClassesDatasetCached(account) {
         try {
-            return this.isCached(CLASSES, account);
+            return await this.isCached(CLASSES, account);
         } catch (e) {
             console.error(e);
         }
     }
 
-    isBooksDatasetCached(account) {
+    async isBooksDatasetCached(account) {
         try {
-            return this.isCached(BOOKS, account);
+            return await this.isCached(BOOKS, account);
         } catch (e) {
             console.error(e);
         }
     }
 
     // check if data for the specified type and account has pending local changes
-    isDirty(type, account) {
+    async isDirty(type, account) {
         try {
             validateType(type);
-            this.validateAccount(account);
+            await this.validateAccount(account);
             let serverSet = this.datasets[type].server;
             let dirtySet = this.datasets[type].dirty;
             if (!(account.id in serverSet)) {
@@ -983,17 +1028,17 @@ export class FilterDataController {
         }
     }
 
-    isClassesDirty(account) {
+    async isClassesDirty(account) {
         try {
-            return this.isDirty(CLASSES, account);
+            return await this.isDirty(CLASSES, account);
         } catch (e) {
             console.error(e);
         }
     }
 
-    isBooksDirty(account) {
+    async isBooksDirty(account) {
         try {
-            return this.isDirty(BOOKS, account);
+            return await this.isDirty(BOOKS, account);
         } catch (e) {
             console.error(e);
         }
@@ -1032,19 +1077,22 @@ export class FilterDataController {
     async get(type, account, force = false) {
         try {
             validateType(type);
-            this.validateAccount(account);
+            await this.validateAccount(account);
 
             if (!force) {
-                if (this.isCached(type, account)) {
-                    let dataset = this.getDataset(type, account);
-                    let message = dataset.typeName + " refreshed from cache";
-                    return this.datasetResult(type, account, dataset, SUCCESS, message);
+                if (await this.isCached(type, account)) {
+                    let dataset = await this.getDataset(type, account);
+                    return await this.validatedDatasetResult(type, account, dataset);
                 }
             }
 
-            console.debug("get: sending filterctl dump request:", type, account);
-            let response = await sendEmailRequest(account, "dump", {}, EMAIL_REQUEST_TIMEOUT);
-            console.debug("get: filterctl response:", response);
+            if (verbose) {
+                console.debug("get: sending filterctl dump request:", type, account);
+            }
+            let response = await this.email.sendRequest(account, "dump", {}, EMAIL_REQUEST_TIMEOUT);
+            if (verbose) {
+                console.debug("get: filterctl response:", response);
+            }
             if (response === undefined || !response) {
                 console.error("filterctl request failed:", response);
                 throw new Error("Unknown filterctl request failure");
@@ -1054,7 +1102,7 @@ export class FilterDataController {
             await accountPasswords.set(account.id, response.Password);
 
             // parse classes from response
-            let classes = datasetFactory(CLASSES, response, account);
+            let classes = await datasetFactory(CLASSES, this.accounts, response, account);
             if (!classes.valid) {
                 console.error("Classes validation failure:", response, classes);
                 throw new Error("Unexpected FilterClasses response");
@@ -1062,7 +1110,7 @@ export class FilterDataController {
             this.datasets.classes.server[account.id] = classes;
 
             // parse books from response
-            let books = datasetFactory(BOOKS, response, account);
+            let books = await datasetFactory(BOOKS, this.accounts, response, account);
             if (!books.valid) {
                 console.error("Books validation Failure:", response, books);
                 throw new Error("Unexpected FilterBooks response");
@@ -1072,27 +1120,32 @@ export class FilterDataController {
             // clear pending changes only for the requested type
             delete this.datasets[type].dirty[account.id];
 
-            let dataset = this.datasets[type].server[account.id].clone();
+            let dataset = this.datasets[type].server[account.id];
             let message = dataset.typeName + " refreshed from server";
-            return this.datasetResult(type, account, dataset, SUCCESS, message);
+            return await this.datasetResult(type, account, dataset, SUCCESS, message);
         } catch (e) {
             console.error(e);
-            let error = "Request failed: " + String(e) + "; Please contact support.";
-            return this.datasetResult(type, account, undefined, FAILURE, error);
+            let error = "Error:" + String(e);
+            return await this.datasetResult(type, account, undefined, FAILURE, error);
         }
     }
 
-    datasetResult(type, account, dataset, success, message) {
+    async datasetResult(type, account, dataset, success, message, results = undefined) {
         try {
             let result = {
                 success: success,
                 message: message,
-                accountId: account.id,
             };
-            result[type] = dataset.render();
+            if (account != undefined) {
+                result.accountId = account.id;
+            }
             if (dataset !== undefined) {
+                result[type] = dataset.render();
                 result.valid = dataset.valid;
-                result.dirty = this.isDirty(dataset.type, account);
+                result.dirty = await this.isDirty(dataset.type, account);
+            }
+            if (results != undefined) {
+                result.results = results;
             }
             return result;
         } catch (e) {
@@ -1100,13 +1153,13 @@ export class FilterDataController {
         }
     }
 
-    setDataset(type, account, dataset) {
+    async setDataset(type, account, dataset) {
         try {
             validateType(type);
-            this.validateAccount(account);
+            await this.validateAccount(account);
             let dirty = dataset.diff(this.datasets[type].server[account.id]);
             if (dirty) {
-                this.datasets[type].dirty[account.id] = dataset.clone();
+                this.datasets[type].dirty[account.id] = await dataset.clone();
             } else {
                 delete this.datasets[type].dirty[account.id];
             }
@@ -1118,22 +1171,34 @@ export class FilterDataController {
 
     async set(type, account, dataset) {
         try {
-            console.debug("set:", type, account, dataset);
+            if (verbose) {
+                console.debug("set:", type, account, dataset);
+            }
+            await dataset.validate();
+            await this.setDataset(type, account, dataset);
+            return await this.validatedDatasetResult(type, account, dataset);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async validatedDatasetResult(type, account, dataset) {
+        try {
             let state = SUCCESS;
             let message = undefined;
-            dataset.validate();
-            let dirty = this.setDataset(type, account, dataset);
+            await dataset.validate();
+            let dirty = await this.isDirty(type, account);
             if (dataset.valid) {
                 if (dirty) {
-                    message = "Unsaved valid " + dataset.typeName + " changes";
+                    message = "Unsaved Validated " + dataset.typeName + " changes";
                 } else {
-                    message = "Unchanged " + dataset.typeName;
+                    message = "Validated " + dataset.typeName;
                 }
             } else {
-                message = "Validation failed: " + dataset.error;
+                message = "Validation failed: " + dataset.errors[0];
                 state = FAILURE;
             }
-            return this.datasetResult(type, account, dataset, state, message);
+            return await this.datasetResult(type, account, dataset, state, message);
         } catch (e) {
             console.error(e);
         }
@@ -1141,6 +1206,13 @@ export class FilterDataController {
 
     async setBooks(account, books) {
         try {
+            if (verbose) {
+                console.debug("setBooks:", account, books);
+            }
+            let updateBooks = await datasetFactory(BOOKS, this.accounts, books, account);
+            if (verbose) {
+                console.debug("setBooks updateBooks:", updateBooks);
+            }
             return await this.set(BOOKS, account, books);
         } catch (e) {
             console.error(e);
@@ -1149,10 +1221,48 @@ export class FilterDataController {
 
     async setClasses(account, classes) {
         try {
-            console.debug("setClasses:", account, classes);
-            let updateClasses = datasetFactory(CLASSES, classes, account);
-            console.debug("setClasses updateClasses:", updateClasses);
-            return await this.set(CLASSES, account, updateClasses);
+            if (verbose) {
+                console.debug("setClasses:", account, classes);
+            }
+            let updateClasses = await datasetFactory(CLASSES, this.accounts, classes, account);
+            if (verbose) {
+                console.debug("setClasses updateClasses:", updateClasses);
+            }
+            let result = await this.set(CLASSES, account, updateClasses);
+            if (verbose) {
+                console.debug("setClasses returning:", result);
+            }
+            return result;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async sendClasses(account, force = false) {
+        try {
+            if (verbose) {
+                console.debug("sendClasses:", account, force);
+            }
+            let result = await this.send(CLASSES, account, force);
+            if (verbose) {
+                console.debug("sendClasses returning:", result);
+            }
+            return result;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async sendBooks(account, force = false) {
+        try {
+            if (verbose) {
+                console.debug("sendBooks:", account, force);
+            }
+            let result = await this.send(BOOKS, account, force);
+            if (verbose) {
+                console.debug("sendBooks returning:", result);
+            }
+            return result;
         } catch (e) {
             console.error(e);
         }
@@ -1163,19 +1273,22 @@ export class FilterDataController {
             let defaults = undefined;
             switch (type) {
                 case CLASSES:
-                    defaults = new Classes();
+                    defaults = new Classes(this.accounts);
                     for (const [name, score] of Object.entries(DEFAULT_CLASS_LEVELS)) {
                         defaults.addLevel(name, score);
                     }
                     break;
                 case BOOKS:
-                    defaults = new Books();
+                    defaults = new Books(this.accounts);
                     break;
                 default:
                     throw new Error("unexpected type");
             }
+            await defaults.setAccount(account);
+            await defaults.validate();
+            console.assert(defaults.valid, "setDefaults validation failed");
             await this.set(type, account, defaults);
-            return this.datasetResult(type, account, defaults, SUCCESS, defaults.typeName + " reset to default values");
+            return await this.datasetResult(type, account, defaults, SUCCESS, defaults.typeName + " reset to default values");
         } catch (e) {
             console.error(e);
         }
@@ -1183,7 +1296,7 @@ export class FilterDataController {
 
     async setBooksDefaults(account) {
         try {
-            return await this.setDefaults(CLASSES, account);
+            return await this.setDefaults(BOOKS, account);
         } catch (e) {
             console.error(e);
         }
@@ -1191,7 +1304,7 @@ export class FilterDataController {
 
     async setClassesDefaults(account) {
         try {
-            return await this.setDefaults(BOOKS, account);
+            return await this.setDefaults(CLASSES, account);
         } catch (e) {
             console.error(e);
         }
@@ -1200,33 +1313,36 @@ export class FilterDataController {
     async send(type, account, force) {
         try {
             validateType(type);
-            this.validateAccount(account);
-            const dataset = this.getDataset(type, account);
-            if (force || this.isDirty(type, account)) {
-                if (!dataset.validate()) {
-                    throw new Error(`Validation failed: ${dataset.error}`);
+            await this.validateAccount(account);
+            const dataset = await this.getDataset(type, account);
+            if (force || (await this.isDirty(type, account))) {
+                await dataset.validate();
+                if (!dataset.valid) {
+                    throw new Error(`Validation failed: ${dataset.errors[0]}`);
                 }
                 let update = dataset.renderUpdateRequest();
                 if (verbose) {
                     console.debug("sending filterctl update:", update);
                 }
-                const response = await sendEmailRequest(account, update.command, update.body, EMAIL_REQUEST_TIMEOUT);
+                const response = await this.email.sendRequest(account, update.command, update.body, EMAIL_REQUEST_TIMEOUT);
                 if (verbose) {
                     console.debug("filterctl update response", response);
                 }
 
-                let validator = datasetFactory(type);
-                if (!validator.setAccount(account.id, accountEmailAddress(account))) {
+                let validator = await datasetFactory(type, this.accounts, response, account);
+                /*
+                if (!validator.setAccount(account)) {
                     console.error("send: response validator setAccount failed:", dataset, update, response, validator);
                     throw new Error("Update response validation failure(1)");
                 }
-                if (!validator.parseUpdateResponse(response)) {
+                if (!await validator.parseUpdateResponse(response, this.accounts)) {
                     console.error("send: response validator parseUpdateResponse failed:", dataset, update, response, validator);
                     throw new Error("Update response validation failure(2)");
                 }
 
-                // FIXME: determine that update response results in valid dataset
-                if (validator.valid) {
+                if (!validator.validate()) {
+		*/
+                if (!validator.valid) {
                     console.error("send: response failed validation:", dataset, update, response, validator);
                     throw new Error("Update response validation failure(3)");
                 }
@@ -1238,7 +1354,7 @@ export class FilterDataController {
                 }
 
                 delete this.datasets[type].dirty[account.id];
-                this.datasets[type].server[account.id] = dataset.clone();
+                this.datasets[type].server[account.id] = await dataset.clone();
 
                 // FIXME: redundant test
                 let serverSet = this.datasets[type].server[account.id];
@@ -1247,37 +1363,51 @@ export class FilterDataController {
                     throw new Error("Update response mismatch(2)");
                 }
 
-                return this.datasetResult(type, account, validator, SUCCESS, dataset.typeName + " successfully uploaded to server");
+                return await this.datasetResult(
+                    type,
+                    account,
+                    validator,
+                    SUCCESS,
+                    dataset.typeName + " successfully uploaded to server",
+                );
             }
-            return this.datasetResult(type, account, dataset, SUCCESS, dataset.typeName + " unchanged");
+            return await this.datasetResult(type, account, dataset, SUCCESS, dataset.typeName + " unchanged");
         } catch (e) {
             console.error(e);
-            let error = "Update Failed: " + String(e) + "; Please contact support.";
-            return this.datasetResult(type, account, undefined, FAILURE, error);
+            return await this.datasetResult(type, account, undefined, FAILURE, String(e));
         }
     }
 
+    // send all dirty datasets of type to mailserver
     async sendAll(type, force = false) {
         try {
             validateType(type);
-            let datasets = this.all(type);
-            let resultState = SUCCESS;
-            let resultAccount = undefined;
-            let resultDataset = undefined;
-            let resultMessage = undefined;
-            for (const [accountId, dataset] of Object.entries(datasets)) {
-                resultAccount = this.accounts[accountId];
-                resultDataset = dataset;
-                const result = await this.send(this.accounts[accountId], force);
-                if (!result.success) {
-                    resultState = FAILURE;
-                    resultMessage = result.message;
+            let datasets = await this.all(type);
+            let results = {};
+            let success = true;
+            let uploads = 0;
+            let fails = 0;
+            for (const accountId of Object.keys(datasets)) {
+                const result = await this.send(type, this.accounts[accountId], force);
+                results[accountId] = result;
+                if (result.success) {
+                    uploads++;
+                } else {
+                    fails++;
+                    success = false;
                 }
             }
-            if (resultState) {
-                resultMessage = resultDataset.typeName + " refreshed from server for all accounts";
+            let message = "No pending changes.";
+            if (uploads !== 0 || fails !== 0) {
+                message = "Uploaded changes:";
+                if (uploads > 0) {
+                    message += " (" + uploads + " successful)";
+                }
+                if (fails > 0) {
+                    message += " (" + fails + " failed)";
+                }
             }
-            return this.datasetResult(type, resultAccount, resultDataset, resultState, resultMessage);
+            return await this.datasetResult(type, undefined, undefined, success, message, results);
         } catch (e) {
             console.error(e);
         }
@@ -1299,22 +1429,79 @@ export class FilterDataController {
         }
     }
 
+    // refresh all datasets of type from mailserver
+    async refreshAll(type) {
+        try {
+            validateType(type);
+            let results = {};
+            let success = true;
+            let refreshes = 0;
+            let fails = 0;
+            let force = true;
+            for (const [accountId, account] of Object.entries(this.accounts)) {
+                const result = await this.get(type, account, force);
+                results[accountId] = result;
+                if (result.success) {
+                    refreshes++;
+                } else {
+                    fails++;
+                    success = false;
+                }
+            }
+            let message = "No accounts to refresh.";
+            if (refreshes !== 0 || fails !== 0) {
+                message = "Refreshed from server:";
+                if (refreshes > 0) {
+                    message += " (" + refreshes + " successful)";
+                }
+                if (fails > 0) {
+                    message += " (" + fails + " failed)";
+                }
+            }
+            return await this.datasetResult(type, undefined, undefined, success, message, results);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async refreshAllClasses() {
+        try {
+            return await this.refreshAll(CLASSES);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async refreshAllBooks() {
+        try {
+            return await this.refreshAll(BOOKS);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     async getPassword(account) {
         try {
-            this.validateAccount(account);
+            await this.validateAccount(account);
             let password = await accountPasswords.get(account.id);
             if (password === undefined) {
                 // perform Books query to receive password
-                console.debug("getPassword: not cached; requesting dump");
+                if (verbose) {
+                    console.debug("getPassword: not cached; requesting dump");
+                }
                 let response = await this.get(BOOKS, account, true);
-                console.debug("getPassword: dump response:", response);
+                if (verbose) {
+                    console.debug("getPassword: dump response:", response);
+                }
                 password = await accountPasswords.get(account.id);
                 if (password === undefined) {
                     throw new Error("CardDAV password query failed");
                 }
             }
             //FIXME: remove this after debugging
-            console.debug("getPassword:", account, password);
+            if (verbose) {
+                console.debug("getPassword:", account, password);
+            }
             return password;
         } catch (e) {
             console.error(e);
@@ -1322,25 +1509,34 @@ export class FilterDataController {
     }
 }
 
-export function datasetFactory(type, renderable = undefined, account = undefined) {
+export async function datasetFactory(type, accounts, renderable = undefined, account = undefined) {
     try {
-        validateType(type);
-        let accountId = undefined;
-        let accountEmail = undefined;
-        if (account !== undefined) {
-            accountId = account.id;
-            accountEmail = accountEmailAddress(account);
+        if (verbose) {
+            console.debug("datasetFactory:", type, accounts, renderable, account);
         }
+        validateType(type);
+        let dataset = undefined;
         switch (type) {
             case BOOKS:
-                return new Books(renderable, accountId, accountEmail);
+                dataset = new Books(accounts);
+                break;
             case CLASSES:
-                return new Classes(renderable, accountId, accountEmail);
+                dataset = new Classes(accounts);
+                break;
         }
+        if (account !== undefined) {
+            await dataset.setAccount(account);
+        }
+        if (renderable !== undefined) {
+            await dataset.parse(renderable);
+        }
+        return dataset;
     } catch (e) {
         console.error(e);
     }
 }
 
-export const booksFactory = (renderable = undefined, account = undefined) => datasetFactory(BOOKS, renderable, account);
-export const classesFactory = (renderable = undefined, account = undefined) => datasetFactory(CLASSES, renderable, account);
+export const booksFactory = (accounts, renderable = undefined, account = undefined) =>
+    datasetFactory(BOOKS, accounts, renderable, account);
+export const classesFactory = (accounts, renderable = undefined, account = undefined) =>
+    datasetFactory(CLASSES, accounts, renderable, account);

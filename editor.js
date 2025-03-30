@@ -46,7 +46,7 @@ const editorCID = "editor-" + generateUUID();
 let controls = {};
 
 let tab = {
-    classes: new ClassesTab(disableEditorControl, sendMessage, {
+    classes: new ClassesTab(disableEditorControl, sendMessage, enableTab, {
         InputKeypress: onClassesInputKeypress,
         NameChanged: onClasessNameChanged,
         SliderMoved: onClassesSliderMoved,
@@ -314,7 +314,7 @@ function enableTab(name, enabled) {
 
         tabControls.link.disabled = !enabled;
         if (enabled) {
-            delete tabControls.navlink.classList.remove("disabled");
+            tabControls.navlink.classList.remove("disabled");
         } else {
             tabControls.navlink.classList.add("disabled");
         }
@@ -335,10 +335,16 @@ async function onTabShow(sender) {
         if (verbose) {
             console.debug("handleTabShow:", sender);
         }
+        let cancelVisible = false;
+        let applyVisible = false;
+        let okButtonText = "Close";
         switch (sender.srcElement) {
             case controls.classesNavLink:
                 activeTab = "classes";
                 await tab.classes.populate();
+                cancelVisible = true;
+                applyVisible = true;
+                okButtonText = "Ok";
                 break;
             case controls.booksNavLink:
                 activeTab = "books";
@@ -360,6 +366,9 @@ async function onTabShow(sender) {
         if (verbose) {
             console.log("active tab:", activeTab);
         }
+        controls.cancelButton.hidden = !cancelVisible;
+        controls.applyButton.hidden = !applyVisible;
+        controls.okButton.textContent = okButtonText;
     } catch (e) {
         console.error(e);
     }
@@ -616,8 +625,8 @@ async function onPortMessage(message, sender) {
                 ret = await messenger.runtime.sendMessage({ id: "ACK", src: editorCID, dst: backgroundCID });
                 if (verbose) {
                     console.debug("ACK returned:", ret);
-                    console.log("editor connected to:", backgroundCID);
                 }
+                console.log("editor connected to:", backgroundCID);
                 // complete initialization now that we're connected to the background page
                 await populateAccounts();
                 break;
@@ -837,16 +846,16 @@ async function onCancelClick() {
     }
 }
 
-async function onOkClick(sender) {
+async function onOkClick() {
     try {
+        console.log("okButtonClick");
         var state = undefined;
-        switch (sender.target) {
-            case tab.classes.okButton:
+        switch (activeTab) {
+            case "classes":
                 state = await tab.classes.saveChanges();
                 break;
-            case tab.books.okButton:
-                state = await tab.books.saveChanges();
-                break;
+            default:
+                state = { success: true };
         }
         if (typeof state === "object" && state.success) {
             window.close();
@@ -950,13 +959,16 @@ addTabControl(tab.classes, "classTable", "class-table", "change", (sender) => {
 addTabControl(tab.classes, "tableBody", "level-table-body");
 addTabControl(tab.classes, "tableGridRow", "table-grid-row");
 addTabControl(tab.classes, "tableGridColumn", "table-grid-column");
-addTabControl(tab.classes, "defaultsButton", "defaults-button", "click", () => {
+addTabControl(tab.classes, "saveButton", "classes-save-button", "click", () => {
+    tab.classes.onSaveClick();
+});
+addTabControl(tab.classes, "defaultsButton", "classes-defaults-button", "click", () => {
     tab.classes.onDefaultsClick();
 });
-addTabControl(tab.classes, "refreshButton", "refresh-button", "click", () => {
+addTabControl(tab.classes, "refreshButton", "classes-refresh-button", "click", () => {
     tab.classes.onRefreshClick();
 });
-addTabControl(tab.classes, "refreshAllButton", "refresh-all-button", "click", () => {
+addTabControl(tab.classes, "refreshAllButton", "classes-refresh-all-button", "click", () => {
     tab.classes.onRefreshAllClick();
 });
 
