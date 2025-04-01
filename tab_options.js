@@ -11,12 +11,12 @@ export class OptionsTab {
         this.domainCheckbox = {};
         this.sendMessage = sendMessage;
         this.handlers = handlers;
-        this.selectedAccount = undefined;
+        this.account = undefined;
     }
 
     async selectAccount(account) {
         try {
-            this.selectedAccount = account;
+            this.account = account;
         } catch (e) {
             console.error(e);
         }

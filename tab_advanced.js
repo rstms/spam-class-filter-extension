@@ -1,13 +1,24 @@
+import { accountEmailAddress } from "./common.js";
+
 /* globals document, console, */
 
 const verbose = false;
 
 export class AdvancedTab {
     constructor(sendMessage) {
-        this.selectedAccountId = undefined;
+        this.account = undefined;
         this.controls = {};
         this.sendMessage = sendMessage;
         this.commandUsage = {};
+    }
+
+    async selectAccount(account) {
+        try {
+            this.account = account;
+            this.controls.selectedAccount.value = accountEmailAddress(account);
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     setOutput(text) {
@@ -105,7 +116,7 @@ export class AdvancedTab {
         try {
             const message = {
                 id: "sendCommand",
-                accountId: this.selectedAccountId,
+                accountId: this.account.id,
                 command: this.controls.command.value,
                 argument: this.controls.argument.value,
             };

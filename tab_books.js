@@ -2,9 +2,8 @@
 // books editor tab
 //
 
-import { config } from "./config.js";
 import { Books, booksFactory, validateBookName } from "./filterctl.js";
-import { accountEmailAddress } from "./common.js";
+import { generateUUID, accountEmailAddress, isValidBookName } from "./common.js";
 
 /* globals console, messenger, document */
 
@@ -14,48 +13,73 @@ import { accountEmailAddress } from "./common.js";
 //
 // accountSelect
 // bookSelect
-// addressesSelect
-// statusMessage
 //
-// selectedSpan
-// selectButton
+// addressesMenu
 //
-// connectedCheckbox
-//
-// scanButton
-// connectionsSelect
-// disconnectButton
+// statusSpan
 //
 // addInput
 // addButton
 // deleteInput
 // deleteButton
 //
+// addressesSelect
+//
+// addSenderSpan
+// addSenderMenu
+//
+// connectionsDropdown
+//
+// table
+// tableBody
+// tableRow
+//
+// scanButton
+// disconnectButton
+//
 
-const verbose = false;
+const verbose = true;
+
+//const DROPDOWN_MENU_PREFIX = '<a class="dropdown-item" href="#">';
+//const DROPDOWN_MENU_SUFFIX = "</a>";
 
 export class BooksTab {
-    constructor(disableEditorControl, sendMessage) {
-        this.disableEditorControl = disableEditorControl;
-        this.controls = {};
-        this.sendMessage = sendMessage;
-        this.selectedAccount = undefined;
-        this.bookIndex = {};
-
-        // selectedBook, addSenderBook kept for each account
-        this.connectedBooks = undefined;
-        this.selectedBooks = {};
-        this.addSenderBooks = {};
+    constructor(disableEditorControl, sendMessage, handlers) {
         this.initialized = false;
+        this.disableEditorControl = disableEditorControl;
+        this.sendMessage = sendMessage;
+        this.handlers = handlers;
+        this.controls = {};
+        this.accounts = undefined;
+
+        // current Books object
+        this.books = undefined;
+
+        // current account object
+        this.account = undefined;
+
+        this.booksIndex = {};
+        this.accountIndex = {};
+
+        // per account data
+        this.connectedBooks = {};
+        this.serverBooks = {};
+        this.selectedBooks = {};
     }
 
+    // called when account selection changes
     async selectAccount(account) {
         try {
             if (verbose) {
                 console.debug("Books.selectAccount:", account);
             }
-            this.selectedAccount = account;
-            // TODO: set selected book to stored value && populate
+            let previous = this.account;
+            this.account = account;
+            if (previous !== account) {
+                await this.populate();
+                await this.populateAddSenderTarget();
+                await this.populateConnections();
+            }
         } catch (e) {
             console.error(e);
         }
@@ -65,17 +89,22 @@ export class BooksTab {
     async getBooks(flags) {
         try {
             if (verbose) {
-                console.log("BooksTab.getBooks");
+                console.log("BooksTab.getBooks", flags);
             }
-            if (flags.disablePrompt !== true) {
-                await this.updateStatus({ message: "Requesting FilterBooks refresh..." });
+
+            let disableStatusPrompt = flags.disableStatusPrompt === true;
+            let disablePopulate = flags.disablePopulate === true;
+            let disableStatusUpdate = flags.disableStatusUpdate === true;
+
+            if (!disableStatusPrompt) {
+                await this.setStatus("Requesting FilterBooks refresh...", "FilterBooks request failed");
             }
             const response = await this.sendMessage({
                 id: "getBooks",
-                accountId: this.selectedAccount.id,
+                accountId: this.account.id,
                 force: flags.force === true,
             });
-            const books = await this.handleResponse(response, flags.disablePopulate === true, flags.disableUpdateStatus === true);
+            const books = await this.handleResponse(response, disablePopulate, disableStatusUpdate);
             if (verbose) {
                 console.log("BooksTab.getBooks: returning:", books);
             }
@@ -86,7 +115,7 @@ export class BooksTab {
     }
 
     // handle filterctl response
-    async handleResponse(response, disablePopulate = false, disableUpdateStatus = false) {
+    async handleResponse(response, disablePopulate = false, disableStatusUpdate = false) {
         try {
             if (verbose) {
                 if (verbose) {
@@ -97,22 +126,21 @@ export class BooksTab {
             if (typeof books !== "undefined") {
                 if (typeof books === "object") {
                     // parse the rendered message data into a Books object
-                    console.assert(response.accountId === this.selectedAccount.id, "server response account ID mismatch");
-                    books = await booksFactory(this.accounts, response.books, this.selectedAccount);
+                    console.assert(response.accountId === this.account.id, "server response account ID mismatch");
+                    books = await booksFactory(this.accounts, response.books, this.account);
                 }
                 console.assert(books instanceof Books, "books is not an instance of Books");
-                response.books = books;
-                if (disablePopulate !== true) {
+                if (!disablePopulate) {
                     await this.populate(books);
                 }
             }
-            if (disableUpdateStatus !== true) {
-                await this.updateStatus(response);
+            if (!disableStatusUpdate) {
+                await this.setStatus(response.message);
             }
             if (verbose) {
-                console.debug("handleResponse: returning:", response.books);
+                console.debug("handleResponse: returning:", books);
             }
-            return response.books;
+            return books;
         } catch (e) {
             console.error(e);
         }
@@ -122,11 +150,11 @@ export class BooksTab {
         try {
             const message = {
                 id: "sendCommand",
-                accountId: this.selectedAccount.id,
+                accountId: this.account.id,
                 command: command,
                 argument: argument,
             };
-            this.setStatus("Sending command: '" + command + " " + argument + "'...");
+            this.setStatus("Sending command: '" + command + " " + argument + "'...", "Error: timeout awaiting command response");
             const response = await this.sendMessage(message);
             if (verbose) {
                 console.debug("response:", response);
@@ -142,22 +170,23 @@ export class BooksTab {
         }
     }
 
-    async updateStatus(response) {
-        try {
-            this.setStatus(response.message ? response.message : "");
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    setStatus(text) {
+    setStatus(text, timeoutText = undefined) {
         try {
             console.log("books.setStatus:", text);
-            if (text !== undefined) {
-                let control = this.controls.statusMessage;
-                control.innerHTML = text;
-            } else {
+
+            //
+            // TODO: if timeout active, clear it
+            //
+
+            if (text === undefined) {
                 console.error("caller attempted to set status to undefined");
+                return;
+            }
+
+            this.controls.statusSpan.innerHTML = text;
+
+            if (timeoutText !== undefined) {
+                // TODO: disable controls and set timer
             }
         } catch (e) {
             console.error(e);
@@ -166,17 +195,50 @@ export class BooksTab {
 
     async enableControls(enabled) {
         try {
-            this.controls.accountSelect.disabled = !enabled;
-            //await this.disableEditorControl("applyButton", !enabled);
-            //await this.disableEditorControl("okButton", !enabled);
+            let names = [
+                "accountSelect",
+                "bookSelect",
+                "addressesButton",
+                "addressesMenu",
+                "addSenderButton",
+                "addSenderMenu",
+                "addInput",
+                "deleteInput",
+                "connectionsDropdown",
+                "table",
+                "scanButton",
+                "disconnectButton",
+            ];
+
+            for (const name of names) {
+                this.controls[name].disabled = !enabled;
+            }
+            this.enableAddButton(enabled);
+            this.enableDeleteButton(enabled);
         } catch (e) {
             console.error(e);
         }
     }
 
-    async getAccounts() {
+    enableAddButton(enabled = undefined) {
         try {
-            this.accounts = await this.sendMessage("getAccounts");
+            if (enabled !== false) {
+                let name = this.controls.addInput.value.trim();
+                enabled = isValidBookName(name) && !this.isBookName(name);
+            }
+            this.controls.addButton.disabled = !enabled;
+            return enabled;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    enableDeleteButton(enabled = undefined) {
+        try {
+            if (enabled !== false) {
+                enabled = this.isBookName(this.controls.deleteInput.value.trim());
+            }
+            this.controls.deleteButton.disabled = !enabled;
         } catch (e) {
             console.error(e);
         }
@@ -196,16 +258,18 @@ export class BooksTab {
 
     async initialize() {
         try {
-            await this.getAccounts();
-            /*
-            // request a password now for each account to fill filterctl's books cache
+            this.accounts = await this.sendMessage("getAccounts");
+            this.account = await this.sendMessage("getSelectedAccount");
+            let i = 0;
+            this.accountIndex = {};
             for (const account of Object.values(this.accounts)) {
-                await this.getCardDAVPassword(account);
+                this.accountIndex[i] = account;
+                this.accountIndex[account.id] = account;
+                this.accountIndex[accountEmailAddress(account)] = account;
+                i++;
             }
-	    */
             this.controls.addButton.disabled = true;
             this.controls.deleteButton.disabled = true;
-            this.showConnectionControls(false);
             this.initialized = true;
         } catch (e) {
             console.error(e);
@@ -227,118 +291,27 @@ export class BooksTab {
             if (verbose) {
                 console.debug("populate: books:", this.books);
             }
-            this.controls.bookSelect.innerHTML = "";
-            this.bookIndex = {};
-            let selectBook = undefined;
-            let i = 0;
-            for (const name of this.books.names()) {
-                if (i === 0 && this.selectedBooks[this.selectedAccount.id] === undefined) {
-                    this.setSelectedBook(this.selectedAccount, name);
-                }
-                this.bookIndex[name] = i;
-                this.bookIndex[i] = name;
-                i++;
-                const bookRow = document.createElement("option");
-                bookRow.textContent = name;
-                this.controls.bookSelect.appendChild(bookRow);
-            }
-            await this.populateAddSenderBook(await this.addSenderBook());
-            await this.selectBook(selectBook);
+            await this.populateBooks();
             await this.enableControls(true);
         } catch (e) {
             console.error(e);
         }
     }
 
-    async populateAddresses(bookName, addresses) {
+    async populateBooks() {
         try {
-            this.controls.addressesSelect.innerHTML = "";
-            let rows = ['Addresses with header: X-Address-Book: "' + bookName + '"'];
-            if (addresses.length < 1) {
-                rows = ["No addresses"];
-            }
-            for (const address of addresses) {
-                rows.push(address);
-            }
-            for (const rowText of rows) {
+            this.controls.bookSelect.innerHTML = "";
+            this.booksIndex = {};
+            let i = 0;
+            for (const name of this.books.names()) {
+                this.booksIndex[name] = i;
+                this.booksIndex[i] = name;
+                i++;
                 const row = document.createElement("option");
-                row.textContent = rowText;
-                this.controls.addressesSelect.appendChild(row);
+                row.textContent = name;
+                this.controls.bookSelect.appendChild(row);
             }
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async populateAddSenderBook(bookName) {
-        try {
-            this.controls.selectedSpan.innerHTML = " " + bookName + " ";
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async populateBookConnected() {
-        try {
-            if (this.connectedBooks !== undefined) {
-                let connected = await this.isConnectedBook(this.selectedAccount, this.selectedBook());
-                this.controls.connectedCheckbox.checked = connected;
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    showConnectionControls(visible = undefined) {
-        try {
-            if (visible === undefined) {
-                visible = this.connectedBooks !== undefined;
-            }
-            const names = ["connectedCheckbox", "connectedLabel", "connectionsSelect", "disconnectButton"];
-            for (const name of names) {
-                const control = this.controls[name];
-                control.disabled = !visible;
-                control.hidden = !visible;
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async populateConnections(account = undefined) {
-        try {
-            if (this.connectedBooks === undefined) {
-                return;
-            }
-            if (account === undefined) {
-                account = this.selectedAccount;
-            }
-            this.controls.connectionsSelect.innerHTML = "";
-            let connections = this.connectedBooks[account.id];
-            for (const cxn of Object.values(connections)) {
-                const row = document.createElement("option");
-                row.textContent = cxn.name;
-                this.controls.connectionsSelect.appendChild(row);
-            }
-            this.showConnectionControls();
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    // handle new selected book, updating controls and saving selected book for each account
-    async selectBook(bookName) {
-        try {
-            if (verbose) {
-                console.debug("booksTab.selectBook:", bookName);
-            }
-            if (bookName === undefined) {
-                bookName = this.selectedBook();
-            }
-            this.selectedBooks[this.selectedAccount.id] = bookName;
-            await this.populateAddresses(bookName, this.books.addresses(bookName));
-            await this.populateBookConnected();
-            await this.populateConnections();
+            await this.selectBook();
         } catch (e) {
             console.error(e);
         }
@@ -347,22 +320,123 @@ export class BooksTab {
     // return selected book name for selected account
     selectedBook() {
         try {
-            let bookName = this.selectedBooks[this.selectedAccount.id];
+            let bookName = this.selectedBooks[this.account.id];
             if (bookName === undefined) {
-                throw new Error("selected book is undefined");
+                bookName = this.books.names()[0];
             }
+            this.selectedBooks[this.account.id] = bookName;
             return bookName;
         } catch (e) {
             console.error(e);
         }
     }
 
-    setSelectedBook(account, bookName) {
+    // handle new selected book, updating controls and saving selected book for each account
+    async selectBook(bookName = undefined) {
+        try {
+            if (verbose) {
+                console.debug("booksTab.selectBook:", bookName);
+            }
+            if (bookName === undefined) {
+                bookName = this.selectedBook();
+            }
+            this.selectedBooks[this.account.id] = bookName;
+            this.controls.bookSelect.selectedIndex = this.booksIndex[bookName];
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async populateDropdown(control, items) {
+        try {
+            control.innerHTML = "";
+            for (const text of items) {
+                let label = document.createElement("a");
+                label.classList.add("dropdown-item");
+                label.setAttribute("href", "#");
+                label.textContent = text;
+                control.appendChild(label);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async populateAddSenderTarget(bookName = undefined) {
         try {
             if (bookName === undefined) {
-                throw new Error("setting undefined selected book");
+                let response = await this.sendMessage({ id: "getAddSenderTarget", accountId: this.account.id });
+                bookName = response.result;
             }
-            this.selectedBooks[account.id] = bookName;
+            this.controls.addSenderSpan.innerHTML = " " + bookName + " ";
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async populateConnections() {
+        try {
+            if (this.tableRowTemplate === undefined) {
+                let rows = this.controls.tableBody.getElementsByTagName("tr");
+                this.tableRowTemplate = rows[0];
+                console.log("tableRowTemplate:", this.tableRowTemplate);
+                this.controls.tableBody.innerHTML = "";
+            }
+            if (!this.isConnectionsExpanded()) {
+                return;
+            }
+            await this.scanConnectedBooks();
+            this.controls.tableBody.innerHTML = "";
+            for (const cxn of this.connectedBooks[this.account.id]) {
+                let row = document.createElement("tr");
+
+                //this.controls.tableBody.appendChild(this.tableRowTemplate);
+                //let row = this.controls.tableBody.lastChild;
+                //console.log("row:", cxn, row.childNodes);
+                let templateCells = this.tableRowTemplate.getElementsByTagName("td");
+                let cell0 = document.createElement("td");
+                cell0.innerHTML = templateCells[0].innerHTML;
+                row.appendChild(cell0);
+
+                let cell1 = document.createElement("td");
+                cell1.innerHTML = templateCells[1].innerHTML;
+                row.appendChild(cell1);
+
+                this.controls.tableBody.appendChild(row);
+
+                let labels = row.getElementsByTagName("label");
+                let check = row.getElementsByTagName("input")[0];
+                labels[0].textContent = cxn.name;
+                if (cxn.type === "connection") {
+                    labels[1].textContent = cxn.token;
+                    check.checked = true;
+                } else {
+                    labels[1].textContent = "";
+                    check.checked = false;
+                }
+
+                check.setAttribute("data-cxn-uuid", cxn.UID);
+                check.addEventListener("click", this.handlers.ConnectionChanged);
+            }
+            /*
+            this.controls.connectionsSelect.innerHTML = "";
+            let connections = this.connectedBooks[account.id];
+            for (const cxn of Object.values(connections)) {
+                const row = document.createElement("option");
+                row.textContent = cxn.name;
+                this.controls.connectionsSelect.appendChild(row);
+            }
+	    */
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    isConnectionsExpanded() {
+        try {
+            const expanded = this.controls.connectionsDropdown.getAttribute("aria-expanded") === "true";
+            console.log("isConnectionsExpanded returning:", expanded);
+            return expanded;
         } catch (e) {
             console.error(e);
         }
@@ -373,59 +447,8 @@ export class BooksTab {
             if (verbose) {
                 console.log("books tab save changes");
             }
-            //FIXME: this should be the filterctl update response
+            // books tab has no pending state
             return { succes: true };
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    //////////////////////////////////////////////////////
-    //
-    // selected 'add sender' book management
-    //
-    //////////////////////////////////////////////////////
-
-    // return the config addSenderBook or {} if not found
-    async getAddSenderBooks() {
-        try {
-            let addSenderBooks = await config.local.get("addSenderBooks");
-            if (addSenderBooks === undefined) {
-                addSenderBooks = {};
-            }
-            return addSenderBooks;
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    // return the addSenderBook for the specified account
-    async addSenderBook(account = undefined) {
-        try {
-            if (account === undefined) {
-                account = this.selectedAccount;
-            }
-            const addSenderBooks = await this.getAddSenderBooks();
-            return addSenderBooks[account.id];
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    // write config setting bookName as the addSenderBook for account
-    async setAddSenderBook(account, bookName) {
-        try {
-            let addSenderBooks = await this.getAddSenderBooks();
-            let changed = addSenderBooks[account.id] !== bookName;
-            addSenderBooks[account.id] = bookName;
-            if (changed) {
-                await config.local.set("addSenderBooks", addSenderBooks);
-                if (verbose) {
-                    console.debug("changed addSenderBooks:", account, bookName, addSenderBooks);
-                }
-            }
-            await this.populateAddSenderBook(bookName);
-            return changed;
         } catch (e) {
             console.error(e);
         }
@@ -437,65 +460,89 @@ export class BooksTab {
     //
     //////////////////////////////////////////////////////
 
-    async initConnectedBooks(account = undefined) {
+    //////////////////////////////////////////////////////////////////////////
+    //
+    // list cardDAV books available for account
+    //
+    //////////////////////////////////////////////////////////////////////////
+
+    async scanServerBooks(force = false) {
         try {
-            if (verbose) {
-                console.debug("initConnectedBooks:", account);
+            if (force) {
+                this.serverBooks[this.account.id] = undefined;
             }
-
-            this.connectedBooks = {};
-            await this.getAccounts();
-            for (const accountId of Object.keys(this.accounts)) {
-                this.connectedBooks[accountId] = {};
+            if (this.serverBooks[this.account.id] !== undefined) {
+                return;
             }
-
-            this.setStatus("Scanning Address Books cardDAV connections...");
-            console.log("initConnectedBooks: calling cardDAV.getBooks...");
-            // FIXME: maybe pass account to getBooks here?
-            // if account !== undefined, maybe only scan for connections for the specified account?
-            // getBooks seems now to look for connections from all accounts
-            const connections = await messenger.cardDAV.connected();
-            console.log("initConnectedBooks: cardDAV.getBooks returned:", connections);
-            this.setStatus("Address Book scan complete");
-            for (const cxn of connections) {
-                this.connectedBooks[cxn.UID] = cxn;
-            }
-
-            // connectedBooks holds cardDAV connections after scan
-            //
-            // connectedBooks {
-            //	    accountId: {
-            //		bookName: [
-            //		    {
-            //			accountId: account.id,
-            //			emailAddress: emailAddress,
-            //			bookName: bookName,
-            //			name: connnectionName,
-            //			connection: cxn
-            //		   }
-            //		]
-            //	    }
-            //	}
-            //
-            //	FIXME: set scan result data into connectedBooks
-            //	FIXME:
-            if (verbose) {
-                console.debug("initConnectedBooks: this.connectedBooks:", this.connectedBooks);
+            this.serverBooks[this.account.id] = [];
+            const username = accountEmailAddress(this.account);
+            const password = await this.getCardDAVPassword(this.account);
+            this.setStatus("Scanning CardDAV server books...");
+            console.log("calling cardDAV.list...");
+            let books = await messenger.cardDAV.list(username, password);
+            console.log("cardDAV.list returned:", books);
+            this.setStatus("CardDAV server scan complete");
+            for (const book of books) {
+                let account = this.accountIndex[book.username];
+                if (this.serverBooks[account.id] === undefined) {
+                    this.serverBooks[account.id] = [];
+                }
+                book.UID = generateUUID();
+                this.serverBooks[account.id].push(book);
             }
         } catch (e) {
             console.error(e);
         }
     }
 
-    async getConnectedBooks(account, force = false) {
+    //
+    // list connected cardDAV books in address books
+    //
+
+    // scan connected books for all accounts
+    async scanConnectedBooks(force = false) {
         try {
             if (verbose) {
-                console.debug("getConnectedBooks:", force);
+                console.debug("scanConnectedBooks:", force);
             }
-            if (force || this.connectedBooks === undefined) {
-                await this.initConnectedBooks();
+
+            if (force) {
+                this.connectedBooks[this.account.id] = undefined;
             }
-            await this.populateConnections(account);
+
+            if (this.connectedBooks[this.account.id] !== undefined) {
+                return;
+            }
+
+            this.connectedBooks = {};
+            for (const accountId of Object.keys(this.accounts)) {
+                this.connectedBooks[accountId] = [];
+            }
+
+            this.setStatus("Scanning Address Book CardDAV connections...");
+            console.log("calling cardDAV.connected...");
+            const connected = await messenger.cardDAV.connected();
+            console.log("cardDAV.connected returned:", connected);
+            this.setStatus("Address Book CardDAV scan complete");
+
+            let found = {};
+
+            for (const cxn of connected) {
+                let account = this.accountIndex[cxn.username];
+                this.connectedBooks[account.id].push(cxn);
+                found[cxn.name] = true;
+            }
+
+            for (const bookName of this.books.names()) {
+                if (found[bookName] !== true) {
+                    await this.scanServerBooks();
+                    for (const cxn of this.serverBooks[this.account.id]) {
+                        if (cxn.name == bookName) {
+                            this.connectedBooks[this.account.id].push(cxn);
+                        }
+                    }
+                }
+            }
         } catch (e) {
             console.error(e);
         }
@@ -509,50 +556,55 @@ export class BooksTab {
             console.error(e);
         }
     }
-    async isConnectedBook(account, bookName) {
+
+    async isConnectedBook(bookName) {
         try {
-            console.assert(this.connectedBooks !== undefined, "cardDAV not initialized");
-            await this.getConnectedBooks(account);
-            const connectionName = this.connectionName(account, bookName);
-            let ret = false;
-            for (const cxn of Object.values(this.connectedBooks)) {
-                if (cxn.name === connectionName) {
-                    ret = true;
+            await this.scanConnectedBooks();
+            let connected = false;
+            for (const cxn of this.connectedBooks[this.account.id]) {
+                if (cxn.name === bookName && cxn.type === "connection") {
+                    connected = true;
+                    break;
                 }
             }
-            console.log("isConnectedBook:", ret, connectionName, bookName, account);
-            return ret;
+            console.log("isConnectedBook:", bookName, connected);
+            return connected;
         } catch (e) {
             console.error(e);
         }
     }
 
-    async connectBook(account, bookName) {
+    async connectBook(cxn) {
         try {
-            await this.getConnectedBooks();
-            const connectionName = this.connectionName(account, bookName);
-            if (this.isConnectedBook(connectionName)) {
-                this.setStatus("FilterBook " + connectionName + "is already connected");
+            let bookName = cxn.name;
+            let connected = await this.isConnectedBook(bookName);
+            if (connected === true) {
+                this.setStatus("FilterBook " + bookName + "is already connected");
             } else {
-                this.setStatus("Connecting FilterBook " + connectionName + "...");
-                const username = accountEmailAddress(account);
-                const password = await this.getCardDAVPassword(account);
-                // FIXME: URL is unused by cardDAV.connect
-                // FIXME: cardDAV.connect seems to connect all books, ignoring bookName
-                // FIXME: cardDAV.connect should take cxnName and name the connection
-                console.log("connectBook: calling cardDAV.connect:", username, password, bookName, connectionName);
-                let cxn = await messenger.cardDAV.connect(username, password, bookName, connectionName);
-                console.log("connectBook: cardDAV.connect returned:", cxn);
-                /*
-		    let response = {
-                    accountId: account.id,
-                    bookName: bookName,
-                    username: username,
-                    connectionName: cxnName,
-                    carddavConnection: cxn,
-                };
-		*/
-                this.setStatus("FilterBook " + connectionName + " added to Address Books");
+                console.assert(cxn.type === "listing");
+                this.setStatus("Connecting FilterBook " + bookName + "...");
+                const username = accountEmailAddress(this.account);
+                const password = await this.getCardDAVPassword(this.account);
+                await this.scanServerBooks();
+                let token = undefined;
+                for (const cxn of this.serverBooks[this.account.id]) {
+                    if (cxn.name === bookName) {
+                        token = cxn.token;
+                        break;
+                    }
+                }
+                if (token === undefined) {
+                    console.error("connectBook: bookName not found:", bookName, this.serverBooks[this.account.id]);
+                    this.setStatus("FilterBook '" + bookName + "' not found on cardDAV server");
+                    return;
+                }
+
+                console.log("calling cardDAV.connect:", username, password, token);
+                let result = await messenger.cardDAV.connect(username, password, token);
+                console.log("connectBook: cardDAV.connect returned:", result);
+
+                this.setStatus("FilterBook " + result.token + " added to Address Books");
+
                 return true;
             }
             return false;
@@ -561,33 +613,14 @@ export class BooksTab {
         }
     }
 
-    async disconnectBook(connection) {
+    async disconnectBook(cxn) {
         try {
             if (verbose) {
-                console.debug("disconnectBook:", connection);
+                console.debug("disconnectBook:", cxn);
             }
-            // FIXME
-            throw new Error("disconnectBook unimplemented");
-            /*
-            let connectedBooks = await this.getConnectedBooks();
-            let count = 0;
-            if (connectedBooks !== undefined) {
-                for (const [accountId, connections] of Object.entries(connectedBooks)) {
-                    for (const [bookName, connectionName] of Object.entries(connections)) {
-                        count++;
-                        if (verbose) {
-                            console.log("disconnecting:", accountId, bookName, connectionName);
-                        }
-                    }
-                    this.connectedBooks[accountId] = {};
-                }
-            }
-            if (count === 0) {
-                this.setStatus("No FilterBook CardDAV Address Books found.");
-            } else {
-                this.setStatus("All FilterBook CardDAV connections removed from Address Books.");
-            }
-	    */
+            console.log("calling cardDAV.disconnect:", cxn.URI);
+            let result = await messenger.cardDAV.disconnect(cxn.URI);
+            console.log("cardDAV.disconnect returned:", result);
         } catch (e) {
             console.error(e);
         }
@@ -595,18 +628,19 @@ export class BooksTab {
 
     async disconnectAllBooks() {
         try {
-            let connections = await this.getConnectedBooks();
-            console.assert(typeof connections === "object", "unexpected type: connections:", connections);
-            let count = 0;
-            for (const connection of Object.values(connections)) {
-                count++;
-                await this.disconnectBook(connection);
+            if (verbose) {
+                console.debug("disconnectAllBooks");
             }
-            this.connectedBooks = {};
-            if (count === 0) {
-                this.setStatus("No FilterBook CardDAV Address Books found.");
-            } else {
-                this.setStatus("All FilterBook CardDAV connections removed from Address Books.");
+            await this.scanConnectedBooks();
+            let count = 0;
+            for (const cxn of this.account.connectedBooks[this.account.id]) {
+                count++;
+                await this.disconnectBook(cxn);
+            }
+            console.log("disconnected:", count);
+            if (count > 0) {
+                await this.scanConnectedBooks(true);
+                await this.populateConnections();
             }
         } catch (e) {
             console.error(e);
@@ -632,21 +666,34 @@ export class BooksTab {
         }
     }
 
+    validateBookName(bookName) {
+        try {
+            let catcher = { errors: [] };
+            const validated = validateBookName(bookName, catcher);
+            for (const error of catcher.errors) {
+                this.setStatus("Add Disabled: " + error);
+                return false;
+            }
+            this.setStatus("Ready to Add: " + validated);
+            return validated;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     async addOrDeleteBook(command, prefix, control) {
         try {
             if (verbose) {
                 console.log("onAddClick");
             }
             let bookName = control.value.trim();
-            try {
-                bookName = validateBookName(bookName);
-            } catch (e) {
-                this.setStatus(e);
+            bookName = this.validateBookName(bookName);
+            if (bookName === false) {
                 return;
             }
             // we may be deleting the selected book
             if (bookName === this.selectedBook()) {
-                this.selectedBooks[this.selectedAccount.id] = undefined;
+                this.selectedBooks[this.account.id] = undefined;
             }
             control.value = "";
             this.setStatus(prefix + " FilterBook '" + bookName + "'...");
@@ -673,63 +720,36 @@ export class BooksTab {
                 console.log("onBookSelectChange:", sender);
             }
             const index = sender.target.selectedIndex;
-            const bookName = this.bookIndex[index];
+            const bookName = this.booksIndex[index];
             if (verbose) {
                 console.debug("onBookSelectChange:", index, bookName, sender.target.id);
             }
-            if (bookName !== this.selectedBook()) {
-                await this.selectBook(bookName);
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async onAddressesSelectChange(sender) {
-        try {
-            if (verbose) {
-                console.log("onAddressesSelectChange:", sender);
-            }
-            sender.target.selectedIndex = 0;
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async onConnectionsSelectChange(sender) {
-        try {
-            if (verbose) {
-                console.log("onConnectionsSelectChange:", sender);
-            }
-            //sender.target.selectedIndex = 0;
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    // select current book as account 'add sender' target
-    async onSelectClick() {
-        try {
-            if (verbose) {
-                console.log("onSelectClick");
-            }
-            await this.setAddSenderBook(this.selectedAccount, this.selectedBook());
+            await this.selectBook(bookName);
         } catch (e) {
             console.error(e);
         }
     }
 
     // switch to connect/disconnect current book cardDAV address book connection
-    async onConnectedChange(sender) {
+    async onConnectionChanged(sender) {
         try {
             if (verbose) {
-                console.log("onConnectedChange:", sender.target.checked, sender);
+                console.log("onConnectionChanged:", sender.target.checked, sender);
             }
-            if (sender.target.checked) {
-                await this.disconnectBook(this.selectedAccount, this.selectedBook());
-            } else {
-                await this.connectBook(this.selectedAccount, this.selectedBook());
+            let uuid = sender.target.getAttribute("data-cxn-uuid");
+            for (const cxn of this.connectedBooks[this.account.id]) {
+                if (cxn.UID === uuid) {
+                    if (sender.target.checked) {
+                        console.log("connect:", sender.target, cxn);
+                        await this.connectBook(cxn);
+                    } else {
+                        console.log("disconnect:", sender.target, cxn);
+                        await this.disconnectBook(cxn);
+                    }
+                }
             }
+            await this.scanConnectedBooks(true);
+            await this.populateConnections();
         } catch (e) {
             console.error(e);
         }
@@ -741,7 +761,64 @@ export class BooksTab {
             if (verbose) {
                 console.log("onScanClick");
             }
-            await this.initConnectedBooks();
+            await this.scanConnectedBooks(true);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async onConnectionsDropdownChange() {
+        try {
+            let expanded = this.isConnectionsExpanded();
+            if (verbose) {
+                console.log("onConnectionsDropdownChange:", expanded);
+            }
+            if (expanded) {
+                this.controls.connectionsDropdown.textContent = "Hide Connections";
+                this.populateConnections();
+            } else {
+                this.controls.connectionsDropdown.textContent = "Show Connections";
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async onAddressesClick() {
+        try {
+            if (verbose) {
+                console.log("onAddressesClick");
+            }
+            this.populateDropdown(this.controls.addressesMenu, this.books.addresses(this.selectedBook()));
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async onAddSenderClick() {
+        try {
+            if (verbose) {
+                console.log("onAddSenderClick");
+            }
+            this.populateDropdown(this.controls.addSenderMenu, this.books.names());
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // select current book as account 'add sender' target
+    async onAddSenderMenuClick(sender) {
+        try {
+            if (verbose) {
+                console.log("onAddSenderMenuClick:", sender, sender.target.textContent);
+            }
+            const bookName = sender.target.textContent;
+            this.populateAddSenderTarget(bookName);
+            await this.sendMessage({
+                id: "setAddSenderTarget",
+                accountId: this.account.id,
+                bookName: bookName,
+            });
         } catch (e) {
             console.error(e);
         }
@@ -763,9 +840,10 @@ export class BooksTab {
         }
     }
 
-    async onAddInputKeyup(sender) {
+    async onAddInputKeyup() {
         try {
-            this.controls.addButton.disabled = this.isBookName(sender.target.value.trim());
+            this.validateBookName(this.controls.addInput.value.trim());
+            this.enableAddButton();
         } catch (e) {
             console.error(e);
         }
@@ -779,9 +857,9 @@ export class BooksTab {
         }
     }
 
-    async onDeleteInputKeyup(sender) {
+    async onDeleteInputKeyup() {
         try {
-            this.controls.deleteButton.disabled = !this.isBookName(sender.target.value.trim());
+            this.enableDeleteButton();
         } catch (e) {
             console.error(e);
         }

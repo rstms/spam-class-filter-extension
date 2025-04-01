@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
         <title>Mail Filter Control</title>
         <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css?h=2a67f89353a72f7ee4500027c27d0b66" />
-        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=8a01b9900b6955e2cde1469fe2ebfb3c" />
+        <link rel="stylesheet" href="assets/css/Source%20Sans%20Pro.css?h=8b5d20d8df6788607dbc1e03185f5733" />
         <script type="module" src="editor.js"></script>
     </head>
 
@@ -333,42 +333,6 @@
                                     </div>
                                 </div>
                                 <div class="row gx-2 d-flex">
-                                    <div class="col-2 d-flex">
-                                        <div class="input-group input-group-sm d-flex">
-                                            <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
-                                                >Selected Book</span
-                                            >
-                                        </div>
-                                    </div>
-                                    <div class="col-10 d-flex">
-                                        <select class="d-flex flex-fill" id="books-filterbook-select">
-                                            <optgroup label="This is a group">
-                                                <option value="12" selected="">This is item 1</option>
-                                                <option value="13">This is item 2</option>
-                                                <option value="14">This is item 3</option>
-                                            </optgroup>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="row gx-2 d-flex">
-                                    <div class="col-2 d-flex">
-                                        <div class="input-group input-group-sm d-flex">
-                                            <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
-                                                >Address List</span
-                                            >
-                                        </div>
-                                    </div>
-                                    <div class="col-10 d-flex">
-                                        <select class="d-flex flex-fill" id="books-addresses-select">
-                                            <optgroup label="This is a group">
-                                                <option value="12" selected="">This is item 1</option>
-                                                <option value="13">This is item 2</option>
-                                                <option value="14">This is item 3</option>
-                                            </optgroup>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="row gx-2 d-flex">
                                     <div class="col-2 text-end d-flex">
                                         <div class="input-group input-group-sm d-flex">
                                             <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
@@ -377,104 +341,251 @@
                                         </div>
                                     </div>
                                     <div class="col-10 d-flex">
-                                        <span
-                                            class="bg-light-subtle border rounded-0 flex-fill py-1 px-1"
-                                            id="books-status-message-span"
+                                        <span class="bg-light-subtle border rounded-0 flex-fill py-1 px-1" id="books-status-span"
                                             >Requesting data...</span
                                         >
                                     </div>
                                 </div>
-                                <div></div>
-                                <div class="border rounded-0" style="margin: 10px; padding: 10px">
+                                <div class="border rounded-0" style="padding: 10px; margin: 10px">
                                     <div class="vstack gap-2">
-                                        <label class="form-label">Filter Book Operations:</label>
-                                        <div class="row gx-2">
-                                            <div class="col-auto d-flex">
-                                                <label class="col-form-label" for="books-add-sender-span"
-                                                    >Account 'Add Sender' FilterBook</label
-                                                >
-                                            </div>
-                                            <div class="col-auto d-flex">
-                                                <span
-                                                    class="bg-light-subtle border rounded-0 d-flex align-items-center py-1 px-1"
-                                                    id="books-add-sender-span"
-                                                    >current selection</span
-                                                >
-                                            </div>
-                                            <div class="col-auto d-flex">
-                                                <div></div>
-                                            </div>
-                                            <div class="col-auto d-flex">
-                                                <div></div>
-                                            </div>
-                                            <div class="col-auto d-flex">
-                                                <button class="btn btn-primary btn-sm" id="books-add-sender-button" type="button">
-                                                    Set Selected Book as 'Add Sender' FilterBook
-                                                </button>
-                                            </div>
-                                            <div class="col-auto d-flex flex-grow-1">
-                                                <div></div>
-                                            </div>
-                                        </div>
-                                        <div></div>
-                                        <div class="row">
-                                            <div class="col-auto col-md-3 d-flex flex-grow-1">
-                                                <div class="form-check form-switch">
-                                                    <input class="form-check-input" type="checkbox" id="books-connected-check" /><label
-                                                        class="form-check-label"
-                                                        id="books-connected-label"
-                                                        for="books-connected-check"
-                                                        >Selected Book CardDAV&nbsp;Address Book Connection</label
+                                        <label class="form-label">Account Operations</label>
+                                        <div class="row gx-2 d-flex">
+                                            <div class="col-2 d-flex">
+                                                <div class="input-group input-group-sm d-flex">
+                                                    <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                                        >Filter Books</span
                                                     >
                                                 </div>
                                             </div>
-                                        </div>
-                                        <div class="row">
-                                            <div class="col-auto d-flex">
-                                                <button class="btn btn-primary" id="books-scan-button" type="button">
-                                                    Scan CardDAV Connections
-                                                </button>
-                                            </div>
-                                            <div class="col-auto d-flex">
-                                                <select class="flex-grow-1" id="books-connections-select">
-                                                    <option value="12" selected="">This is item 1 which is much longer</option>
-                                                    <option value="13">This is item 2</option>
-                                                    <option value="14">This is item 3</option>
+                                            <div class="col d-flex">
+                                                <select class="d-flex flex-fill" id="books-book-select">
+                                                    <optgroup label="This is a group">
+                                                        <option value="12" selected="">This is item 1</option>
+                                                        <option value="13">This is item 2</option>
+                                                        <option value="14">This is item 3</option>
+                                                    </optgroup>
                                                 </select>
                                             </div>
                                             <div class="col-auto d-flex">
-                                                <button class="btn btn-primary btn-sm" id="books-disconnect-button" type="button">
-                                                    Remove All Address Book CardDAV Connections
-                                                </button>
-                                            </div>
-                                            <div class="col-auto d-flex">
-                                                <div></div>
+                                                <div class="dropdown d-flex flex-fill">
+                                                    <button
+                                                        class="btn btn-primary btn-sm dropdown-toggle flex-grow-1"
+                                                        aria-expanded="false"
+                                                        data-bs-toggle="dropdown"
+                                                        id="books-addresses-button"
+                                                        type="button"
+                                                    >
+                                                        Show Addresses
+                                                    </button>
+                                                    <div class="dropdown-menu" id="books-addresses-menu">
+                                                        <a class="dropdown-item" href="#">First Item</a
+                                                        ><a class="dropdown-item" href="#">Second Item</a
+                                                        ><a class="dropdown-item" href="#">Third Item</a>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div></div>
-                                        <div class="vstack gap-2">
-                                            <div></div>
-                                            <div class="input-group">
-                                                <span class="input-group-text">Add New Filter Book</span
-                                                ><input class="form-control" type="text" id="books-add-input" /><button
-                                                    class="btn btn-primary btn-sm"
+                                        <div class="row gx-2 d-flex">
+                                            <div class="col-2 d-flex">
+                                                <div class="input-group input-group-sm d-flex">
+                                                    <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                                        >Add New Book</span
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="col-auto d-flex flex-fill">
+                                                <input class="d-flex flex-fill" type="text" id="books-add-input" />
+                                            </div>
+                                            <div class="col-auto d-flex">
+                                                <button
+                                                    class="btn btn-primary btn-sm flex-grow-1 flex-fill"
                                                     id="books-add-button"
                                                     type="button"
                                                 >
-                                                    Add
+                                                    Add Book To Account
                                                 </button>
                                             </div>
-                                            <div class="input-group">
-                                                <span class="input-group-text">Delete Filter Book and All Addresses</span
-                                                ><input class="form-control" type="text" id="books-delete-input" /><button
-                                                    class="btn btn-danger btn-sm"
+                                        </div>
+                                        <div class="row gx-2 d-flex">
+                                            <div class="col-2 d-flex">
+                                                <div class="input-group input-group-sm d-flex">
+                                                    <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                                        >Delete Book</span
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="col-auto d-flex flex-fill">
+                                                <input class="d-flex flex-fill" type="text" id="books-delete-input" />
+                                            </div>
+                                            <div class="col-auto d-flex">
+                                                <button
+                                                    class="btn btn-danger btn-sm flex-grow-1 flex-fill"
                                                     id="books-delete-button"
                                                     type="button"
                                                 >
-                                                    Delete
+                                                    Delete Book and all Addresses
                                                 </button>
                                             </div>
-                                            <div></div>
+                                        </div>
+                                        <div class="row gx-2 d-flex">
+                                            <div class="col-2 d-flex">
+                                                <div class="input-group input-group-sm d-flex">
+                                                    <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                                        >'Add Sender' Target</span
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="col-auto d-flex flex-fill">
+                                                <span
+                                                    class="bg-light-subtle border rounded-0 flex-fill py-1 px-1"
+                                                    id="books-add-sender-span"
+                                                    >Add sender target book</span
+                                                >
+                                            </div>
+                                            <div class="col-auto d-flex flex-shrink-1">
+                                                <div class="dropdown d-flex flex-fill">
+                                                    <button
+                                                        class="btn btn-primary btn-sm dropdown-toggle flex-grow-1"
+                                                        aria-expanded="false"
+                                                        data-bs-toggle="dropdown"
+                                                        id="books-add-sender-button"
+                                                        type="button"
+                                                    >
+                                                        Change Target Book
+                                                    </button>
+                                                    <div class="dropdown-menu" id="books-add-sender-menu">
+                                                        <a class="dropdown-item" href="#">First Item</a
+                                                        ><a class="dropdown-item" href="#">Second Item</a
+                                                        ><a class="dropdown-item" href="#">Third Item</a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="row gx-2 d-flex">
+                                            <div class="col-2 d-flex">
+                                                <div class="input-group input-group-sm d-flex">
+                                                    <span class="lh-lg d-flex d-md-flex flex-fill justify-content-end input-group-text"
+                                                        >CardDAV Connections</span
+                                                    >
+                                                </div>
+                                            </div>
+                                            <div class="col-auto d-flex flex-fill">
+                                                <div>
+                                                    <a
+                                                        class="btn btn-secondary"
+                                                        data-bs-toggle="collapse"
+                                                        aria-expanded="false"
+                                                        aria-controls="collapse-1"
+                                                        href="#collapse-1"
+                                                        role="button"
+                                                        id="books-connections-button"
+                                                        >Show Connections</a
+                                                    >
+                                                    <div class="collapse" id="collapse-1">
+                                                        <div class="vstack gap-1 border rounded-0" style="padding: 10px">
+                                                            <div class="table-responsive" id="books-connections-table">
+                                                                <table class="table table-bordered">
+                                                                    <thead>
+                                                                        <tr>
+                                                                            <th>Filter Book</th>
+                                                                            <th>Address Book Connection</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody
+                                                                        class="table-group-divider"
+                                                                        id="books-connections-table-body"
+                                                                    >
+                                                                        <tr id="books-connections-table-row">
+                                                                            <td>
+                                                                                <label
+                                                                                    class="form-label"
+                                                                                    id="books-connections-row-book"
+                                                                                    >Label</label
+                                                                                >
+                                                                            </td>
+                                                                            <td>
+                                                                                <div class="form-check form-switch">
+                                                                                    <input
+                                                                                        class="form-check-input"
+                                                                                        type="checkbox"
+                                                                                        id="books-connections-row-check"
+                                                                                    /><label
+                                                                                        class="form-check-label"
+                                                                                        id="books-connections-row-connection"
+                                                                                        for="formCheck-1"
+                                                                                        >username-domain-ext-filterbookname</label
+                                                                                    >
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+                                                                        <tr id="books-connections-table-row-2">
+                                                                            <td>
+                                                                                <label
+                                                                                    class="form-label"
+                                                                                    id="books-connections-row-book-2"
+                                                                                    >Label</label
+                                                                                >
+                                                                            </td>
+                                                                            <td>
+                                                                                <div class="form-check form-switch">
+                                                                                    <input
+                                                                                        class="form-check-input"
+                                                                                        type="checkbox"
+                                                                                        id="books-connections-row-check-2"
+                                                                                    /><label
+                                                                                        class="form-check-label"
+                                                                                        id="books-connections-row-connection-2"
+                                                                                        for="books-connections-row-check-2"
+                                                                                        >username-domain-ext-filterbookname</label
+                                                                                    >
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+                                                                        <tr id="books-connections-table-row-1">
+                                                                            <td>
+                                                                                <label
+                                                                                    class="form-label"
+                                                                                    id="books-connections-row-book-1"
+                                                                                    >Label</label
+                                                                                >
+                                                                            </td>
+                                                                            <td>
+                                                                                <div class="form-check form-switch">
+                                                                                    <input
+                                                                                        class="form-check-input"
+                                                                                        type="checkbox"
+                                                                                        id="books-connections-row-check-1"
+                                                                                    /><label
+                                                                                        class="form-check-label"
+                                                                                        id="books-connections-row-connection-1"
+                                                                                        for="books-connections-row-check-1"
+                                                                                        >username-domain-ext-filterbookname</label
+                                                                                    >
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                            <div class="btn-group btn-group-sm gap-2 d-flex" role="group">
+                                                                <button
+                                                                    class="btn btn-primary btn-sm"
+                                                                    id="books-connections-scan-button"
+                                                                    type="button"
+                                                                >
+                                                                    Scan Connections</button
+                                                                ><button
+                                                                    class="btn btn-primary btn-sm"
+                                                                    id="books-connections-disconnect-button"
+                                                                    type="button"
+                                                                >
+                                                                    Disconnect All
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

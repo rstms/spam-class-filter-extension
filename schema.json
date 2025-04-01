@@ -37,12 +37,8 @@
             "type": "string"
           },
           {
-            "name": "name",
-            "description": "server book name",
-            "type": "string"
-          },
-          {
-            "name": "description",
+            "name": "token",
+            "description": "server book token",
             "type": "string"
           }
         ]

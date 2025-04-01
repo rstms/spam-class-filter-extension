@@ -1,15 +1,15 @@
-import { selectedAccountId } from "./common.js";
 import { Classes, Level, classesFactory } from "./filterctl.js";
 
 /* globals document, console, setTimeout, clearTimeout */
 
 const verbose = true;
-const dumpHTML = true;
+const dumpHTML = false;
 
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 16;
-//const MIN_SCORE = -20;
-const MAX_SCORE = 20;
+const MIN_SCORE = -10;
+const MAX_SCORE = 10;
+const STEP_SCORE = 0.1;
 
 const STATUS_PENDING_TIMEOUT = 5120;
 
@@ -23,13 +23,14 @@ export class ClassesTab {
         this.cellTemplate = null;
         this.tableRendered = false;
         this.handlers = handlers;
-        this.selectedAccount = undefined;
+        this.account = undefined;
         this.classes = undefined;
     }
 
-    selectAccount(account) {
+    async selectAccount(account) {
         try {
-            this.selectedAccount = account;
+            this.account = account;
+            await this.populate();
         } catch (e) {
             console.error(e);
         }
@@ -41,7 +42,7 @@ export class ClassesTab {
                 console.debug("ClassesTab.getClasses:", disablePopulate, disableUpdateStatus, this);
             }
             await this.setStatusPending("Requesting classes...");
-            let response = await this.sendMessage({ id: "getClasses", accountId: this.selectedAccount.id });
+            let response = await this.sendMessage({ id: "getClasses", accountId: this.account.id });
             let classes = await this.handleResponse(response, disablePopulate, disableUpdateStatus);
             if (verbose) {
                 console.debug("getClasses returning:", classes);
@@ -65,8 +66,8 @@ export class ClassesTab {
                         console.assert(classes instanceof Classes, "unexpected: classes IS an instance of Classes");
                     }
                     // parse message object into a Classes
-                    console.assert(response.accountId === this.selectedAccount.id, "server response account ID mismatch");
-                    classes = await classesFactory(this.accounts, response.classes, this.selectedAccount);
+                    console.assert(response.accountId === this.account.id, "server response account ID mismatch");
+                    classes = await classesFactory(this.accounts, response.classes, this.account);
                     console.warn("ClassesTab.handleResponse:", response.valid, classes.valid, classes, response);
                 }
                 response.classes = classes;
@@ -93,7 +94,7 @@ export class ClassesTab {
         try {
             let i = 0;
             let classes = await classesFactory(this.accounts);
-            classes.setAccount(this.selectedAccount);
+            classes.setAccount(this.account);
             console.log("getLevels: initialized classes:", classes);
             while (true) {
                 const nameElement = document.getElementById(`level-name-${i}`);
@@ -143,6 +144,14 @@ export class ClassesTab {
         }
     }
 
+    round(score) {
+        try {
+            return Math.round(parseFloat(score) * 10) / 10;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     async onSliderMoved(event) {
         try {
             if (verbose) {
@@ -153,11 +162,11 @@ export class ClassesTab {
             const row = parseInt(event.srcElement.getAttribute("data-row"));
 
             // get the element value rounded to tenths
-            let sliderValue = Math.round(parseFloat(event.srcElement.value) * 10) / 10;
+            let sliderValue = this.round(event.srcElement.value);
 
             // limit slider to stay below the next level
             if (row < classes.levels.length - 1) {
-                let nextLevelValue = Math.round(classes.levels[row + 1].score * 10) / 10;
+                let nextLevelValue = this.round(classes.levels[row + 1].score);
                 if (sliderValue >= nextLevelValue) {
                     sliderValue = nextLevelValue - 0.1;
                 }
@@ -165,14 +174,14 @@ export class ClassesTab {
 
             // limit slider to stay above the previous level
             if (row > 0) {
-                let lastLevelValue = Math.round(classes.levels[row - 1].score * 10) / 10;
+                let lastLevelValue = this.round(classes.levels[row - 1].score);
                 if (sliderValue <= lastLevelValue) {
                     sliderValue = lastLevelValue + 0.1;
                 }
             }
 
             // round the slider to tenths after the calculations
-            sliderValue = Math.round(sliderValue * 10) / 10;
+            sliderValue = this.round(sliderValue);
 
             event.srcElement.value = sliderValue;
 
@@ -246,7 +255,7 @@ export class ClassesTab {
                 nextScore = MAX_SCORE;
             }
             newScore += (nextScore - newScore) / 2;
-            newScore = Math.round(newScore * 10) / 10;
+            newScore = this.round(newScore);
             classes.levels.splice(row + 1, 0, new Level(this.newLevelName(classes.levels), String(newScore)));
             await this.updateClasses(classes);
         } catch (e) {
@@ -258,14 +267,24 @@ export class ClassesTab {
         try {
             const cell = document.createElement("td");
             const element = document.createElement(control);
-            if (control === "button") {
-                element.textContent = text;
-            } else {
-                element.value = text;
-            }
-            for (const [key, value] of Object.entries(this.cellTemplate[id].attributes)) {
+
+            for (let [key, value] of Object.entries(this.cellTemplate[id].attributes)) {
+                if (id === "level-slider") {
+                    switch (key) {
+                        case "min":
+                            value = MIN_SCORE;
+                            break;
+                        case "max":
+                            value = MAX_SCORE;
+                            break;
+                        case "step":
+                            value = STEP_SCORE;
+                            break;
+                    }
+                }
                 element.setAttribute(key, value);
             }
+
             for (const value of this.cellTemplate[id].classes) {
                 element.classList.add(value);
             }
@@ -274,6 +293,13 @@ export class ClassesTab {
             if (disabled) {
                 element.disabled = true;
             }
+
+            if (control === "button") {
+                element.textContent = text;
+            } else {
+                element.value = text;
+            }
+
             cell.appendChild(element);
             row.appendChild(cell);
             return element;
@@ -356,18 +382,6 @@ export class ClassesTab {
         }
     }
 
-    accountId() {
-        try {
-            const id = selectedAccountId(this.controls.accountSelect);
-            if (verbose) {
-                console.log("ClassesTab.accountId returning", id);
-            }
-            return id;
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
     async populate(classes = undefined) {
         try {
             if (verbose) {
@@ -378,13 +392,12 @@ export class ClassesTab {
                 this.accounts = await this.sendMessage("getAccounts");
             }
 
-            let accountId = this.accountId();
-            if (verbose) {
-                console.debug("ClassesTab.populate: accountId:", accountId);
+            if (this.account === undefined) {
+                this.account = await this.sendMessage("getSelectedAccount");
             }
 
-            if (!accountId) {
-                throw new Error("ClassesTab.populate: invalid accountId", accountId);
+            if (this.account === undefined) {
+                throw new Error("ClassesTab.populate: invalid account:" + String(this.account));
             }
 
             if (classes == undefined) {
@@ -459,9 +472,10 @@ export class ClassesTab {
                     this.tableRendered = true;
                 } else {
                     let row = tableRows.item(index);
-                    nameControl = row.childNodes.item(0);
-                    scoreControl = row.childNodes.item(1);
-                    sliderControl = row.childNodes.item(2);
+                    let cells = row.getElementsByTagName("input");
+                    nameControl = cells[0];
+                    scoreControl = cells[1];
+                    sliderControl = cells[2];
                 }
                 nameControl.value = name;
                 scoreControl.value = score;
@@ -631,7 +645,7 @@ export class ClassesTab {
 
     async onDefaultsClick() {
         try {
-            const response = await this.sendMessage({ id: "setDefaultClasses", accountId: this.accountId() });
+            const response = await this.sendMessage({ id: "setDefaultClasses", accountId: this.account.id });
             if (verbose) {
                 console.debug("onDefaultsClick: setDefaultClasses returned:", response);
             }
@@ -648,7 +662,7 @@ export class ClassesTab {
             if (verbose) {
                 console.debug("onRefreshAllClick: refreshAllClasses returned:", response);
             }
-            response.classes = response.results[this.accountId()].classes;
+            response.classes = response.results[this.account.id].classes;
             await this.handleResponse(response);
         } catch (e) {
             console.error(e);
@@ -658,7 +672,7 @@ export class ClassesTab {
     async onRefreshClick() {
         try {
             await this.setStatusPending("Requesting classes...");
-            const response = await this.sendMessage({ id: "refreshClasses", accountId: this.accountId() });
+            const response = await this.sendMessage({ id: "refreshClasses", accountId: this.account.id });
             if (verbose) {
                 console.debug("onRefreshClick: refreshClasses returned:", response);
             }

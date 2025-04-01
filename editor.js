@@ -13,7 +13,7 @@ import { generateUUID } from "./common.js";
 // FIXME: implement all element event listeners here and call functions on tab objects
 // FIXME: share controls container between this page and all tab objects
 
-/* globals messenger, window, document, console */
+/* globals messenger, window, document, console, MutationObserver */
 const verbose = false;
 
 const disconnectOnBackgroundSuspend = false;
@@ -54,7 +54,9 @@ let tab = {
         CellDelete: onClassesCellDelete,
         CellInsert: onClassesCellInsert,
     }),
-    books: new BooksTab(disableEditorControl, sendMessage),
+    books: new BooksTab(disableEditorControl, sendMessage, {
+        ConnectionChanged: onBooksConnectionChanged,
+    }),
     options: new OptionsTab(sendMessage, { DomainCheckboxChange: onOptionsDomainCheckboxChange }),
     advanced: new AdvancedTab(sendMessage),
     help: new HelpTab(sendMessage),
@@ -115,20 +117,6 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
             // set the accounts here and in the tabs that need them
             accounts = updateAccounts;
 
-            /*
-            switch (activeTab) {
-                case "classes":
-                    await tab.classes.populate();
-                    break;
-                case "books":
-                    await tab.books.populate();
-                    break;
-                case "options":
-                    await tab.options.populate();
-                    break;
-            }
-	    */
-
             // enable the select controls
             await enableAccountControls(false);
 
@@ -188,7 +176,7 @@ function addAccountSelectRow(control, id, name) {
 // callers:
 //  - populateAccounts - the select controls have been (re)initialized
 //  - onAccountSelectChange - one of the select controls has been changed
-//  - handleUpdateEditorSelectedAccount - background page requests message handler
+//  - handleUpdateEditorSelectedAccount - background page sent setSelectedAccount message
 //
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -212,16 +200,14 @@ async function selectAccount(accountId) {
         // classes
         tab.classes.controls.accountSelect.selectedIndex = index;
         tab.classes.selectedAccount = selectedAccount;
-        await tab.classes.populate();
+        await tab.classes.selectAccount(selectedAccount);
 
         // books
         tab.books.controls.accountSelect.selectedIndex = index;
-        tab.books.selectedAccount = selectedAccount;
-        tab.books.populate();
+        await tab.books.selectAccount(selectedAccount);
 
         // advanced
-        tab.advanced.controls.selectedAccount.value = accountEmailAddress(selectedAccount);
-        tab.advanced.selectedAccount = selectedAccount;
+        await tab.advanced.selectAccount(selectedAccount);
 
         if (verbose) {
             console.log("account selected:", accountEmailAddress(selectedAccount));
@@ -238,7 +224,7 @@ async function selectAccount(accountId) {
 //
 // handle classes and books select control changed events
 //
-// callers:
+// event emitters:
 //  - tab.classes.controls.accountSelect
 //  - tab.books.controls.accountSelect
 //
@@ -414,9 +400,10 @@ async function populateUsageControls() {
 
 async function requestUsage() {
     try {
+        console.assert(selectedAccount !== undefined);
         const message = {
             id: "sendCommand",
-            accountId: tab.classes.accountId(),
+            accountId: selectedAccount.id,
             command: "usage",
         };
 
@@ -631,7 +618,7 @@ async function onPortMessage(message, sender) {
                 await populateAccounts();
                 break;
             default:
-                throw new Error("unexpected port message");
+                console.error("received unknown port message:", message, sender);
         }
     } catch (e) {
         console.error(e);
@@ -647,6 +634,7 @@ async function onMessage(message, sender) {
         // process messages allowed without connection
         switch (message.id) {
             case "backgroundActivated":
+                console.assert(backgroundSuspended === false);
                 backgroundSuspended = false;
                 await connect();
                 return;
@@ -659,8 +647,8 @@ async function onMessage(message, sender) {
                 if (disconnectOnBackgroundSuspend) {
                     await disconnect();
                 }
-                //backgroundSuspended = true;
-                //await onUnload();
+                return;
+            case "AddSenderTargetChanged":
                 return;
         }
 
@@ -949,6 +937,14 @@ async function onClassesCellInsert(sender) {
     }
 }
 
+async function onBooksConnectionChanged(sender) {
+    try {
+        await tab.books.onConnectionChanged(sender);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 // classes tab controls
 addTabControl(tab.classes, "accountSelect", "classes-account-select", "change", onAccountSelectChange);
 addTabControl(tab.classes, "statusMessage", "classes-status-message-span");
@@ -974,32 +970,15 @@ addTabControl(tab.classes, "refreshAllButton", "classes-refresh-all-button", "cl
 
 // books tab controls
 addTabControl(tab.books, "accountSelect", "books-account-select", "change", onAccountSelectChange);
-addTabControl(tab.books, "bookSelect", "books-filterbook-select", "change", (e) => {
+addTabControl(tab.books, "statusSpan", "books-status-span");
+
+addTabControl(tab.books, "bookSelect", "books-book-select", "change", (e) => {
     tab.books.onBookSelectChange(e);
 });
-addTabControl(tab.books, "addressesSelect", "books-addresses-select", "change", (e) => {
-    tab.books.onAddressesSelectChange(e);
+addTabControl(tab.books, "addressesButton", "books-addresses-button", "click", (e) => {
+    tab.books.onAddressesClick(e);
 });
-addTabControl(tab.books, "statusMessage", "books-status-message-span");
-
-addTabControl(tab.books, "selectedSpan", "books-add-sender-span");
-addTabControl(tab.books, "selectButton", "books-add-sender-button", "click", () => {
-    tab.books.onSelectClick();
-});
-
-addTabControl(tab.books, "connectedLabel", "books-connected-label");
-addTabControl(tab.books, "connectedCheckbox", "books-connected-check", "change", (e) => {
-    tab.books.onConnectedChange(e);
-});
-addTabControl(tab.books, "scanButton", "books-scan-button", "click", () => {
-    tab.books.onScanClick();
-});
-addTabControl(tab.books, "connectionsSelect", "books-connections-select", "change", (e) => {
-    tab.books.onConnectionsSelectChange(e);
-});
-addTabControl(tab.books, "disconnectButton", "books-disconnect-button", "click", () => {
-    tab.books.onDisconnectClick();
-});
+addTabControl(tab.books, "addressesMenu", "books-addresses-menu");
 
 addTabControl(tab.books, "addInput", "books-add-input", "keyup", (e) => {
     tab.books.onAddInputKeyup(e);
@@ -1014,6 +993,32 @@ addTabControl(tab.books, "deleteInput", "books-delete-input", "keyup", (e) => {
 addTabControl(tab.books, "deleteButton", "books-delete-button", "click", () => {
     tab.books.onDeleteClick();
 });
+
+addTabControl(tab.books, "addSenderSpan", "books-add-sender-span");
+addTabControl(tab.books, "addSenderButton", "books-add-sender-button", "click", (e) => {
+    tab.books.onAddSenderClick(e);
+});
+addTabControl(tab.books, "addSenderMenu", "books-add-sender-menu", "click", (e) => {
+    tab.books.onAddSenderMenuClick(e);
+});
+
+addTabControl(tab.books, "table", "books-connections-table");
+addTabControl(tab.books, "tableBody", "books-connections-table-body");
+addTabControl(tab.books, "tableRow", "books-connections-table-row");
+
+addTabControl(tab.books, "scanButton", "books-connections-scan-button", "click", () => {
+    tab.books.onScanClick();
+});
+addTabControl(tab.books, "disconnectButton", "books-connections-disconnect-button", "click", () => {
+    tab.books.onDisconnectClick();
+});
+
+addTabControl(tab.books, "connectionsDropdown", "books-connections-button");
+
+let tabConnectionsObserver = new MutationObserver((e) => {
+    tab.books.onConnectionsDropdownChange(e);
+});
+tabConnectionsObserver.observe(tab.books.controls.connectionsDropdown, { attributes: true });
 
 // options tab controls
 addTabControl(tab.options, "autoDelete", "options-auto-delete-checkbox", "change", () => {

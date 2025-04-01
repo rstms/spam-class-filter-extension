@@ -1,10 +1,10 @@
-import { config } from "./config.js";
 import { Accounts } from "./accounts.js";
 import * as ports from "./ports.js";
 import { findEditorTab } from "./common.js";
 import { generateUUID } from "./common.js";
 import { FilterDataController } from "./filterctl.js";
 import { email } from "./email.js";
+import { config } from "./config.js";
 
 /* globals messenger, console */
 
@@ -262,6 +262,12 @@ async function onMessage(message, sender) {
                 break;
             case "getPassword":
                 response = await handleGetPassword(message);
+                break;
+            case "setAddSenderTarget":
+                response = await setAddSenderTarget(await messageAccount(message), message.bookName);
+                break;
+            case "getAddSenderTarget":
+                response = await getAddSenderTarget(await messageAccount(message));
                 break;
             default:
                 console.error("background: received unexpected message:", message, sender);
@@ -742,6 +748,62 @@ async function focusEditorWindow(sendAccountId = undefined) {
     }
 }
 
+//////////////////////////////////////////////////////
+//
+// selected 'add sender' book management
+//
+//////////////////////////////////////////////////////
+
+// read add sender target book name from config
+async function getAddSenderTarget(account) {
+    try {
+        let bookName = undefined;
+        let targets = await config.local.get("addSenderTarget");
+        if (targets !== undefined) {
+            bookName = targets[account.id];
+        }
+        if (bookName === undefined) {
+            let response = await filterctl.getBooks(account);
+            if (response.success) {
+                for (const book of Object.keys(response.books)) {
+                    bookName = book;
+                    await setAddSenderTarget(account, bookName);
+                    break;
+                }
+            }
+        }
+        return bookName;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// write add sender target book name to config
+async function setAddSenderTarget(account, bookName) {
+    try {
+        let targets = await config.local.get("addSenderTarget");
+        if (targets === undefined) {
+            targets = {};
+        }
+        if (bookName !== targets[account.id]) {
+            targets[account.id] = bookName;
+            await config.local.set("addSenderTarget", targets);
+            if (verbose) {
+                console.debug("changed addSenderBooks:", account.id, bookName, targets);
+            }
+            await messenger.runtime.sendMessage({
+                id: "AddSenderTargetChanged",
+                account: account,
+                bookName: bookName,
+                src: backgroundId,
+                dst: "*",
+            });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 //  Address Book Filter actions
@@ -894,6 +956,22 @@ async function handleSetDefaultBooks(message) {
 //  runtime message handlers
 //
 ///////////////////////////////////////////////////////////////////////////////
+
+async function messageAccount(message) {
+    try {
+        let accountId = message.accountId;
+        if (typeof accountId === "string") {
+            let account = await accounts.get(message.accountId);
+            if (account !== undefined) {
+                return account;
+            }
+        }
+        console.error("invalid accountId in message:", message);
+        throw new Error("invalid accountId in message");
+    } catch (e) {
+        console.error(e);
+    }
+}
 
 /*
 async function handleSelectAccount(message) {
