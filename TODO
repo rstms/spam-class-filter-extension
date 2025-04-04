@@ -1,9 +1,19 @@
-add list of domains to options page
-debug generalized use of filterctl command request/response 
-use filterctl usage command to populate help 
-use filterctl dump command to populate books tab
-use filterctl restore command to save books changes
-use filterctl passwd command to facilitate opening carddav address book
-add ui element to top level menubar
-add message list menu to forward email to filterctl+BOOKNAME
-add hotkeys to forward message to filterctl+BOOKNAME
+# TODO
+
+- add list of domains to options page
+- debug generalized use of filterctl command request/response 
+- use filterctl usage command to populate help 
+- use filterctl dump command to populate books tab
+- use filterctl restore command to save books changes
+- use filterctl passwd command to facilitate opening carddav address book
+- add ui element to top level menubar
+- add message list menu to forward email to filterctl+BOOKNAME
+- add hotkeys to forward message to filterctl+BOOKNAME
+- cache usage command response in config.local
+- add advanced button to refresh commands
+- cache filterctl responses in config.local
+- add options button to dump filterctl response cache
+- add "see details" button when filterctl response fails with "send to support" option
+- write logs with "send to support" option
+- remember active control panel tab
+- bug: possible to open multiple control panel windows using menu & action menu

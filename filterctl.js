@@ -1,22 +1,36 @@
+//
+//  filterctl.js
+//
+
 import { AsyncMap } from "./asyncmap.js";
 import { accountEmailAddress, isValidEmailAddress, isValidBookName } from "./common.js";
 import { config } from "./config.js";
+import { verbosity } from "./common.js";
 
 /* global console */
 
-//////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 //
-// FilterDataController
-//   base class for managing classes & books data sets for each account
+//  CLASSES
 //
-//   FilterBooks - subclassed FilterDataController for Books
-//   FilterClasses - subclassed FilterDataController for Classes
+//  FilterDataController
+//	API for interacting with filterctl and manipulating Books and Classes
 //
-// FilterData
-//   base class representing managed Classes and Books items
+//  Books
+//	set of FilterBook address books for an account
 //
+//  Classes
+//	set sof SpamClass Levels for an account
+//
+//  Levels
+//	internal class used by Classes
+//
+//  FilterData
+//	base class for dataset items Books, Classes
+//
+////////////////////////////////////////////////////////////////////////////////
 
-const verbose = false;
+const verbose = verbosity.filterctl;
 
 const DEFAULT_CLASS_LEVELS = {
     ham: 0,
@@ -31,13 +45,11 @@ const MIN_SCORE = parseFloat(-100.0);
 const MAX_SCORE = parseFloat(100.0);
 const SPAM_SCORE = parseFloat(999);
 
-const EMAIL_REQUEST_TIMEOUT = undefined;
-
 const CLASSES = "classes";
 const BOOKS = "books";
 
 //let responseCache = new AsyncMap();
-let accountPasswords = new AsyncMap();
+//let accountPasswords = new AsyncMap();
 
 //
 // validation functions
@@ -471,17 +483,6 @@ export class Classes extends FilterData {
             console.error(e);
         }
     }
-
-    /*
-    async parseUpdateResponse(response) {
-        try {
-            // the regular parser can handle the reset command response too
-            return await this.parse(response);
-        } catch (e) {
-            console.error(e);
-        }
-    }
-    */
 }
 
 // Books filterset element contains address book filters for an account
@@ -730,17 +731,6 @@ export class Books extends FilterData {
             console.error(e);
         }
     }
-
-    /*
-    async parseUpdateResponse(response) {
-        try {
-            console.debug("Books.parseUpdateResponse:", response);
-            throw new Error("Books parse server response unimplemented");
-        } catch (e) {
-            console.error(e);
-        }
-    }
-    */
 }
 
 //
@@ -767,11 +757,50 @@ export class FilterDataController {
         try {
             this.accounts = accounts;
             this.email = email;
+            this.initialize();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    initialize() {
+        try {
             this.datasets = {
-                classes: {},
-                books: {},
+                classes: {
+                    dirty: {},
+                    server: {},
+                },
+                books: {
+                    dirty: {},
+                    server: {},
+                },
             };
-            //this.dumpResponseCache = new AsyncMap();
+            this.passwords = new AsyncMap();
+            this.cardDAVBooks = new AsyncMap();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async setStatePersistence(enabled) {
+        try {
+            await config.local.setBool(config.key.filterctlCacheEnabled, enabled);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async getStatePersistence() {
+        try {
+            await config.local.getBool(config.key.filterctlCacheEnabled);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async getStorage() {
+        try {
+            return (await this.getStatePersistence()) ? config.local : config.session;
         } catch (e) {
             console.error(e);
         }
@@ -779,11 +808,13 @@ export class FilterDataController {
 
     async readState() {
         try {
-            let state = await this.validateState(await config.session.get("fdcState"));
+            const storage = await this.getStorage();
+            let state = await this.validateState(await storage.get(config.key.filterctlState));
             this.datasets.classes.dirty = await this.initDatasets(CLASSES, state.classes.dirty);
             this.datasets.classes.server = await this.initDatasets(CLASSES, state.classes.server);
             this.datasets.books.dirty = await this.initDatasets(BOOKS, state.books.dirty);
             this.datasets.books.server = await this.initDatasets(BOOKS, state.books.server);
+            this.passwords = await this.initPasswordCache(state.passwords);
         } catch (e) {
             console.error(e);
         }
@@ -791,7 +822,17 @@ export class FilterDataController {
 
     async writeState() {
         try {
-            await config.session.set("fdcState", this.state());
+            const storage = await this.getStorage();
+            await storage.set(config.key.filterctlState, await this.state());
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async resetState() {
+        try {
+            this.initialize();
+            await this.writeState();
         } catch (e) {
             console.error(e);
         }
@@ -828,19 +869,22 @@ export class FilterDataController {
                 }
                 state = {
                     classes: {
-                        dirty: {},
                         server: {},
+                        dirty: {},
                     },
                     books: {
-                        dirty: {},
                         server: {},
+                        dirty: {},
                     },
+                    passwords: {},
                 };
+                this.initialize(state);
             }
             await this.validateSubState(state, state.classes.server);
             await this.validateSubState(state, state.classes.dirty);
             await this.validateSubState(state, state.books.server);
             await this.validateSubState(state, state.books.dirty);
+            await this.validatePasswordCache(state.passwords);
             return state;
         } catch (e) {
             console.error(e);
@@ -886,18 +930,54 @@ export class FilterDataController {
         }
     }
 
+    // takes password state as {string: string}, returns AsyncMap
+    async initPasswordCache(substate) {
+        try {
+            let result = new AsyncMap();
+            for (const [accountId, password] of Object.entries(substate)) {
+                await result.set(accountId, password);
+            }
+            return result;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // ensure password cache from state is an object with string keys and string values
+    // otherwise return an empty password cache
+    validatePasswordCache(substate) {
+        try {
+            if (typeof substate !== "object") {
+                throw new Error("invalid state password cache type");
+            }
+            for (const [accountId, password] of Object.entries(substate)) {
+                if (typeof password !== "string" || password.length === 0) {
+                    throw new Error("invalid password in state password cache");
+                }
+                if (this.accounts[accountId] === undefined) {
+                    console.debug("invalid accountId in state password cache", accountId);
+                    throw new Error("invalid accountId in state password cache");
+                }
+            }
+            return substate;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     // return JSON-renderable object containing controller's dataset state
-    state() {
+    async state() {
         try {
             return {
                 classes: {
-                    dirty: this.renderToState(this.datasets.classes.dirty),
-                    server: this.renderToState(this.datasets.classes.server),
+                    dirty: await this.renderToState(this.datasets.classes.dirty),
+                    server: await this.renderToState(this.datasets.classes.server),
                 },
                 books: {
-                    dirty: this.renderToState(this.datasets.books.dirty),
-                    server: this.renderToState(this.datasets.books.server),
+                    dirty: await this.renderToState(this.datasets.books.dirty),
+                    server: await this.renderToState(this.datasets.books.server),
                 },
+                passwords: await this.renderPasswordsToState(this.passwords),
             };
         } catch (e) {
             console.error(e);
@@ -905,7 +985,7 @@ export class FilterDataController {
     }
 
     // return JSON-renderable version of the {accountID: dataset} object
-    renderToState(datasets) {
+    async renderToState(datasets) {
         try {
             if (verbose) {
                 console.debug("renderToState:", datasets);
@@ -916,6 +996,25 @@ export class FilterDataController {
             }
             if (verbose) {
                 console.debug("renderToState returning:", output);
+            }
+            return output;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // return JSON-renderable password map
+    async renderPasswordsToState(passwords) {
+        try {
+            if (verbose) {
+                console.debug("renderPasswordsToState:", passwords);
+            }
+            let output = {};
+            await this.passwords.scan(async (key, value) => {
+                output[key] = value;
+            });
+            if (verbose) {
+                console.debug("renderPasswordsToState returning:", output);
             }
             return output;
         } catch (e) {
@@ -1011,7 +1110,7 @@ export class FilterDataController {
             let serverSet = this.datasets[type].server;
             let dirtySet = this.datasets[type].dirty;
             if (!(account.id in serverSet)) {
-                return false;
+                return undefined;
                 //FIXME: don't throw error if the caller is just asking if the account has unsaved changes
                 //throw new Error(type + " dataset not found for account " + account.name);
             }
@@ -1089,7 +1188,7 @@ export class FilterDataController {
             if (verbose) {
                 console.debug("get: sending filterctl dump request:", type, account);
             }
-            let response = await this.email.sendRequest(account, "dump", {}, EMAIL_REQUEST_TIMEOUT);
+            let response = await this.email.sendRequest(account, "dump", {});
             if (verbose) {
                 console.debug("get: filterctl response:", response);
             }
@@ -1099,7 +1198,7 @@ export class FilterDataController {
             }
 
             // parse password from response
-            await accountPasswords.set(account.id, response.Password);
+            // await this.passwords.set(account.id, response.Password);
 
             // parse classes from response
             let classes = await datasetFactory(CLASSES, this.accounts, response, account);
@@ -1259,6 +1358,7 @@ export class FilterDataController {
                 console.debug("sendBooks:", account, force);
             }
             let result = await this.send(BOOKS, account, force);
+            await this.cardDAVBooks.pop(account.id);
             if (verbose) {
                 console.debug("sendBooks returning:", result);
             }
@@ -1314,7 +1414,8 @@ export class FilterDataController {
         try {
             validateType(type);
             await this.validateAccount(account);
-            const dataset = await this.getDataset(type, account);
+            let throwNotFoundException = true;
+            const dataset = await this.getDataset(type, account, throwNotFoundException);
             if (force || (await this.isDirty(type, account))) {
                 await dataset.validate();
                 if (!dataset.valid) {
@@ -1324,24 +1425,12 @@ export class FilterDataController {
                 if (verbose) {
                     console.debug("sending filterctl update:", update);
                 }
-                const response = await this.email.sendRequest(account, update.command, update.body, EMAIL_REQUEST_TIMEOUT);
+                const response = await this.email.sendRequest(account, update.command, update.body);
                 if (verbose) {
                     console.debug("filterctl update response", response);
                 }
 
                 let validator = await datasetFactory(type, this.accounts, response, account);
-                /*
-                if (!validator.setAccount(account)) {
-                    console.error("send: response validator setAccount failed:", dataset, update, response, validator);
-                    throw new Error("Update response validation failure(1)");
-                }
-                if (!await validator.parseUpdateResponse(response, this.accounts)) {
-                    console.error("send: response validator parseUpdateResponse failed:", dataset, update, response, validator);
-                    throw new Error("Update response validation failure(2)");
-                }
-
-                if (!validator.validate()) {
-		*/
                 if (!validator.valid) {
                     console.error("send: response failed validation:", dataset, update, response, validator);
                     throw new Error("Update response validation failure(3)");
@@ -1482,27 +1571,93 @@ export class FilterDataController {
 
     async getPassword(account) {
         try {
-            await this.validateAccount(account);
-            let password = await accountPasswords.get(account.id);
-            if (password === undefined) {
-                // perform Books query to receive password
-                if (verbose) {
-                    console.debug("getPassword: not cached; requesting dump");
-                }
-                let response = await this.get(BOOKS, account, true);
-                if (verbose) {
-                    console.debug("getPassword: dump response:", response);
-                }
-                password = await accountPasswords.get(account.id);
-                if (password === undefined) {
-                    throw new Error("CardDAV password query failed");
-                }
-            }
-            //FIXME: remove this after debugging
             if (verbose) {
-                console.debug("getPassword:", account, password);
+                console.log("getPassword:", account);
             }
-            return password;
+            await this.validateAccount(account);
+            // lock the AsyncMap while we update it
+            // NOTE: only get, set are legal to call in this state
+            await this.passwords.lock();
+            let password = await this.passwords.get(account.id, true);
+            if (password !== undefined) {
+                return password;
+            }
+            await this.queryAccounts();
+            password = await this.passwords.get(account.id, true);
+            if (password !== undefined) {
+                return password;
+            }
+            throw new Error("password query failed");
+        } catch (e) {
+            console.error(e);
+        } finally {
+            this.passwords.unlock();
+        }
+    }
+
+    // called while this.passwords is extenally locked
+    async queryAccounts() {
+        try {
+            if (verbose) {
+                console.debug("queryAccounts before:", this.passwords.map);
+            }
+            for (const account of Object.values(this.accounts)) {
+                let username = accountEmailAddress(account);
+                let response = await this.email.sendRequest(account, "passwd");
+                if (verbose) {
+                    console.debug("queryAccounts: response:", response);
+                }
+                console.assert(response.Success);
+                console.assert(response.User === username);
+                await this.passwords.set(account.id, response.Password, true);
+            }
+            if (verbose) {
+                console.debug("queryAccounts after:", this.passwords.map);
+            }
+            return;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async purgeCachedBooks(account) {
+        try {
+            await this.validateAccount(account);
+            delete this.datasets[BOOKS].server[account.id];
+            delete this.datasets[BOOKS].dirty[account.id];
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async addSenderToFilterBook(account, senderAddress, bookName) {
+        try {
+            await this.validateAccount(account);
+            let command = "mkaddr " + bookName + " " + senderAddress;
+            let response = await this.email.sendRequest(account, command, {});
+            await this.purgeCachedBooks(account);
+            if (verbose) {
+                console.debug("get: filterctl response:", response);
+            }
+            return response;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async getCardDAVBooks(account, force = false) {
+        try {
+            await this.validateAccount(account);
+            let books = await this.cardDAVBooks.get(account.id);
+            if (force || books === undefined) {
+                //let username = accountEmailAddress(account);
+                //let password = await this.getPassword(account);
+                //books = await messenger.cardDAV.list(username, password);
+                books = ["foo", "bar", "baz"];
+                await this.cardDAVBooks.set(account.id, books);
+            }
+            console.assert(Array.isArray(books));
+            return books.sort();
         } catch (e) {
             console.error(e);
         }

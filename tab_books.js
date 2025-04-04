@@ -3,7 +3,7 @@
 //
 
 import { Books, booksFactory, validateBookName } from "./filterctl.js";
-import { generateUUID, accountEmailAddress, isValidBookName } from "./common.js";
+import { accountEmailAddress, isValidBookName, verbosity } from "./common.js";
 
 /* globals console, messenger, document */
 
@@ -38,7 +38,8 @@ import { generateUUID, accountEmailAddress, isValidBookName } from "./common.js"
 // disconnectButton
 //
 
-const verbose = true;
+const verbose = verbosity.tab_books;
+const dumpHTML = false;
 
 //const DROPDOWN_MENU_PREFIX = '<a class="dropdown-item" href="#">';
 //const DROPDOWN_MENU_SUFFIX = "</a>";
@@ -73,13 +74,10 @@ export class BooksTab {
             if (verbose) {
                 console.debug("Books.selectAccount:", account);
             }
-            let previous = this.account;
             this.account = account;
-            if (previous !== account) {
-                await this.populate();
-                await this.populateAddSenderTarget();
-                await this.populateConnections();
-            }
+            await this.populate();
+            await this.populateAddSenderTarget();
+            await this.populateConnections(this.isConnectionsExpanded());
         } catch (e) {
             console.error(e);
         }
@@ -89,7 +87,7 @@ export class BooksTab {
     async getBooks(flags) {
         try {
             if (verbose) {
-                console.log("BooksTab.getBooks", flags);
+                console.debug("BooksTab.getBooks", flags);
             }
 
             let disableStatusPrompt = flags.disableStatusPrompt === true;
@@ -106,7 +104,7 @@ export class BooksTab {
             });
             const books = await this.handleResponse(response, disablePopulate, disableStatusUpdate);
             if (verbose) {
-                console.log("BooksTab.getBooks: returning:", books);
+                console.debug("BooksTab.getBooks: returning:", books);
             }
             return books;
         } catch (e) {
@@ -119,7 +117,7 @@ export class BooksTab {
         try {
             if (verbose) {
                 if (verbose) {
-                    console.log("handleResponse:", response);
+                    console.debug("handleResponse:", response);
                 }
             }
             let books = response.books;
@@ -172,7 +170,9 @@ export class BooksTab {
 
     setStatus(text, timeoutText = undefined) {
         try {
-            console.log("books.setStatus:", text);
+            if (verbose) {
+                console.debug("books.setStatus:", text);
+            }
 
             //
             // TODO: if timeout active, clear it
@@ -374,59 +374,55 @@ export class BooksTab {
         }
     }
 
-    async populateConnections() {
+    async populateConnections(force = false) {
         try {
             if (this.tableRowTemplate === undefined) {
                 let rows = this.controls.tableBody.getElementsByTagName("tr");
                 this.tableRowTemplate = rows[0];
-                console.log("tableRowTemplate:", this.tableRowTemplate);
+                if (dumpHTML) {
+                    console.debug("tableRowTemplate:", this.tableRowTemplate);
+                }
                 this.controls.tableBody.innerHTML = "";
             }
             if (!this.isConnectionsExpanded()) {
                 return;
             }
-            await this.scanConnectedBooks();
+            await this.scanConnectedBooks(force);
             this.controls.tableBody.innerHTML = "";
             for (const cxn of this.connectedBooks[this.account.id]) {
                 let row = document.createElement("tr");
 
-                //this.controls.tableBody.appendChild(this.tableRowTemplate);
-                //let row = this.controls.tableBody.lastChild;
-                //console.log("row:", cxn, row.childNodes);
                 let templateCells = this.tableRowTemplate.getElementsByTagName("td");
-                let cell0 = document.createElement("td");
-                cell0.innerHTML = templateCells[0].innerHTML;
-                row.appendChild(cell0);
-
-                let cell1 = document.createElement("td");
-                cell1.innerHTML = templateCells[1].innerHTML;
-                row.appendChild(cell1);
+                for (let i = 0; i < 3; i++) {
+                    let cell = document.createElement("td");
+                    cell.innerHTML = templateCells[i].innerHTML;
+                    row.appendChild(cell);
+                }
 
                 this.controls.tableBody.appendChild(row);
 
-                let labels = row.getElementsByTagName("label");
-                let check = row.getElementsByTagName("input")[0];
-                labels[0].textContent = cxn.name;
-                if (cxn.type === "connection") {
-                    labels[1].textContent = cxn.token;
-                    check.checked = true;
-                } else {
-                    labels[1].textContent = "";
-                    check.checked = false;
+                for (const label of row.getElementsByTagName("label")) {
+                    let cellId = label.getAttribute("data-cell-id");
+                    switch (cellId) {
+                        case "book-name":
+                            label.textContent = cxn.book;
+                            break;
+                        case "connection-name":
+                            label.textContent = cxn.token;
+                            break;
+                    }
                 }
-
-                check.setAttribute("data-cxn-uuid", cxn.UID);
-                check.addEventListener("click", this.handlers.ConnectionChanged);
+                for (const check of row.getElementsByTagName("input")) {
+                    let cellId = check.getAttribute("data-cell-id");
+                    switch (cellId) {
+                        case "connected":
+                            check.checked = cxn.connected;
+                            check.setAttribute("data-cxn-uuid", cxn.uuid);
+                            check.addEventListener("click", this.handlers.ConnectionChanged);
+                            break;
+                    }
+                }
             }
-            /*
-            this.controls.connectionsSelect.innerHTML = "";
-            let connections = this.connectedBooks[account.id];
-            for (const cxn of Object.values(connections)) {
-                const row = document.createElement("option");
-                row.textContent = cxn.name;
-                this.controls.connectionsSelect.appendChild(row);
-            }
-	    */
         } catch (e) {
             console.error(e);
         }
@@ -435,7 +431,9 @@ export class BooksTab {
     isConnectionsExpanded() {
         try {
             const expanded = this.controls.connectionsDropdown.getAttribute("aria-expanded") === "true";
-            console.log("isConnectionsExpanded returning:", expanded);
+            if (verbose) {
+                console.debug("isConnectionsExpanded returning:", expanded);
+            }
             return expanded;
         } catch (e) {
             console.error(e);
@@ -445,7 +443,7 @@ export class BooksTab {
     async saveChanges() {
         try {
             if (verbose) {
-                console.log("books tab save changes");
+                console.debug("books tab save changes");
             }
             // books tab has no pending state
             return { succes: true };
@@ -474,21 +472,25 @@ export class BooksTab {
             if (this.serverBooks[this.account.id] !== undefined) {
                 return;
             }
-            this.serverBooks[this.account.id] = [];
+            this.serverBooks[this.account.id] = {};
+
             const username = accountEmailAddress(this.account);
             const password = await this.getCardDAVPassword(this.account);
             this.setStatus("Scanning CardDAV server books...");
-            console.log("calling cardDAV.list...");
+            if (verbose) {
+                console.debug("calling cardDAV.list...");
+            }
             let books = await messenger.cardDAV.list(username, password);
-            console.log("cardDAV.list returned:", books);
+            if (verbose) {
+                console.debug("cardDAV.list returned:", books);
+            }
             this.setStatus("CardDAV server scan complete");
             for (const book of books) {
-                let account = this.accountIndex[book.username];
-                if (this.serverBooks[account.id] === undefined) {
-                    this.serverBooks[account.id] = [];
-                }
-                book.UID = generateUUID();
-                this.serverBooks[account.id].push(book);
+                console.assert(book.username === username);
+                this.serverBooks[this.account.id][book.book] = book;
+            }
+            if (verbose) {
+                console.debug("scanServerBooks complete.  serverBooks:", this.serverBooks);
             }
         } catch (e) {
             console.error(e);
@@ -520,28 +522,36 @@ export class BooksTab {
             }
 
             this.setStatus("Scanning Address Book CardDAV connections...");
-            console.log("calling cardDAV.connected...");
+            if (verbose) {
+                console.debug("calling cardDAV.connected...");
+            }
             const connected = await messenger.cardDAV.connected();
-            console.log("cardDAV.connected returned:", connected);
+            if (verbose) {
+                console.debug("cardDAV.connected returned:", connected);
+            }
             this.setStatus("Address Book CardDAV scan complete");
 
-            let found = {};
+            let hasConnection = {};
 
             for (const cxn of connected) {
                 let account = this.accountIndex[cxn.username];
+                if (account === undefined) {
+                    throw new Error("connection has invalid username");
+                }
                 this.connectedBooks[account.id].push(cxn);
-                found[cxn.name] = true;
+                hasConnection[cxn.book] = true;
             }
 
             for (const bookName of this.books.names()) {
-                if (found[bookName] !== true) {
+                if (hasConnection[bookName] !== true) {
                     await this.scanServerBooks();
-                    for (const cxn of this.serverBooks[this.account.id]) {
-                        if (cxn.name == bookName) {
-                            this.connectedBooks[this.account.id].push(cxn);
-                        }
-                    }
+                    let serverBook = this.serverBooks[this.account.id][bookName];
+                    console.assert(serverBook !== undefined);
+                    this.connectedBooks[this.account.id].push(serverBook);
                 }
+            }
+            if (verbose) {
+                console.debug("scanConnectedBooks complete. connectedBooks:", this.connectedBooks);
             }
         } catch (e) {
             console.error(e);
@@ -562,12 +572,14 @@ export class BooksTab {
             await this.scanConnectedBooks();
             let connected = false;
             for (const cxn of this.connectedBooks[this.account.id]) {
-                if (cxn.name === bookName && cxn.type === "connection") {
+                if (cxn.book === bookName && cxn.connected === true && cxn.type === "connection") {
                     connected = true;
                     break;
                 }
             }
-            console.log("isConnectedBook:", bookName, connected);
+            if (verbose) {
+                console.debug("isConnectedBook:", bookName, connected);
+            }
             return connected;
         } catch (e) {
             console.error(e);
@@ -576,38 +588,34 @@ export class BooksTab {
 
     async connectBook(cxn) {
         try {
-            let bookName = cxn.name;
-            let connected = await this.isConnectedBook(bookName);
-            if (connected === true) {
-                this.setStatus("FilterBook " + bookName + "is already connected");
-            } else {
-                console.assert(cxn.type === "listing");
-                this.setStatus("Connecting FilterBook " + bookName + "...");
-                const username = accountEmailAddress(this.account);
-                const password = await this.getCardDAVPassword(this.account);
-                await this.scanServerBooks();
-                let token = undefined;
-                for (const cxn of this.serverBooks[this.account.id]) {
-                    if (cxn.name === bookName) {
-                        token = cxn.token;
-                        break;
-                    }
-                }
-                if (token === undefined) {
-                    console.error("connectBook: bookName not found:", bookName, this.serverBooks[this.account.id]);
-                    this.setStatus("FilterBook '" + bookName + "' not found on cardDAV server");
-                    return;
-                }
-
-                console.log("calling cardDAV.connect:", username, password, token);
-                let result = await messenger.cardDAV.connect(username, password, token);
-                console.log("connectBook: cardDAV.connect returned:", result);
-
-                this.setStatus("FilterBook " + result.token + " added to Address Books");
-
-                return true;
+            if (cxn.connected === true) {
+                console.error("connection already connected:", cxn, this.account);
+                this.setStatus("FilterBook " + cxn.book + "is already connected");
+                return false;
+            } else if (cxn.type !== "listing") {
+                console.error("connection not listing:", cxn, this.account);
+                this.setStatus("FilterBook " + cxn.book + "is not connectable");
+                return false;
+            } else if (cxn.username !== accountEmailAddress(this.account)) {
+                console.error("connection username mismatch:", cxn, this.account);
+                this.setStatus("FilterBook " + cxn.book + " is not associated with the selected account");
+                return false;
             }
-            return false;
+            this.setStatus("Connecting FilterBook '" + cxn.book + "'...");
+
+            const password = await this.getCardDAVPassword(this.account);
+            if (verbose) {
+                console.debug("calling cardDAV.connect:", cxn.username, password, cxn.token);
+            }
+            let result = await messenger.cardDAV.connect(cxn.username, password, cxn.token);
+            if (verbose) {
+                console.debug("connectBook: cardDAV.connect returned:", result);
+            }
+
+            this.setStatus("FilterBook '" + cxn.book + "' is connected as '" + cxn.token + "'...");
+            await this.scanConnectedBooks(true);
+            await this.populateConnections();
+            return true;
         } catch (e) {
             console.error(e);
         }
@@ -618,9 +626,13 @@ export class BooksTab {
             if (verbose) {
                 console.debug("disconnectBook:", cxn);
             }
-            console.log("calling cardDAV.disconnect:", cxn.URI);
-            let result = await messenger.cardDAV.disconnect(cxn.URI);
-            console.log("cardDAV.disconnect returned:", result);
+            if (verbose) {
+                console.debug("calling cardDAV.disconnect:", cxn.uuid);
+            }
+            let result = await messenger.cardDAV.disconnect(cxn.uuid);
+            if (verbose) {
+                console.debug("cardDAV.disconnect returned:", result);
+            }
         } catch (e) {
             console.error(e);
         }
@@ -633,11 +645,13 @@ export class BooksTab {
             }
             await this.scanConnectedBooks();
             let count = 0;
-            for (const cxn of this.account.connectedBooks[this.account.id]) {
+            for (const cxn of this.connectedBooks[this.account.id]) {
                 count++;
                 await this.disconnectBook(cxn);
             }
-            console.log("disconnected:", count);
+            if (verbose) {
+                console.debug("disconnected:", count);
+            }
             if (count > 0) {
                 await this.scanConnectedBooks(true);
                 await this.populateConnections();
@@ -684,7 +698,7 @@ export class BooksTab {
     async addOrDeleteBook(command, prefix, control) {
         try {
             if (verbose) {
-                console.log("onAddClick");
+                console.debug("onAddClick");
             }
             let bookName = control.value.trim();
             bookName = this.validateBookName(bookName);
@@ -699,10 +713,12 @@ export class BooksTab {
             this.setStatus(prefix + " FilterBook '" + bookName + "'...");
             let response = await this.sendCommand(command, bookName);
             if (verbose) {
-                console.log("addOrDeleteBook: response:", response);
+                console.debug("addOrDeleteBook: response:", response);
             }
             // force refresh filterctl because we changed the books
             await this.getBooks({ force: true, noPrompt: true });
+            // tell background to initialize the menus
+            await this.sendMessage("initMenus");
         } catch (e) {
             console.error(e);
         }
@@ -717,7 +733,7 @@ export class BooksTab {
     async onBookSelectChange(sender) {
         try {
             if (verbose) {
-                console.log("onBookSelectChange:", sender);
+                console.debug("onBookSelectChange:", sender);
             }
             const index = sender.target.selectedIndex;
             const bookName = this.booksIndex[index];
@@ -734,16 +750,22 @@ export class BooksTab {
     async onConnectionChanged(sender) {
         try {
             if (verbose) {
-                console.log("onConnectionChanged:", sender.target.checked, sender);
+                console.debug("onConnectionChanged:", sender.target.checked, sender);
             }
             let uuid = sender.target.getAttribute("data-cxn-uuid");
             for (const cxn of this.connectedBooks[this.account.id]) {
-                if (cxn.UID === uuid) {
+                if (cxn.uuid === uuid) {
                     if (sender.target.checked) {
-                        console.log("connect:", sender.target, cxn);
+                        console.assert(cxn.connected === false);
+                        if (verbose) {
+                            console.debug("connect:", sender.target, cxn);
+                        }
                         await this.connectBook(cxn);
                     } else {
-                        console.log("disconnect:", sender.target, cxn);
+                        console.assert(cxn.connected === true);
+                        if (verbose) {
+                            console.debug("disconnect:", sender.target, cxn);
+                        }
                         await this.disconnectBook(cxn);
                     }
                 }
@@ -759,9 +781,10 @@ export class BooksTab {
     async onScanClick() {
         try {
             if (verbose) {
-                console.log("onScanClick");
+                console.debug("onScanClick");
             }
             await this.scanConnectedBooks(true);
+            await this.populateConnections();
         } catch (e) {
             console.error(e);
         }
@@ -771,7 +794,7 @@ export class BooksTab {
         try {
             let expanded = this.isConnectionsExpanded();
             if (verbose) {
-                console.log("onConnectionsDropdownChange:", expanded);
+                console.debug("onConnectionsDropdownChange:", expanded);
             }
             if (expanded) {
                 this.controls.connectionsDropdown.textContent = "Hide Connections";
@@ -787,7 +810,7 @@ export class BooksTab {
     async onAddressesClick() {
         try {
             if (verbose) {
-                console.log("onAddressesClick");
+                console.debug("onAddressesClick");
             }
             this.populateDropdown(this.controls.addressesMenu, this.books.addresses(this.selectedBook()));
         } catch (e) {
@@ -798,7 +821,7 @@ export class BooksTab {
     async onAddSenderClick() {
         try {
             if (verbose) {
-                console.log("onAddSenderClick");
+                console.debug("onAddSenderClick");
             }
             this.populateDropdown(this.controls.addSenderMenu, this.books.names());
         } catch (e) {
@@ -810,7 +833,7 @@ export class BooksTab {
     async onAddSenderMenuClick(sender) {
         try {
             if (verbose) {
-                console.log("onAddSenderMenuClick:", sender, sender.target.textContent);
+                console.debug("onAddSenderMenuClick:", sender, sender.target.textContent);
             }
             const bookName = sender.target.textContent;
             this.populateAddSenderTarget(bookName);
@@ -828,12 +851,12 @@ export class BooksTab {
     async onDisconnectClick() {
         try {
             if (verbose) {
-                console.log("onDisconnectClick");
+                console.debug("onDisconnectClick");
             }
             await this.disconnectAllBooks();
 
             if (verbose) {
-                console.log("connectedBooks:", this.connectedBooks);
+                console.debug("connectedBooks:", this.connectedBooks);
             }
         } catch (e) {
             console.error(e);

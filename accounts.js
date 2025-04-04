@@ -1,16 +1,28 @@
 import { config } from "./config.js";
-import { accountEmailAddress, accountDomain } from "./common.js";
+import { accountDomain, verbosity } from "./common.js";
 
 /* globals messenger, console */
 
 // control flags
-const verbose = false;
+const verbose = verbosity.accounts;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
 //  account data and selected account management
 //
 ///////////////////////////////////////////////////////////////////////////////
+
+function validateAccountId(accountId) {
+    if (typeof accountId !== "string") {
+        throw new Error("invalid accountId");
+    }
+}
+
+function validateAccount(account) {
+    if (typeof account !== "object" || typeof account.id !== "string" || !Array.isArray(account.identities)) {
+        throw new Error("invalid account");
+    }
+}
 
 export class Accounts {
     constructor(sendEvents = false) {
@@ -86,17 +98,20 @@ export class Accounts {
     }
 
     // return enabled accounts or single enabled account by accountId if provided
-    async get(accountId = undefined) {
+    async get(accountId = undefined, throwError = true) {
         try {
             if (accountId === undefined) {
-                // return all enabled accounts keyed by id
-                return await this.enabled();
+                throw new Error("deprecated: use enabled() instead of get(undefined) or get()");
+                //return await this.enabled();
+            }
+            if (throwError) {
+                validateAccountId(accountId);
             }
             // return account with accountId
             const accounts = await this.enabled();
             const account = accounts[accountId];
             // throw error if account is unknown or domain is not enabled
-            await this.isEnabled(account);
+            await this.isEnabled(account, throwError);
             return account;
         } catch (e) {
             console.error(e);
@@ -106,7 +121,7 @@ export class Accounts {
     // return selected account or default selection if no selection is found
     async selected() {
         try {
-            let account = await config.session.get("selectedAccount");
+            let account = await config.session.get(config.key.selectedAccount);
             if (account !== undefined && this.isEnabled(account, false)) {
                 return account;
             }
@@ -134,7 +149,7 @@ export class Accounts {
             // throw error if account is not valid and enabled
             await this.isEnabled(account);
             let previous = await this.selected();
-            await config.session.set("selectedAccount", account);
+            await config.session.set(config.key.selectedAccount, account);
             if (sendEvents) {
                 if (account.id !== previous.id) {
                     console.log("Account selected:", account.id);
@@ -158,9 +173,12 @@ export class Accounts {
         }
     }
 
-    // check if account id is known
+    // check if account is known
     async isValid(account, throwError = true) {
         try {
+            if (throwError) {
+                validateAccount(account);
+            }
             const accounts = await this.all();
             if (accounts[account.id] !== undefined) {
                 return true;
@@ -202,7 +220,7 @@ export class Accounts {
     async initDomains() {
         try {
             // get config domains
-            const configDomains = await config.local.get("domain");
+            const configDomains = await config.local.get(config.key.domain);
 
             // list unique domains from all imap accounts
             const accountList = await messenger.accounts.list();
@@ -238,7 +256,7 @@ export class Accounts {
             if (!this.domainsInitialized) {
                 return await this.initDomains();
             }
-            return await config.local.get("domain");
+            return await config.local.get(config.key.domain);
         } catch (e) {
             console.error(e);
         }
@@ -289,47 +307,7 @@ export class Accounts {
 
     async setDomains(domains) {
         try {
-            await config.local.set("domain", domains);
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    ///////////////////////////////////////////////////////////////////////////////
-    //
-    //  filter book selection for each account
-    //
-    ///////////////////////////////////////////////////////////////////////////////
-
-    async selectedFilterBook(account) {
-        try {
-            let selected = await config.local.get("selectedFilterBookNames");
-            if (selected === undefined) {
-                selected = {};
-            }
-            return selected[account.id];
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async selectFilterBook(account, book) {
-        try {
-            let bookName = book;
-            if (typeof book === "object") {
-                bookName = book.name;
-            }
-            if (typeof bookName !== "string") {
-                throw new Error("unexpected book type", book);
-            }
-            await this.isValid(account);
-            let selected = await config.local.get("selectedFilterBookNames");
-            if (selected === undefined) {
-                selected = {};
-            }
-            selected[account.id] = bookName;
-            console.log("FilterBook selected:", accountEmailAddress(account), bookName);
-            await config.local.set("selectedFilterBookNames", selected);
+            await config.local.set(config.key.domain, domains);
         } catch (e) {
             console.error(e);
         }

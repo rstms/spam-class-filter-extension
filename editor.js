@@ -1,6 +1,6 @@
 import { initThemeSwitcher } from "./theme_switcher.js";
 import { config } from "./config.js";
-import { differ, accountEmailAddress } from "./common.js";
+import { differ, accountEmailAddress, verbosity } from "./common.js";
 import { ClassesTab } from "./tab_classes.js";
 import { BooksTab } from "./tab_books.js";
 import { OptionsTab } from "./tab_options.js";
@@ -14,7 +14,7 @@ import { generateUUID } from "./common.js";
 // FIXME: share controls container between this page and all tab objects
 
 /* globals messenger, window, document, console, MutationObserver */
-const verbose = false;
+const verbose = verbosity.editor;
 
 const disconnectOnBackgroundSuspend = false;
 
@@ -78,8 +78,12 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
         if (updateAccounts === undefined) {
             updateAccounts = await sendMessage({ id: "getAccounts" });
         }
-        if (updateSelectedAccount == undefined) {
+        if (updateSelectedAccount === undefined) {
             updateSelectedAccount = await sendMessage({ id: "getSelectedAccount" });
+        }
+
+        if (updateSelectedAccount === undefined) {
+            throw new Error("undefined selectedAccount");
         }
 
         if (accountsPopulated && !differ(updateAccounts, accounts) === false) {
@@ -363,7 +367,7 @@ async function onTabShow(sender) {
 async function setAdvancedTabVisible(visible = undefined) {
     try {
         if (visible === undefined) {
-            visible = await config.local.get("advancedTabVisible");
+            visible = await config.local.getBool(config.key.advancedTabVisible);
         }
         controls.advancedTab.hidden = !visible;
         controls.advancedTabLink.hidden = !visible;
@@ -658,7 +662,7 @@ async function onMessage(message, sender) {
         }
 
         if (message.src === undefined || message.dst === undefined) {
-            console.error("missing src/dst, discarding:", message);
+            console.debug("missing src/dst, discarding:", message);
             return;
         }
 
@@ -1013,7 +1017,7 @@ addTabControl(tab.books, "disconnectButton", "books-connections-disconnect-butto
     tab.books.onDisconnectClick();
 });
 
-addTabControl(tab.books, "connectionsDropdown", "books-connections-button");
+addTabControl(tab.books, "connectionsDropdown", "books-connections-dropdown");
 
 let tabConnectionsObserver = new MutationObserver((e) => {
     tab.books.onConnectionsDropdownChange(e);
@@ -1030,8 +1034,14 @@ addTabControl(tab.options, "advancedTabVisible", "options-show-advanced-checkbox
 addTabControl(tab.options, "minimizeCompose", "options-minimize-compose-checkbox", "change", () => {
     tab.options.onMinimizeComposeChange();
 });
+addTabControl(tab.options, "cacheResponses", "options-cache-responses-checkbox", "change", () => {
+    tab.options.onCacheResponsesChange();
+});
 addTabControl(tab.options, "resetButton", "options-reset-button", "click", () => {
     tab.options.onResetClick();
+});
+addTabControl(tab.options, "clearCacheButton", "options-clear-cache-button", "click", () => {
+    tab.options.onClearCacheClick();
 });
 addTabControl(tab.options, "domainsStack", "options-domains-stack");
 addTabControl(tab.options, "domainsApplyButton", "options-domains-apply-changes", "click", () => {

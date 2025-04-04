@@ -1,19 +1,21 @@
-import { differ } from "./common.js";
+import { differ, verbosity } from "./common.js";
 
 /* globals console, messenger */
 
-const verbose = false;
+const verbose = verbosity.config;
+
 const readback = true;
 
 const READBACK_TRIES = 5;
 
 const DEFAULTS = {
     editorTitle: "Mail Filter Control",
-    optInApproved: true,
+    optInApproved: false,
     advancedTabVisible: false,
     autoDelete: true,
-    autoOpen: true,
-    autoClearConsole: true,
+    autoOpen: false,
+    filterctlCacheEnabled: true,
+    autoClearConsole: false,
     minimizeCompose: true,
     preferredTheme: "auto",
     domain: {
@@ -21,9 +23,14 @@ const DEFAULTS = {
         "bootnotice.com": true,
         "cypress-trading.com": false,
         "citybestmanagement.com": false,
-        "fnord.org": true,
     },
 };
+
+function validateKey(key) {
+    if (!Object.keys(config.key).includes(key)) {
+        throw new Error("config key '" + key + "' not one of: [" + String(Object.keys(config.key).join(", ")) + "]");
+    }
+}
 
 class ConfigBase {
     constructor(storage, name) {
@@ -76,33 +83,54 @@ class ConfigBase {
         }
     }
 
-    async get(key = undefined, useDefaults = true) {
+    async getBool(key, useDefaults = true) {
+        try {
+            return (await this.get(key, useDefaults)) ? true : false;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async getAll(useDefaults = true) {
         try {
             await this.lock();
             if (verbose) {
-                console.debug("get:", this.name, key);
+                console.debug("getAll:", this.name, useDefaults);
             }
-            var value = undefined;
-            if (key === undefined || key === null) {
-                value = await this.storage.get();
-                if (this.name == "local" && useDefaults) {
-                    for (const [key, defaultValue] of Object.entries(DEFAULTS)) {
-                        if (value[key] === undefined) {
-                            value[key] = defaultValue;
-                        }
-                    }
-                }
-            } else {
-                const values = await this.storage.get([key]);
-                value = values[key];
-                if (this.name === "local" && useDefaults) {
-                    if (value === undefined) {
-                        // storage had no value, try default value
-                        value = DEFAULTS[key];
+            let value = await this.storage.get();
+            if (this.name == "local" && useDefaults) {
+                for (const [key, defaultValue] of Object.entries(DEFAULTS)) {
+                    if (value[key] === undefined) {
+                        value[key] = defaultValue;
                     }
                 }
             }
+            if (verbose) {
+                console.debug("getAll returning:", this.name, value);
+            }
+            return value;
+        } catch (e) {
+            console.error(e);
+        } finally {
+            this.unlock();
+        }
+    }
 
+    async get(key, useDefaults = true) {
+        try {
+            validateKey(key);
+            await this.lock();
+            if (verbose) {
+                console.debug("get:", this.name, key, useDefaults);
+            }
+            const values = await this.storage.get([key]);
+            var value = values[key];
+            if (this.name === "local" && useDefaults) {
+                if (value === undefined) {
+                    // storage had no value, try default value
+                    value = DEFAULTS[key];
+                }
+            }
             if (verbose) {
                 console.debug("get returning:", this.name, value);
             }
@@ -158,8 +186,17 @@ class ConfigBase {
         }
     }
 
+    async setBool(key, value) {
+        try {
+            return await this.set(key, value ? true : false);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     async set(key, value) {
         try {
+            validateKey(key);
             await this.lock();
             if (verbose) {
                 console.debug("set:", this.name, key, value);
@@ -177,6 +214,7 @@ class ConfigBase {
 
     async remove(key) {
         try {
+            validateKey(key);
             await this.lock();
             if (verbose) {
                 console.debug("remove:", this.name, key);
@@ -206,4 +244,21 @@ class ConfigSession extends ConfigBase {
 export const config = {
     local: new ConfigLocal(),
     session: new ConfigSession(),
+    key: {
+        autoDelete: "autoDelete",
+        advancedTabVisible: "advancedTabVisible",
+        minimizeCompose: "minimizeCompose",
+        filterctlCacheEnabled: "filterctlCacheEnabled",
+        filterctlState: "filterctlState",
+        emailResponseTimeout: "emailResponseTimeout",
+        preferredTheme: "preferredTheme",
+        optInApproved: "optInApproved",
+        autoOpen: "autoOpen",
+        editorTitle: "editorTitle",
+        addSenderTarget: "addSenderTarget",
+        autoClearConsole: "autoClearConsole",
+        domain: "domain",
+        selectedAccount: "selectedAccount",
+        reloadAutoOpen: "reloadAutoOpen",
+    },
 };

@@ -43,27 +43,37 @@ export class AsyncMap {
         }
     }
 
-    async set(key, item) {
+    async set(key, item, locked = false) {
         try {
-            await this.lock();
+            if (!locked) {
+                await this.lock();
+            }
             this.map.set(key, new MapItem(item));
-            this.unlock();
         } catch (e) {
             console.error(e);
+        } finally {
+            if (!locked) {
+                this.unlock();
+            }
         }
     }
 
-    async get(key) {
+    async get(key, locked = false) {
         try {
-            await this.lock();
+            if (!locked) {
+                await this.lock();
+            }
             var item = this.map.get(key);
-            this.unlock();
             if (item) {
                 item = item.item;
             }
             return item;
         } catch (e) {
             console.error(e);
+        } finally {
+            if (!locked) {
+                this.unlock();
+            }
         }
     }
 

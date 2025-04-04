@@ -1,11 +1,11 @@
-import { generateUUID, differ } from "./common.js";
+import { generateUUID, differ, verbosity } from "./common.js";
 import { domainPart } from "./common.js";
 import { AsyncMap } from "./asyncmap.js";
 import { config } from "./config.js";
 
 /* global console, messenger, setTimeout, clearTimeout, setInterval, clearInterval, window */
 
-const verbose = false;
+const verbose = verbosity.email;
 const logQueue = false;
 
 const DEFAULT_TIMEOUT = 60 * 1024;
@@ -370,7 +370,7 @@ class EmailController {
             if (verbose) {
                 console.debug("sendMessage returned:", sent);
             }
-            if (await config.local.get("autoDelete")) {
+            if (await config.local.getBool(config.key.autoDelete)) {
                 for (const message of sent.messages) {
                     await this.deleteMessage(message);
                 }
@@ -523,7 +523,7 @@ class EmailController {
                     }
 
                     // autodelete filterctl response messages with any requestId
-                    if (await config.local.get("autoDelete")) {
+                    if (await config.local.getBool(config.key.autoDelete)) {
                         await this.deleteMessage(message);
                     }
 
@@ -541,15 +541,11 @@ class EmailController {
             if (verbose) {
                 console.log("email.sendRequest:", account, command, body, timeout);
             }
-            const autoDelete = await config.local.get("autoDelete");
-            const minimizeCompose = await config.local.get("minimizeCompose");
+            const autoDelete = await config.local.getBool(config.key.autoDelete);
+            const minimizeCompose = await config.local.getBool(config.key.minimizeCompose);
 
             let request = new EmailRequest(this, autoDelete, minimizeCompose);
-            if (verbose) {
-                console.debug("sendEmailRequest:", account, command, body, timeout);
-                console.debug("sendEmailRequest: config:", config);
-            }
-            var ret = await request.send(account, command, body);
+            var ret = await request.send(account, command, body, timeout);
             if (verbose) {
                 console.log("sendEmailRequest returning:", ret);
             }

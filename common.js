@@ -1,4 +1,19 @@
-/* global console, messenger */
+/* global console */
+
+export const verbosity = {
+    accounts: false,
+    background: true,
+    config: false,
+    editor: false,
+    email: false,
+    filterctl: true,
+    ports: false,
+    tab_advanced: false,
+    tab_books: false,
+    tab_classes: false,
+    tab_help: false,
+    tab_options: false,
+};
 
 export function generateUUID() {
     try {
@@ -68,41 +83,6 @@ export function differ(original, current) {
     }
 }
 
-async function getConfig(key) {
-    try {
-        const config = await messenger.storage.local.get([key]);
-        return config[key];
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-export async function findEditorTab() {
-    try {
-        const editorTitle = await getConfig("editorTitle");
-        const tabs = await messenger.tabs.query({ type: "content", title: editorTitle });
-        for (const tab of tabs) {
-            if (tab.title === editorTitle) {
-                return tab;
-            }
-        }
-        return null;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-export async function reloadExtension() {
-    try {
-        if ((await getConfig("autoOpen")) !== "always") {
-            await messenger.storage.local.set({ autoOpen: "once" });
-        }
-        await messenger.runtime.reload();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 // NOTE: call only from editor.js, classes_tab.js, or books_tab.js
 export function selectedAccountId(accountSelect) {
     try {
@@ -142,14 +122,18 @@ export function accountDomain(account) {
 
 export function deepCopy(obj) {
     try {
-        console.debug("deepCopy:", obj);
+        //console.debug("deepCopy:", obj);
         if (obj === undefined) {
             console.warn("deepCopy undefined");
         }
         const json = JSON.stringify(obj);
-        console.debug("deepCopy parsed:", json);
+        //console.debug("deepCopy parsed:", json);
         const result = JSON.parse(json);
-        console.debug("deepCopy returning:", result);
+        //console.debug("deepCopy returning:", result);
+        if (differ(obj, result)) {
+            console.error("deepCopy result differs:", obj, result);
+            throw new Error("deepCopy result differs");
+        }
         return result;
     } catch (e) {
         console.error(e);

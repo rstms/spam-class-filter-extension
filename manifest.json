@@ -21,12 +21,12 @@
   "action": {
     "default_title": "Mail Filter",
     "default_icon": "funnel.svg",
-    "type": "menu"
+    "type": "button",
+    "allowed_spaces": []
   },
   "message_display_action": {
     "default_title": "Add Sender to Filter Book",
-    "default_icon": "funnel.svg",
-    "type": "menu"
+    "default_icon": "funnel.svg"
   },
   "permissions": [
     "accountsRead",
@@ -35,28 +35,15 @@
     "menus",
     "messagesDelete",
     "messagesRead",
-    "storage"
+    "storage",
+    "tabs"
   ],
   "commands": {
-    "_execute_action": {
+    "mailfilter-control-panel": {
       "suggested_key": {
-        "default": "Ctrl+Shift+F"
-      }
-    },
-    "_execute_compose_action": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+F"
-      }
-    },
-    "_execute_message_display_action": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+F"
-      }
-    },
-    "select_mailfilter_book": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+F"
-      }
+        "default": "Alt+9"
+      },
+      "description": "open the mail filter control panel"
     }
   },
   "experiment_apis": {

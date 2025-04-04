@@ -1,8 +1,8 @@
-import { accountEmailAddress } from "./common.js";
+import { accountEmailAddress, verbosity } from "./common.js";
 
 /* globals document, console, */
 
-const verbose = false;
+const verbose = verbosity.tab_advanced;
 
 export class AdvancedTab {
     constructor(sendMessage) {

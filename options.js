@@ -1,11 +1,9 @@
 /* globals messenger, document, console */
 import { config } from "./config.js";
-import { findEditorTab, reloadExtension } from "./common.js";
 import { initThemeSwitcher } from "./theme_switcher.js";
 
 const optInCheckboxId = "#opt-in-checkbox";
 const openButton = "#options-open-button";
-const optInKey = "optInApproved";
 
 initThemeSwitcher();
 
@@ -13,13 +11,9 @@ async function saveOptions(sender) {
     try {
         console.log("opt in clicked:", sender);
         const checked = sender.target.checked;
-        await config.local.set(optInKey, checked);
         await enableButton(checked);
-        if (!checked) {
-            if (await findEditorTab()) {
-                reloadExtension();
-            }
-        }
+        await config.local.setBool(config.key.optInApproved, checked);
+        await messenger.runtime.reload();
     } catch (e) {
         console.error(e);
     }
@@ -27,8 +21,7 @@ async function saveOptions(sender) {
 
 async function restoreOptions() {
     try {
-        var checked = await config.local.get(optInKey);
-        checked = checked ? true : false;
+        var checked = await config.local.getBool(config.key.optInApproved);
         document.querySelector(optInCheckboxId).checked = checked;
         await enableButton(checked);
     } catch (e) {

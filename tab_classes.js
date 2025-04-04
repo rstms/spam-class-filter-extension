@@ -1,8 +1,10 @@
 import { Classes, Level, classesFactory } from "./filterctl.js";
+import { verbosity } from "./common.js";
 
 /* globals document, console, setTimeout, clearTimeout */
 
-const verbose = true;
+const verbose = verbosity.tab_classes;
+
 const dumpHTML = false;
 
 const MIN_LEVELS = 2;
@@ -68,7 +70,9 @@ export class ClassesTab {
                     // parse message object into a Classes
                     console.assert(response.accountId === this.account.id, "server response account ID mismatch");
                     classes = await classesFactory(this.accounts, response.classes, this.account);
-                    console.warn("ClassesTab.handleResponse:", response.valid, classes.valid, classes, response);
+                    if (verbose) {
+                        console.debug("ClassesTab.handleResponse:", response.valid, classes.valid, classes, response);
+                    }
                 }
                 response.classes = classes;
                 console.assert(classes instanceof Classes, "classes is not an instance of Classes");
@@ -95,7 +99,9 @@ export class ClassesTab {
             let i = 0;
             let classes = await classesFactory(this.accounts);
             classes.setAccount(this.account);
-            console.log("getLevels: initialized classes:", classes);
+            if (verbose) {
+                console.debug("getLevels: initialized classes:", classes);
+            }
             while (true) {
                 const nameElement = document.getElementById(`level-name-${i}`);
                 if (!nameElement) {
@@ -104,7 +110,9 @@ export class ClassesTab {
                 const name = nameElement.value;
                 const scoreElement = document.getElementById(`level-score-${i}`);
                 const score = name === "spam" ? 999 : scoreElement.value;
-                console.log("getLevels: adding:", i, name, score);
+                if (verbose) {
+                    console.debug("getLevels: adding:", i, name, score);
+                }
                 classes.addLevel(name, score);
                 i += 1;
             }
@@ -426,7 +434,9 @@ export class ClassesTab {
             }
 
             let table = this.controls.tableBody;
-            console.log("table:", table);
+            if (verbose) {
+                console.debug("table:", table);
+            }
             let tableRows = table.childNodes;
             if (!this.tableRendered || tableRows.length !== levels.length) {
                 tableRows = null;
@@ -480,38 +490,37 @@ export class ClassesTab {
                 nameControl.value = name;
                 scoreControl.value = score;
                 sliderControl.value = sliderValue;
-                console.log("setRowValues:", index, {
-                    name: [name, nameControl.id, nameControl.value],
-                    score: [score, scoreControl.id, scoreControl.value],
-                    slider: [sliderValue, sliderControl.id, sliderControl.value],
-                });
+                if (verbose) {
+                    console.debug("setRowValues:", index, {
+                        name: [name, nameControl.id, nameControl.value],
+                        score: [score, scoreControl.id, scoreControl.value],
+                        slider: [sliderValue, sliderControl.id, sliderControl.value],
+                    });
+                }
                 index += 1;
             }
 
-            for (let i = 0; i < levels.length; i++) {
-                let id = `level-slider-${i}`;
-                const slider = document.getElementById(id);
-                console.log("readback:", i, id, slider.value);
+            if (verbose) {
+                for (let i = 0; i < levels.length; i++) {
+                    let id = `level-slider-${i}`;
+                    const slider = document.getElementById(id);
+                    console.debug("readback:", i, id, slider.value);
+                }
             }
 
             // check that editedLevels returns the same data we set
             const controlLevels = await this.getLevels(true);
-            /*
-            if (differ(levels, controlLevels)) {
-                console.log("classesLevels:", levels);
-                console.log("controlLevels:", controlLevels);
-                throw new Error("editedLevels() return differs from background getClasses() return");
-            }
-	    */
             await classes.validate();
             await controlLevels.validate();
             let mismatch = classes.diff(controlLevels);
             if (mismatch) {
-                console.log("classes:", classes);
-                console.log("controls:", controlLevels);
+                console.debug("classes:", classes);
+                console.debug("controls:", controlLevels);
                 throw new Error("editedLevels() return differs from background getClasses() return");
             }
-            console.warn("populate: controls data valid:", controlLevels.valid);
+            if (verbose) {
+                console.debug("populate: controls data valid:", controlLevels.valid);
+            }
             await this.enableControls(controlLevels.valid ? true : false);
 
             if (verbose) {

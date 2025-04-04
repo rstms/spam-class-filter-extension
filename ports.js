@@ -1,10 +1,10 @@
-import { generateUUID } from "./common.js";
+import { generateUUID, verbosity } from "./common.js";
 
 /* global console, setTimeout, clearTimeout */
 
 const PORT_CONNECT_TIMEOUT = 3000;
 
-const verbose = false;
+const verbose = verbosity.ports;
 
 export const WAIT = 0;
 export const NO_WAIT = 1;

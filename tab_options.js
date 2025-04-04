@@ -1,8 +1,12 @@
-import { differ, reloadExtension } from "./common.js";
+//
+// tab_options
+//
+
+import { differ, verbosity } from "./common.js";
 import { config } from "./config.js";
 
-/* globals document, console */
-const verbose = false;
+/* globals document, console, messenger */
+const verbose = verbosity.tab_options;
 
 export class OptionsTab {
     constructor(sendMessage, handlers) {
@@ -54,14 +58,10 @@ export class OptionsTab {
 
     async populate() {
         try {
-            const autoDelete = await config.local.get("autoDelete");
-            this.controls.autoDelete.checked = autoDelete ? true : false;
-
-            const advancedTabVisible = await config.local.get("advancedTabVisible");
-            this.controls.advancedTabVisible.checked = advancedTabVisible ? true : false;
-
-            const minimizeCompose = await config.local.get("minimizeCompose");
-            this.controls.minimizeCompose.checked = minimizeCompose ? true : false;
+            this.controls.autoDelete.checked = await config.local.getBool(config.key.autoDelete);
+            this.controls.advancedTabVisible.checked = await config.local.getBool(config.key.advancedTabVisible);
+            this.controls.minimizeCompose.checked = await config.local.getBool(config.key.minimizeCompose);
+            this.controls.cacheResponses.checked = await config.local.getBool(config.key.filterctlCacheEnabled);
 
             await this.populateDomains();
         } catch (e) {
@@ -141,7 +141,7 @@ export class OptionsTab {
             const accountDomains = await this.sendMessage({ id: "getDomains" });
             if (differ(this.pendingDomainConfig, accountDomains)) {
                 await this.sendMessage({ id: "setDomains", domains: this.pendingDomainConfig });
-                await reloadExtension();
+                await this.reloadExtension();
             }
         } catch (e) {
             console.error(e);
@@ -162,7 +162,7 @@ export class OptionsTab {
 
     async onAutoDeleteChange() {
         try {
-            await config.local.set("autoDelete", this.controls.autoDelete.checked);
+            await config.local.setBool(config.key.autoDelete, this.controls.autoDelete.checked);
         } catch (e) {
             console.error(e);
         }
@@ -170,7 +170,7 @@ export class OptionsTab {
 
     async onShowAdvancedTabChange() {
         try {
-            await config.local.set("advancedTabVisible", this.controls.advancedTabVisible.checked);
+            await config.local.setBool(config.key.advancedTabVisible, this.controls.advancedTabVisible.checked);
         } catch (e) {
             console.error(e);
         }
@@ -178,7 +178,16 @@ export class OptionsTab {
 
     async onMinimizeComposeChange() {
         try {
-            await config.local.set("minimizeCompose", this.controls.minimizeCompose.checked);
+            await config.local.setBool(config.key.minimizeCompose, this.controls.minimizeCompose.checked);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async reloadExtension() {
+        try {
+            await config.local.setBool(config.key.reloadAutoOpen, true);
+            await messenger.runtime.reload();
         } catch (e) {
             console.error(e);
         }
@@ -186,10 +195,29 @@ export class OptionsTab {
 
     async onResetClick() {
         try {
-            const optInApproved = await config.local.get("optInApproved");
+            const approved = await config.local.getBool(config.key.optInApproved);
             await config.local.reset();
-            await config.local.set("optInApproved", optInApproved ? true : false);
-            await reloadExtension();
+            await config.local.setBool(config.key.optInApproved, approved);
+            await this.reloadExtension();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async onClearCacheClick() {
+        try {
+            await this.sendMessage({ id: "cacheControl", command: "clear" });
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async onCacheResponsesChange() {
+        try {
+            let enabled = this.controls.cacheResponses.checked;
+            await config.local.setBool(config.key.filterctlCacheEnabled, enabled);
+            const command = enabled ? "enable" : "disable";
+            await this.sendMessage({ id: "cacheControl", command: command });
         } catch (e) {
             console.error(e);
         }

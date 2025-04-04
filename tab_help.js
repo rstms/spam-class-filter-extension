@@ -1,6 +1,12 @@
+//
+// tab_help
+//
+
+import { verbosity } from "./common.js";
+
 /* globals console, messenger */
 
-const verbose = false;
+const verbose = verbosity.tab_help;
 
 export class HelpTab {
     constructor(sendMessage) {
