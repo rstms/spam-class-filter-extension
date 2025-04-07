@@ -5,7 +5,7 @@
 import { Books, booksFactory, validateBookName } from "./filterctl.js";
 import { accountEmailAddress, isValidBookName, verbosity } from "./common.js";
 
-/* globals console, messenger, document */
+/* globals console, document, messenger */
 
 /////////////////////////////
 //
@@ -387,9 +387,16 @@ export class BooksTab {
             if (!this.isConnectionsExpanded()) {
                 return;
             }
+
             await this.scanConnectedBooks(force);
-            this.controls.tableBody.innerHTML = "";
+
+            let cxnmap = {};
             for (const cxn of this.connectedBooks[this.account.id]) {
+                cxnmap[cxn.book] = cxn;
+            }
+            this.controls.tableBody.innerHTML = "";
+            for (const book of Object.keys(cxnmap).sort()) {
+                let cxn = cxnmap[book];
                 let row = document.createElement("tr");
 
                 let templateCells = this.tableRowTemplate.getElementsByTagName("td");

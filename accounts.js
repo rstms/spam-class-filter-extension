@@ -12,14 +12,18 @@ const verbose = verbosity.accounts;
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+// catch callers passing account instead of accountId
 function validateAccountId(accountId) {
     if (typeof accountId !== "string") {
+        console.error("invalid accountId:", accountId);
         throw new Error("invalid accountId");
     }
 }
 
+// ensure the account looks like an account object
 function validateAccount(account) {
     if (typeof account !== "object" || typeof account.id !== "string" || !Array.isArray(account.identities)) {
+        console.error("invalid account:", account);
         throw new Error("invalid account");
     }
 }
@@ -97,21 +101,17 @@ export class Accounts {
         }
     }
 
-    // return enabled accounts or single enabled account by accountId if provided
-    async get(accountId = undefined, throwError = true) {
+    // return account with specified accountId. by default, throw error if not found or not enabled
+    async get(accountId = undefined, flags = { throwError: true }) {
         try {
             if (accountId === undefined) {
                 throw new Error("deprecated: use enabled() instead of get(undefined) or get()");
-                //return await this.enabled();
             }
-            if (throwError) {
-                validateAccountId(accountId);
-            }
+            validateAccountId(accountId);
             // return account with accountId
             const accounts = await this.enabled();
             const account = accounts[accountId];
-            // throw error if account is unknown or domain is not enabled
-            await this.isEnabled(account, throwError);
+            await this.isEnabled(account, flags);
             return account;
         } catch (e) {
             console.error(e);
@@ -122,7 +122,11 @@ export class Accounts {
     async selected() {
         try {
             let account = await config.session.get(config.key.selectedAccount);
-            if (account !== undefined && this.isEnabled(account, false)) {
+            if (account === undefined) {
+                console.warn("selected account not found, returning default account");
+            } else if (!(await this.isEnabled(account, { throwError: false }))) {
+                console.warn("selected account not enabled, returning default account");
+            } else {
                 return account;
             }
             return await this.defaultAccount();
@@ -147,7 +151,7 @@ export class Accounts {
                 account = lookup;
             }
             // throw error if account is not valid and enabled
-            await this.isEnabled(account);
+            await this.isEnabled(account, { throwError: true });
             let previous = await this.selected();
             await config.session.set(config.key.selectedAccount, account);
             if (sendEvents) {
@@ -174,17 +178,18 @@ export class Accounts {
     }
 
     // check if account is known
-    async isValid(account, throwError = true) {
+    async isValid(account, flags = { throwError: false }) {
         try {
-            if (throwError) {
+            if (flags.throwError) {
                 validateAccount(account);
             }
             const accounts = await this.all();
-            if (accounts[account.id] !== undefined) {
+            if (account !== undefined && accounts[account.id] !== undefined) {
                 return true;
             }
-            if (throwError) {
-                throw new Error("unknown account:", account);
+            if (flags.throwError) {
+                console.error("unknown account:", account);
+                throw new Error("unknown account");
             }
             return false;
         } catch (e) {
@@ -193,16 +198,16 @@ export class Accounts {
     }
 
     // check if account id is known and domain is enabled
-    async isEnabled(account, throwError = true) {
+    async isEnabled(account, flags = { throwError: false }) {
         try {
-            if (!(await this.isValid(account, throwError))) {
+            if (!(await this.isValid(account, flags))) {
                 return false;
             }
             const accounts = await this.enabled();
             if (accounts[account.id] !== undefined) {
                 return true;
             }
-            if (throwError) {
+            if (flags.throwError) {
                 throw new Error("account domain not enabled:", account);
             }
             return false;

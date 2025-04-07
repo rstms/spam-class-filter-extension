@@ -10,7 +10,7 @@ const READBACK_TRIES = 5;
 
 const DEFAULTS = {
     editorTitle: "Mail Filter Control",
-    optInApproved: false,
+    optInApproved: true,
     advancedTabVisible: false,
     autoDelete: true,
     autoOpen: false,

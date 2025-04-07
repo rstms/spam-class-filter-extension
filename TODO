@@ -17,3 +17,5 @@
 - write logs with "send to support" option
 - remember active control panel tab
 - bug: possible to open multiple control panel windows using menu & action menu
+- test carddav list error return
+- test with config optInApproved = false;

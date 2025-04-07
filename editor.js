@@ -622,7 +622,8 @@ async function onPortMessage(message, sender) {
                 await populateAccounts();
                 break;
             default:
-                console.error("received unknown port message:", message, sender);
+                await onMessage(message, sender);
+                break;
         }
     } catch (e) {
         console.error(e);

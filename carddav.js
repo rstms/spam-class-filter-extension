@@ -8,6 +8,8 @@ ChromeUtils.defineESModuleGetters(this, {
     CryptoUtils: "resource://services-crypto/utils.sys.mjs",
 });
 
+const DETECT_BOOKS_RETRY_LIMIT = 5;
+
 var cardDAV = class extends ExtensionCommon.ExtensionAPI {
     getAPI() {
         return {
@@ -15,6 +17,10 @@ var cardDAV = class extends ExtensionCommon.ExtensionAPI {
                 pathToken(path) {
                     let parts = path.split("/");
                     return parts[parts.length - 2];
+                },
+                pathUser(path) {
+                    let parts = path.split("/");
+                    return parts[parts.length - 3];
                 },
                 tokenBook(email, token) {
                     return token.substring(email.length + 1);
@@ -61,41 +67,50 @@ var cardDAV = class extends ExtensionCommon.ExtensionAPI {
                     return books;
                 },
                 async generateHashUUID(url) {
-                    /*
-                    const hashArray = new Uint8Array(32);
-                    for (let i = 0; i < 32; i++) {
-                        hashArray[i] = parseInt(hashBuffer.substr(i * 2, 2), 16);
-                    }
-                    const hex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-		    */
                     const hex = await CryptoUtils.sha256(url);
                     return `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}`;
                 },
                 async list(username, password) {
                     console.log("list:", username, password);
                     let books = [];
-                    for (const book of await CardDAVUtils.detectAddressBooks(username, password, this.hostname(username), false)) {
-                        console.log("list: book:", book);
-                        let token = this.pathToken(book.url.pathname);
-                        let uuid = await this.generateHashUUID(book.url.href + username);
-                        // return the same root keys as a connected cardDAV directory
-                        books.push({
-                            name: book.name,
-                            token: token,
-                            book: this.tokenBook(username, token),
-                            username: username,
-                            url: book.url.href,
-                            uuid: uuid,
-                            connected: false,
-                            type: "listing",
-                            detail: {
-                                hostname: book.url.host,
-                                href: book.url.href,
-                                origin: book.url.origin,
-                                pathname: book.url.pathname,
-                            },
-                        });
+                    let hostname = this.hostname(username);
+                    let tries = 0;
+                    let matched = false;
+                    while (!matched) {
+                        let detected = await CardDAVUtils.detectAddressBooks(username, password, hostname, false);
+                        console.log("detected:", detected);
+                        for (const book of detected) {
+                            let token = this.pathToken(book.url.pathname);
+                            let uuid = await this.generateHashUUID(book.url.href + username);
+                            let email = this.pathUser(book.url.pathname);
+                            matched = username === email;
+                            if (!matched) {
+                                console.error("username mismatch:", username, email, book);
+                                if (++tries < DETECT_BOOKS_RETRY_LIMIT) {
+                                    break;
+                                }
+                                throw new Error("retries exceeded");
+                            }
+                            // return the same root keys as a connected cardDAV directory
+                            books.push({
+                                name: book.name,
+                                token: token,
+                                book: this.tokenBook(username, token),
+                                username: username,
+                                url: book.url.href,
+                                uuid: uuid,
+                                connected: false,
+                                type: "listing",
+                                detail: {
+                                    hostname: book.url.host,
+                                    href: book.url.href,
+                                    origin: book.url.origin,
+                                    pathname: book.url.pathname,
+                                },
+                            });
+                        }
                     }
+                    // FIXME: sort list by book name before returning
                     console.log("list returning:", books);
                     return books;
                 },

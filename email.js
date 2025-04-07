@@ -5,6 +5,10 @@ import { config } from "./config.js";
 
 /* global console, messenger, setTimeout, clearTimeout, setInterval, clearInterval, window */
 
+// FIXME: remove compose window if message send fails
+// FIXME: track the progress window
+// FIXME: track the error message popup dialog when send fails
+
 const verbose = verbosity.email;
 const logQueue = false;
 

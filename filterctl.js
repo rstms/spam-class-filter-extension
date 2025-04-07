@@ -7,7 +7,7 @@ import { accountEmailAddress, isValidEmailAddress, isValidBookName } from "./com
 import { config } from "./config.js";
 import { verbosity } from "./common.js";
 
-/* global console */
+/* global console, messenger */
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -776,7 +776,6 @@ export class FilterDataController {
                 },
             };
             this.passwords = new AsyncMap();
-            this.cardDAVBooks = new AsyncMap();
         } catch (e) {
             console.error(e);
         }
@@ -1080,7 +1079,7 @@ export class FilterDataController {
         try {
             validateType(type);
             await this.validateAccount(account);
-            return account.id in this.datasets[type].server;
+            return Object.hasOwn(this.datasets[type].server, account.id);
         } catch (e) {
             console.error(e);
         }
@@ -1358,7 +1357,6 @@ export class FilterDataController {
                 console.debug("sendBooks:", account, force);
             }
             let result = await this.send(BOOKS, account, force);
-            await this.cardDAVBooks.pop(account.id);
             if (verbose) {
                 console.debug("sendBooks returning:", result);
             }
@@ -1648,16 +1646,20 @@ export class FilterDataController {
     async getCardDAVBooks(account, force = false) {
         try {
             await this.validateAccount(account);
-            let books = await this.cardDAVBooks.get(account.id);
+            let username = accountEmailAddress(account);
+            let books;
             if (force || books === undefined) {
-                //let username = accountEmailAddress(account);
-                //let password = await this.getPassword(account);
-                //books = await messenger.cardDAV.list(username, password);
-                books = ["foo", "bar", "baz"];
-                await this.cardDAVBooks.set(account.id, books);
+                books = [];
+                let password = await this.getPassword(account);
+                for (const book of await messenger.cardDAV.list(username, password)) {
+                    let listBook = Object.assign({}, book);
+                    listBook.detail = Object.assign({}, book.detail);
+                    books.push(listBook);
+                }
             }
             console.assert(Array.isArray(books));
-            return books.sort();
+            console.log(`getCardDAVBooks(${username}) returning:`, books);
+            return books;
         } catch (e) {
             console.error(e);
         }
