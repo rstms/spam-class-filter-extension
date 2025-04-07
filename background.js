@@ -1,6 +1,6 @@
 import { Accounts } from "./accounts.js";
 import * as ports from "./ports.js";
-import { accountEmailAddress, generateUUID } from "./common.js";
+import { accountEmailAddress, displayMessage, generateUUID } from "./common.js";
 import { FilterDataController } from "./filterctl.js";
 import { email } from "./email.js";
 import { config } from "./config.js";
@@ -21,7 +21,8 @@ let filterctl = null;
 let pendingConnections = new Map();
 const backgroundId = "background-" + generateUUID();
 
-let messageDisplayAccount = undefined;
+let displayedMessagesAccount = undefined;
+let displayedMessagesTab = undefined;
 
 let menus = {};
 
@@ -36,6 +37,7 @@ async function initialize(mode) {
         if (await config.local.getBool(config.key.autoClearConsole)) {
             console.clear();
         }
+
         const approved = await isApproved();
 
         const manifest = await messenger.runtime.getManifest();
@@ -261,6 +263,38 @@ async function onPortMessage(message, sender) {
     }
 }
 
+async function addSenderCommand(index, command, tab) {
+    try {
+        if (verbose) {
+            console.debug("addSenderCommand:", index, tab);
+        }
+
+        if (displayedMessagesAccount === undefined) {
+            console.warn("onCommand:", command, { displayedMessagesAccount });
+            return;
+        }
+        if (displayedMessagesTab === undefined) {
+            console.warn("onCommand:", command, { displayedMessagesTab });
+            return;
+        }
+        let book;
+        if (index === "default") {
+            book = await getAddSenderTarget(displayedMessagesAccount);
+        } else {
+            const books = await filterctl.getCardDAVBooks(displayedMessagesAccount);
+            const indexed = books[parseInt(index) - 1];
+            if (indexed !== undefined) {
+                book = indexed.name;
+            }
+        }
+        if (book !== undefined) {
+            await addSenderToFilterBook(displayedMessagesAccount, displayedMessagesTab, book);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function onCommand(command, tab) {
     try {
         if (verbose) {
@@ -269,10 +303,14 @@ async function onCommand(command, tab) {
         if (!(await checkApproved())) {
             return;
         }
+        let prefix = "mailfilter-add-sender-";
+        if (command.substr(0, prefix.length) === prefix) {
+            let suffix = command.substr(prefix.length);
+            return await addSenderCommand(suffix, command, tab);
+        }
         switch (command) {
             case "mailfilter-control-panel":
-                await focusEditorWindow();
-                break;
+                return await focusEditorWindow();
             default:
                 console.error("unknown command:", command);
                 throw new Error("unknown command");
@@ -497,7 +535,7 @@ let menuConfig = {
 
     rmfAddSenderToFilterBook: {
         properties: {
-            title: "Add Sender To Filter Book '__book__'",
+            title: "Add Sender to '__book__'",
             contexts: ["message_list"],
         },
         onClicked: onMenuAddSenderClicked,
@@ -532,13 +570,13 @@ async function updateMessageDisplayAction(account = undefined, book = undefined)
             if (book === undefined) {
                 book = await getAddSenderTarget(account);
             }
-            await messenger.messageDisplayAction.setTitle({ title: "Add Sender to '" + book + "'" });
+            await messenger.messageDisplayAction.setTitle({ title: "Add to '" + book + "'" });
             await messenger.messageDisplayAction.enable();
-            messageDisplayAccount = account;
+            displayedMessagesAccount = account;
         } else {
             await messenger.messageDisplayAction.setTitle({ title: "Add Sender Disabled" });
             await messenger.messageDisplayAction.disable();
-            messageDisplayAccount = undefined;
+            displayedMessagesAccount = undefined;
         }
     } catch (e) {
         console.error(e);
@@ -700,7 +738,7 @@ async function setMenuVisibility(account, context) {
             console.debug("setMenuVisibility:", account, context);
         }
 
-        let book = await getAddSenderTarget(account);
+        let book = account === undefined ? undefined : await getAddSenderTarget(account);
         for (const config of Object.values(menus)) {
             if (config.properties.contexts.includes(context)) {
                 let properties = {};
@@ -804,7 +842,7 @@ async function onMenuShownUpdateAddSenderTitle(target, detail) {
             await messenger.menus.update(target.id, { visible: false });
         } else {
             let book = await getAddSenderTarget(detail.account);
-            console.assert(target.properties.title === "Add Sender To Filter Book '__book__'");
+            console.assert(target.properties.title === "Add Sender to '__book__'");
             let title = target.properties.title.replace(/__book__/, book);
             await messenger.menus.update(target.id, { title });
         }
@@ -829,7 +867,7 @@ async function onActionButtonClicked(tab, info) {
 async function onMenuClickedSelectBook(target, detail) {
     try {
         if (verbose) {
-            console.log("onMenuClickedSelectBook:", target.id, { target, detail, messageDisplayAccount });
+            console.log("onMenuClickedSelectBook:", target.id, { target, detail, displayedMessagesAccount });
         }
         let account = target.account;
         let book = target.book;
@@ -859,6 +897,9 @@ async function onMenuControlPanelClicked(target, detail) {
 // read add sender target book name from config
 async function getAddSenderTarget(account) {
     try {
+        if (account === undefined) {
+            throw new Error("undefined account");
+        }
         let bookName = undefined;
         let targets = await config.local.get(config.key.addSenderTarget);
         if (targets !== undefined) {
@@ -899,7 +940,7 @@ async function setAddSenderTarget(account, bookName) {
                 },
                 { requireSuccess: false },
             );
-            if (messageDisplayAccount !== undefined && messageDisplayAccount.id === account.id) {
+            if (displayedMessagesAccount !== undefined && displayedMessagesAccount.id === account.id) {
                 await updateMessageDisplayAction(account, bookName);
             }
         }
@@ -919,15 +960,27 @@ async function onMenuAddSenderClicked(target, detail) {
         if (verbose) {
             console.debug("onMenuAddSenderToFilterBook:", target.id, { target, detail });
         }
-        const messageList = await messenger.messageDisplay.getDisplayedMessages(detail.tab.id);
+        const book = await getAddSenderTarget(detail.account);
+        await addSenderToFilterBook(detail.account, detail.tab, book);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// perform 'addSender' function on selected messages in tab with specified target book
+async function addSenderToFilterBook(account, tab, book) {
+    try {
+        if (verbose) {
+            console.debug("addSenderToFilterBook:", account, tab, book);
+        }
+        const messageList = await messenger.messageDisplay.getDisplayedMessages(tab.id);
         if (verbose) {
             console.debug("messageList:", messageList);
         }
         let sendersAdded = [];
         for (const message of messageList.messages) {
             const account = await accounts.get(message.folder.accountId);
-            console.assert(account.id === detail.account.id);
-            const book = await getAddSenderTarget(account);
+            console.assert(account.id === account.id);
             const fullMessage = await messenger.messages.getFull(message.id);
             const headers = fullMessage.headers;
             if (verbose) {
@@ -937,14 +990,17 @@ async function onMenuAddSenderClicked(target, detail) {
                 .replace(/^[^<]*</g, "")
                 .replace(/>.*$/g, "");
             if (!sendersAdded.includes(sender)) {
-                console.log(`requesting add ${sender} to ${book}...`);
+                await displayMessage(`Adding '${sender}' to '${book}'...`);
+                console.log("AddSender request:", sender, book, account);
                 filterctl
                     .addSenderToFilterBook(account, sender, book)
                     .then((response) => {
-                        console.log(`completed adding ${sender} to ${book}:`, response);
+                        displayMessage(`Added '${sender}' to '${book}'`).then(() => {
+                            console.log("AddSender completed:", sender, book, account, response);
+                        });
                     })
                     .catch((e) => {
-                        console.error(`error adding ${sender} to ${book}:`, e);
+                        console.error("AddSender failed:", sender, book, account, e);
                     });
                 sendersAdded.push(sender);
             }
@@ -959,9 +1015,10 @@ async function onMessageDisplayActionClicked(tab, info) {
         if (verbose) {
             console.debug("message display action clicked, relaying to menu clicked handler", tab, info);
         }
-        let target = { id: "message_display_action" };
-        let detail = { account: messageDisplayAccount, tab, info };
-        await onMenuAddSenderClicked(target, detail);
+        console.assert(displayedMessagesAccount !== undefined);
+        console.assert(displayedMessagesTab.id === tab.id);
+        let book = await getAddSenderTarget(displayedMessagesAccount);
+        await addSenderToFilterBook(displayedMessagesAccount, tab, book);
     } catch (e) {
         console.error(e);
     }
@@ -980,7 +1037,9 @@ async function initFilterDataController() {
             filterctl = new FilterDataController(enabled, email);
             await filterctl.readState();
             let selectedAccount = await accounts.selected();
-            await filterctl.getPassword(selectedAccount);
+            if (selectedAccount !== undefined) {
+                await handleGetPassword({ accountId: selectedAccount.id });
+            }
         }
     } catch (e) {
         console.error(e);
@@ -1224,8 +1283,11 @@ async function handleSetDefaultClasses(message) {
 
 async function handleGetPassword(message) {
     try {
+        await displayMessage("Requesting cardDAV password...");
         const account = await accounts.get(message.accountId);
-        return await filterctl.getPassword(account);
+        const password = await filterctl.getPassword(account);
+        await displayMessage("Received cardDAV password.");
+        return password;
     } catch (e) {
         console.error(e);
     }
@@ -1320,65 +1382,55 @@ async function handleSetDomainEnabled(message) {
 async function onWindowCreated(info) {
     try {
         if (verbose) {
-            console.debug("onWindowCreated:", info);
+            console.log("onWindowCreated:", info);
         }
     } catch (e) {
         console.error(e);
     }
 }
+*/
 
+/*
 async function onTabCreated(tab) {
     try {
         if (verbose) {
-            console.debug("onTabCreated:", tab);
+            console.log("onTabCreated:", tab);
         }
     } catch (e) {
         console.error(e);
     }
 }
+*/
 
+/*
 async function onTabActivated(tab) {
     try {
         if (verbose) {
-            console.debug("onTabActivated:", tab);
+            console.log("onTabActivated:", tab);
         }
     } catch (e) {
         console.error(e);
     }
 }
+*/
 
-//var uriMenuId = null;
-//var passwdMenuId = null;
-
+/*
 async function onTabUpdated(tabId, changeInfo, tab) {
     try {
         if (verbose) {
-            console.debug("onTabUpdated:", tab.type, tab.status, tab.url, changeInfo.status, { changeInfo, tab });
-        }
-        let enabled = await accounts.enabled();
-        if (tab.status === "complete") {
-            switch (tab.type) {
-                case "addressBook":
-                    if (verbose) {
-                        console.debug("address book tab opened");
-                    }
-                    break;
-                case "mail":
-                    if (verbose) {
-                        console.debug("tab complete:", tab.url, enabled);
-                    }
-                    break;
-            }
+            console.log("onTabUpdated:", tab.type, tab.status, tab.url, changeInfo.status, { changeInfo, tab });
         }
     } catch (e) {
         console.error(e);
     }
 }
+*/
 
+/*
 async function onTabRemoved(tabId, removeInfo) {
     try {
         if (verbose) {
-            console.debug("onTabRemoved:", { tabId: tabId, removeInfo: removeInfo });
+            console.log("onTabRemoved:", { tabId: tabId, removeInfo: removeInfo });
         }
     } catch (e) {
         console.error(e);
@@ -1389,10 +1441,12 @@ async function onTabRemoved(tabId, removeInfo) {
 async function onMessagesDisplayed(tab, displayedMessages) {
     try {
         if (verbose) {
-            console.debug("onMessagesDisplayed:", tab, displayedMessages);
+            console.log("onMessagesDisplayed:", tab, displayedMessages);
         }
+        displayedMessagesTab = undefined;
         for (const message of displayedMessages.messages) {
             let account = await accounts.get(message.folder.accountId);
+            displayedMessagesTab = tab;
             await updateMessageDisplayAction(account);
             break;
         }
@@ -1422,6 +1476,7 @@ messenger.menus.onShown.addListener(onMenuShown);
 //messenger.tabs.onActivated.addListener(onTabActivated);
 //messenger.tabs.onUpdated.addListener(onTabUpdated);
 //messenger.tabs.onRemoved.addListener(onTabRemoved);
+
 messenger.messageDisplay.onMessagesDisplayed.addListener(onMessagesDisplayed);
 
 messenger.runtime.onConnect.addListener(onConnect);

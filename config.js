@@ -10,20 +10,15 @@ const READBACK_TRIES = 5;
 
 const DEFAULTS = {
     editorTitle: "Mail Filter Control",
-    optInApproved: true,
+    optInApproved: false,
     advancedTabVisible: false,
     autoDelete: true,
     autoOpen: false,
     filterctlCacheEnabled: true,
-    autoClearConsole: false,
+    autoClearConsole: true,
     minimizeCompose: true,
     preferredTheme: "auto",
-    domain: {
-        "rstms.net": true,
-        "bootnotice.com": true,
-        "cypress-trading.com": false,
-        "citybestmanagement.com": false,
-    },
+    domain: {},
 };
 
 function validateKey(key) {
@@ -260,5 +255,6 @@ export const config = {
         domain: "domain",
         selectedAccount: "selectedAccount",
         reloadAutoOpen: "reloadAutoOpen",
+        usageResponse: "usageResponse",
     },
 };

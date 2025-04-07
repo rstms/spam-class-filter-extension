@@ -39,11 +39,47 @@
     "tabs"
   ],
   "commands": {
-    "mailfilter-control-panel": {
+    "mailfilter-add-sender-default": {
       "suggested_key": {
-        "default": "Alt+9"
+        "default": "Ctrl+B"
       },
-      "description": "open the mail filter control panel"
+      "description": "Add message sender to selected filter book"
+    },
+    "mailfilter-add-sender-1": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+1"
+      },
+      "description": "Add message sender to filter book 1"
+    },
+    "mailfilter-add-sender-2": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+2"
+      },
+      "description": "Add message sender to filter book 2"
+    },
+    "mailfilter-add-sender-3": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+3"
+      },
+      "description": "Add message sender to filter book 3"
+    },
+    "mailfilter-add-sender-4": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+4"
+      },
+      "description": "Add message sender to filter book 4"
+    },
+    "mailfilter-add-sender-5": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+5"
+      },
+      "description": "Add message sender to filter book 5"
+    },
+    "mailfilter-add-sender-6": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+6"
+      },
+      "description": "Add message sender to filter book 6"
     }
   },
   "experiment_apis": {

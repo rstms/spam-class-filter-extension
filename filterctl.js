@@ -2,7 +2,6 @@
 //  filterctl.js
 //
 
-import { AsyncMap } from "./asyncmap.js";
 import { accountEmailAddress, isValidEmailAddress, isValidBookName } from "./common.js";
 import { config } from "./config.js";
 import { verbosity } from "./common.js";
@@ -47,9 +46,6 @@ const SPAM_SCORE = parseFloat(999);
 
 const CLASSES = "classes";
 const BOOKS = "books";
-
-//let responseCache = new AsyncMap();
-//let accountPasswords = new AsyncMap();
 
 //
 // validation functions
@@ -755,9 +751,34 @@ export class Books extends FilterData {
 export class FilterDataController {
     constructor(accounts, email) {
         try {
+            this.locked = false;
+            this.waiting = [];
             this.accounts = accounts;
             this.email = email;
             this.initialize();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async lock() {
+        try {
+            while (this.locked) {
+                await new Promise((resolve) => this.waiting.push(resolve));
+            }
+            this.locked = true;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    unlock() {
+        try {
+            this.locked = false;
+            if (this.waiting.length > 0) {
+                const next = this.waiting.shift();
+                next();
+            }
         } catch (e) {
             console.error(e);
         }
@@ -775,7 +796,7 @@ export class FilterDataController {
                     server: {},
                 },
             };
-            this.passwords = new AsyncMap();
+            this.passwords = new Map();
         } catch (e) {
             console.error(e);
         }
@@ -929,12 +950,12 @@ export class FilterDataController {
         }
     }
 
-    // takes password state as {string: string}, returns AsyncMap
+    // takes password state as {string: string}, returns Map
     async initPasswordCache(substate) {
         try {
-            let result = new AsyncMap();
+            let result = new Map();
             for (const [accountId, password] of Object.entries(substate)) {
-                await result.set(accountId, password);
+                result.set(accountId, password);
             }
             return result;
         } catch (e) {
@@ -1009,9 +1030,9 @@ export class FilterDataController {
                 console.debug("renderPasswordsToState:", passwords);
             }
             let output = {};
-            await this.passwords.scan(async (key, value) => {
-                output[key] = value;
-            });
+            for (const [k, v] of this.passwords.entries()) {
+                output[k] = v;
+            }
             if (verbose) {
                 console.debug("renderPasswordsToState returning:", output);
             }
@@ -1572,16 +1593,14 @@ export class FilterDataController {
             if (verbose) {
                 console.log("getPassword:", account);
             }
+            await this.lock();
             await this.validateAccount(account);
-            // lock the AsyncMap while we update it
-            // NOTE: only get, set are legal to call in this state
-            await this.passwords.lock();
-            let password = await this.passwords.get(account.id, true);
+            let password = this.passwords.get(account.id);
             if (password !== undefined) {
                 return password;
             }
             await this.queryAccounts();
-            password = await this.passwords.get(account.id, true);
+            password = this.passwords.get(account.id);
             if (password !== undefined) {
                 return password;
             }
@@ -1589,11 +1608,11 @@ export class FilterDataController {
         } catch (e) {
             console.error(e);
         } finally {
-            this.passwords.unlock();
+            this.unlock();
         }
     }
 
-    // called while this.passwords is extenally locked
+    // called while locked
     async queryAccounts() {
         try {
             if (verbose) {
@@ -1607,7 +1626,7 @@ export class FilterDataController {
                 }
                 console.assert(response.Success);
                 console.assert(response.User === username);
-                await this.passwords.set(account.id, response.Password, true);
+                this.passwords.set(account.id, response.Password);
             }
             if (verbose) {
                 console.debug("queryAccounts after:", this.passwords.map);
@@ -1628,6 +1647,7 @@ export class FilterDataController {
         }
     }
 
+    // FIXME: try doing this with carddav only
     async addSenderToFilterBook(account, senderAddress, bookName) {
         try {
             await this.validateAccount(account);

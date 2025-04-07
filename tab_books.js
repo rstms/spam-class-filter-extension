@@ -384,6 +384,7 @@ export class BooksTab {
                 }
                 this.controls.tableBody.innerHTML = "";
             }
+
             if (!this.isConnectionsExpanded()) {
                 return;
             }
@@ -392,7 +393,9 @@ export class BooksTab {
 
             let cxnmap = {};
             for (const cxn of this.connectedBooks[this.account.id]) {
-                cxnmap[cxn.book] = cxn;
+                if (cxn !== undefined) {
+                    cxnmap[cxn.book] = cxn;
+                }
             }
             this.controls.tableBody.innerHTML = "";
             for (const book of Object.keys(cxnmap).sort()) {
@@ -494,7 +497,7 @@ export class BooksTab {
             this.setStatus("CardDAV server scan complete");
             for (const book of books) {
                 console.assert(book.username === username);
-                this.serverBooks[this.account.id][book.book] = book;
+                this.serverBooks[this.account.id][book.name] = book;
             }
             if (verbose) {
                 console.debug("scanServerBooks complete.  serverBooks:", this.serverBooks);
@@ -516,7 +519,7 @@ export class BooksTab {
             }
 
             if (force) {
-                this.connectedBooks[this.account.id] = undefined;
+                this.connectedBooks = {};
             }
 
             if (this.connectedBooks[this.account.id] !== undefined) {
@@ -549,12 +552,13 @@ export class BooksTab {
                 hasConnection[cxn.book] = true;
             }
 
-            for (const bookName of this.books.names()) {
-                if (hasConnection[bookName] !== true) {
-                    await this.scanServerBooks();
-                    let serverBook = this.serverBooks[this.account.id][bookName];
-                    console.assert(serverBook !== undefined);
-                    this.connectedBooks[this.account.id].push(serverBook);
+            await this.scanServerBooks(force);
+            for (const [name, cxn] of Object.entries(this.serverBooks[this.account.id])) {
+                if (hasConnection[name] !== true) {
+                    console.assert(cxn !== undefined);
+                    if (cxn !== undefined) {
+                        this.connectedBooks[this.account.id].push(cxn);
+                    }
                 }
             }
             if (verbose) {
@@ -621,7 +625,7 @@ export class BooksTab {
 
             this.setStatus("FilterBook '" + cxn.book + "' is connected as '" + cxn.token + "'...");
             await this.scanConnectedBooks(true);
-            await this.populateConnections();
+            await this.populateConnections(true);
             return true;
         } catch (e) {
             console.error(e);
@@ -726,6 +730,7 @@ export class BooksTab {
             await this.getBooks({ force: true, noPrompt: true });
             // tell background to initialize the menus
             await this.sendMessage("initMenus");
+            await this.populateConnections(true);
         } catch (e) {
             console.error(e);
         }
@@ -777,8 +782,7 @@ export class BooksTab {
                     }
                 }
             }
-            await this.scanConnectedBooks(true);
-            await this.populateConnections();
+            await this.populateConnections(true);
         } catch (e) {
             console.error(e);
         }
@@ -790,8 +794,7 @@ export class BooksTab {
             if (verbose) {
                 console.debug("onScanClick");
             }
-            await this.scanConnectedBooks(true);
-            await this.populateConnections();
+            await this.populateConnections(true);
         } catch (e) {
             console.error(e);
         }
@@ -805,7 +808,7 @@ export class BooksTab {
             }
             if (expanded) {
                 this.controls.connectionsDropdown.textContent = "Hide Connections";
-                this.populateConnections();
+                this.populateConnections(true);
             } else {
                 this.controls.connectionsDropdown.textContent = "Show Connections";
             }

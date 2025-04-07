@@ -83,7 +83,10 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
         }
 
         if (updateSelectedAccount === undefined) {
-            throw new Error("undefined selectedAccount");
+            // no selected account, just activate options and help
+            await enableTab("options", true);
+            await selectTab("options");
+            return;
         }
 
         if (accountsPopulated && !differ(updateAccounts, accounts) === false) {
@@ -389,14 +392,55 @@ async function populateUsageControls() {
             tab.advanced.setStatus("Updating commands...");
             tab.help.controls.helpText.innerHTML = "Updating help...";
             usagePopulated = true;
-            const response = await requestUsage();
-            if (response) {
-                await tab.help.populate(response.Help);
-                await tab.advanced.populate(response.Commands);
-            } else {
-                usagePopulated = false;
+            let response = await config.local.get(config.key.usageResponse);
+            if (response === undefined) {
+                response = await requestUsage();
+                if (response !== undefined) {
+                    await config.local.set(config.key.usageResponse, response);
+                    let readback = await config.local.get(config.key.usageResponse);
+                    console.assert(!differ(response, readback), "cached usageResponse readback differs");
+                }
+            }
+            if (!validateUsageResponse(response)) {
+                throw new Error("invalid usage response");
+            }
+            usagePopulated = true;
+            await tab.help.populate(response.Help);
+            await tab.advanced.populate(response.Commands);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function validateUsageResponse(response) {
+    try {
+        if (typeof response !== "object") {
+            return false;
+        }
+        if (!Array.isArray(response.Help)) {
+            return false;
+        }
+        if (response.Help.length < 1) {
+            return false;
+        }
+        for (const line of response.Help) {
+            if (typeof line !== "string") {
+                return false;
             }
         }
+        if (!Array.isArray(response.Commands)) {
+            return false;
+        }
+        if (response.Commands.length < 1) {
+            return false;
+        }
+        for (const line of response.Commands) {
+            if (typeof line !== "string") {
+                return false;
+            }
+        }
+        return true;
     } catch (e) {
         console.error(e);
     }
@@ -1066,6 +1110,7 @@ addTabControl(tab.advanced, "output", "advanced-output");
 
 // help tab controls
 addTabControl(tab.help, "helpText", "help-text");
+addTabControl(tab.help, "tableBody", "help-table-body");
 
 // tabs
 addControl("classesTab", "tab-classes");

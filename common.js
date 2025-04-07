@@ -1,17 +1,21 @@
-/* global console */
+/* global console, messenger, setTimeout, clearTimeout */
+
+const MESSAGE_DWELL_TIME = 5 * 1024;
+
+let displayTimer = null;
 
 export const verbosity = {
     accounts: false,
-    background: true,
+    background: false,
     config: false,
     editor: false,
-    email: false,
-    filterctl: true,
+    email: true,
+    filterctl: false,
     ports: false,
     tab_advanced: false,
     tab_books: false,
     tab_classes: false,
-    tab_help: false,
+    tab_help: true,
     tab_options: false,
 };
 
@@ -159,6 +163,23 @@ export function isValidBookName(name) {
             return false;
         }
         return bookNameRegex.test(name);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+export async function displayMessage(message) {
+    try {
+        if (displayTimer !== null) {
+            clearTimeout(displayTimer);
+        }
+        await messenger.action.setTitle({ title: `${message}` });
+        displayTimer = setTimeout(() => {
+            displayTimer = null;
+            messenger.action.setTitle({ title: "Mail Filter" }).then(() => {
+                console.log("display cleared");
+            });
+        }, MESSAGE_DWELL_TIME);
     } catch (e) {
         console.error(e);
     }
