@@ -10,7 +10,7 @@ html = $(notdir $(exported_html))
 
 #html = options.html editor.html popup.hml
 
-package_files = manifest.json VERSION LICENSE README.md $(src) $(html) assets
+package_files = manifest.json schema.json VERSION LICENSE README.md $(src) $(html) assets
 version != cat VERSION
 
 all: $(html) $(src) fix fmt lint assets .manifest
