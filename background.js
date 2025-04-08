@@ -388,11 +388,12 @@ async function onMessage(message, sender) {
                 if (accounts === undefined) {
                     await initialize("getDomains");
                 }
-                if (accounts !== undefined) {
-                    response = await accounts.domains();
-                }
+                response = await accounts.domains();
                 break;
             case "getEnabledDomains":
+                if (accounts === undefined) {
+                    await initialize("getEnabledDomains");
+                }
                 response = await accounts.enabledDomains();
                 break;
             case "setDomains":
