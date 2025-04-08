@@ -812,7 +812,7 @@ export class FilterDataController {
 
     async getStatePersistence() {
         try {
-            await config.local.getBool(config.key.filterctlCacheEnabled);
+            return await config.local.getBool(config.key.filterctlCacheEnabled);
         } catch (e) {
             console.error(e);
         }
