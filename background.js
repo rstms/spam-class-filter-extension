@@ -48,12 +48,13 @@ async function initialize(mode) {
             console.debug("commands:", await messenger.commands.getAll());
         }
 
+        await initAccounts();
+
         if (!approved) {
             await messenger.messageDisplayAction.disable();
             return;
         }
 
-        await initAccounts();
         await initFilterDataController();
         await initMenus();
 
