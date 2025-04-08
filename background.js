@@ -379,6 +379,9 @@ async function onMessage(message, sender) {
                 pendingConnections.delete(port.name);
                 response = { background: backgroundId };
                 response[ports.portLabel(port)] = port.name;
+                if (accounts === undefined) {
+                    await initialize("onMessage");
+                }
                 break;
 
             case "getAccounts":
