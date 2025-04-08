@@ -1505,3 +1505,6 @@ messenger.messageDisplayAction.onClicked.addListener(onMessageDisplayActionClick
 messenger.action.onClicked.addListener(onActionButtonClicked);
 
 console.warn("background page loaded");
+initialize("page_loaded").then(() => {
+    console.warn("initialized from page load");
+});
