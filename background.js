@@ -17,6 +17,7 @@ const verbose = verbosity.background;
 // state vars
 let accounts = null;
 let filterctl = null;
+let initialized = false;
 
 let pendingConnections = new Map();
 const backgroundId = "background-" + generateUUID();
@@ -49,6 +50,7 @@ async function initialize(mode) {
         }
 
         await initAccounts();
+        initialized = true;
 
         if (!approved) {
             await messenger.messageDisplayAction.disable();
@@ -234,6 +236,10 @@ async function onConnect(port) {
         if (verbose) {
             console.debug("onConnect:", port);
         }
+        if (!initialized) {
+            await initialize("onConnect");
+        }
+
         port.onMessage.addListener(onPortMessage);
         port.onDisconnect.addListener(onDisconnect);
         if (pendingConnections.has(port.name)) {
@@ -370,10 +376,14 @@ async function onMessage(message, sender) {
                 break;
 
             case "getAccounts":
-                response = await accounts.enabled();
+                if (accounts !== undefined) {
+                    response = await accounts.enabled();
+                }
                 break;
             case "getSelectedAccount":
-                response = await accounts.selected();
+                if (accounts !== undefined) {
+                    response = await accounts.selected();
+                }
                 break;
             case "selectAccount":
                 response = await accounts.select(message.account);
@@ -858,7 +868,9 @@ async function onActionButtonClicked(tab, info) {
         if (verbose) {
             console.debug("onActionButtonClicked:", { tab, info });
         }
-        await focusEditorWindow();
+        if (accounts !== undefined) {
+            await focusEditorWindow();
+        }
     } catch (e) {
         console.error(e);
     }

@@ -78,11 +78,11 @@ async function populateAccounts(updateAccounts = undefined, updateSelectedAccoun
         if (updateAccounts === undefined) {
             updateAccounts = await sendMessage({ id: "getAccounts" });
         }
-        if (updateSelectedAccount === undefined) {
+        if (updateAccounts !== undefined && updateSelectedAccount === undefined) {
             updateSelectedAccount = await sendMessage({ id: "getSelectedAccount" });
         }
 
-        if (updateSelectedAccount === undefined) {
+        if (updateAccounts === undefined || updateSelectedAccount === undefined) {
             // no selected account, just activate options and help
             await enableTab("options", true);
             await selectTab("options");
