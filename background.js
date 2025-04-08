@@ -6,7 +6,7 @@ import { email } from "./email.js";
 import { config } from "./config.js";
 import { verbosity } from "./common.js";
 
-/* globals messenger, console */
+/* globals messenger, console, window */
 
 // FIXME: test when no imap accounts are present
 // FIXME  test when no domains are selected
@@ -48,12 +48,13 @@ async function initialize(mode) {
             console.debug("commands:", await messenger.commands.getAll());
         }
 
+        await getAccounts();
+
         if (!approved) {
             await messenger.messageDisplayAction.disable();
             return;
         }
 
-        await initAccounts();
         await initFilterDataController();
         await initMenus();
 
@@ -70,14 +71,17 @@ async function initialize(mode) {
     }
 }
 
-async function initAccounts() {
+async function getAccounts() {
     try {
-        accounts = new Accounts();
-        let enabled = await accounts.enabled();
-        for (const account of Object.values(enabled)) {
-            await accounts.select(account);
-            break;
+        if (accounts === undefined) {
+            accounts = new Accounts();
+            let enabled = await accounts.enabled();
+            for (const account of Object.values(enabled)) {
+                await accounts.select(account);
+                break;
+            }
         }
+        return accounts;
     } catch (e) {
         console.error(e);
     }
@@ -170,15 +174,10 @@ async function isEditorConnected() {
 }
 */
 
-async function focusEditorWindow() {
+async function reconnectEditorTab() {
     try {
         if (verbose) {
-            console.debug("focusEditorWindow");
-        }
-
-        // divert to options page if not approved
-        if (!(await checkApproved())) {
-            return;
+            console.debug("reconnectEditor");
         }
 
         var editorTab = await findEditorTab();
@@ -202,19 +201,31 @@ async function focusEditorWindow() {
                     console.debug("activated notificaton sent");
                 }
             }
-        } else {
-            await messenger.tabs.create({ url: "./editor.html" });
+            return true;
+        }
+        if (verbose) {
+            console.debug("editor tab not open");
+        }
+        return false;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function focusEditorWindow() {
+    try {
+        if (verbose) {
+            console.debug("focusEditorWindow");
         }
 
-        //if (!port) {
-        //    port = await getEditorPort();
-        //}
+        // divert to options page if not approved
+        if (!(await checkApproved())) {
+            return;
+        }
 
-        // FIXME: try letting editor request what it needs
-        //await requests.sendMessage(port, { id: "selectEditorTab", name: "classes" });
-        //if (sendAccountId) {
-        //    await requests.sendMessage(port, { id: "selectAccount", accountId: sendAccountId });
-        //}
+        if (!(await reconnectEditorTab())) {
+            await messenger.tabs.create({ url: "./editor.html" });
+        }
     } catch (e) {
         console.error(e);
     }
@@ -371,29 +382,18 @@ async function onMessage(message, sender) {
                 break;
 
             case "getAccounts":
-                if (accounts !== undefined) {
-                    response = await accounts.enabled();
-                }
+                response = await accounts.enabled();
                 break;
             case "getSelectedAccount":
-                if (accounts !== undefined) {
-                    response = await accounts.selected();
-                }
+                response = await accounts.selected();
                 break;
             case "selectAccount":
                 response = await accounts.select(message.account);
                 break;
             case "getDomains":
-                // called from tab_options when first activated
-                if (accounts === undefined) {
-                    await initialize("getDomains");
-                }
                 response = await accounts.domains();
                 break;
             case "getEnabledDomains":
-                if (accounts === undefined) {
-                    await initialize("getEnabledDomains");
-                }
                 response = await accounts.enabledDomains();
                 break;
             case "setDomains":
@@ -1502,6 +1502,4 @@ messenger.action.onClicked.addListener(onActionButtonClicked);
 
 console.warn("background page loaded");
 
-//initialize("page_loaded").then(() => {
-//    console.warn("initialized from page load");
-//});
+window.addEventListener("load", reconnectEditorTab);
