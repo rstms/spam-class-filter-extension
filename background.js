@@ -17,7 +17,6 @@ const verbose = verbosity.background;
 // state vars
 let accounts = null;
 let filterctl = null;
-let initialized = false;
 
 let pendingConnections = new Map();
 const backgroundId = "background-" + generateUUID();
@@ -50,7 +49,6 @@ async function initialize(mode) {
         }
 
         await initAccounts();
-        initialized = true;
 
         if (!approved) {
             await messenger.messageDisplayAction.disable();
@@ -236,10 +234,6 @@ async function onConnect(port) {
         if (verbose) {
             console.debug("onConnect:", port);
         }
-        if (!initialized) {
-            await initialize("onConnect");
-        }
-
         port.onMessage.addListener(onPortMessage);
         port.onDisconnect.addListener(onDisconnect);
         if (pendingConnections.has(port.name)) {
@@ -1503,6 +1497,7 @@ messenger.messageDisplayAction.onClicked.addListener(onMessageDisplayActionClick
 messenger.action.onClicked.addListener(onActionButtonClicked);
 
 console.warn("background page loaded");
-initialize("page_loaded").then(() => {
-    console.warn("initialized from page load");
-});
+
+//initialize("page_loaded").then(() => {
+//    console.warn("initialized from page load");
+//});
