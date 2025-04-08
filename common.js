@@ -5,12 +5,12 @@ const MESSAGE_DWELL_TIME = 5 * 1024;
 let displayTimer = null;
 
 export const verbosity = {
-    accounts: false,
-    background: false,
-    config: false,
-    editor: false,
-    email: true,
-    filterctl: false,
+    accounts: true,
+    background: true,
+    config: true,
+    editor: true,
+    email: false,
+    filterctl: true,
     ports: false,
     tab_advanced: false,
     tab_books: false,
