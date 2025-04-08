@@ -1296,10 +1296,8 @@ async function handleSetDefaultClasses(message) {
 
 async function handleGetPassword(message) {
     try {
-        await displayMessage("Requesting cardDAV password...");
         const account = await accounts.get(message.accountId);
         const password = await filterctl.getPassword(account);
-        await displayMessage("Received cardDAV password.");
         return password;
     } catch (e) {
         console.error(e);

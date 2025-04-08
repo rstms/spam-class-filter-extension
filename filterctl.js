@@ -4,7 +4,7 @@
 
 import { accountEmailAddress, isValidEmailAddress, isValidBookName } from "./common.js";
 import { config } from "./config.js";
-import { verbosity } from "./common.js";
+import { verbosity, displayMessage } from "./common.js";
 
 /* global console, messenger */
 
@@ -1597,6 +1597,9 @@ export class FilterDataController {
             await this.validateAccount(account);
             let password = this.passwords.get(account.id);
             if (password !== undefined) {
+                if (verbose) {
+                    console.log("returning cached password:", account);
+                }
                 return password;
             }
             await this.queryAccounts();
@@ -1618,6 +1621,7 @@ export class FilterDataController {
             if (verbose) {
                 console.debug("queryAccounts before:", this.passwords.map);
             }
+            await displayMessage("Requesting cardDAV credentials...");
             for (const account of Object.values(this.accounts)) {
                 let username = accountEmailAddress(account);
                 let response = await this.email.sendRequest(account, "passwd");
@@ -1628,6 +1632,7 @@ export class FilterDataController {
                 console.assert(response.User === username);
                 this.passwords.set(account.id, response.Password);
             }
+            await displayMessage("Received cardDAV credentials");
             if (verbose) {
                 console.debug("queryAccounts after:", this.passwords.map);
             }
