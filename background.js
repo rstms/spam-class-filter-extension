@@ -335,6 +335,10 @@ async function onMessage(message, sender) {
             case "focusEditorWindow":
                 await focusEditorWindow();
                 return;
+
+            case "optInApproved":
+                await initialize("optInApproved");
+                return;
         }
 
         if (message.src === undefined || message.dst === undefined) {
