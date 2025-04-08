@@ -1633,6 +1633,7 @@ export class FilterDataController {
                 this.passwords.set(account.id, response.Password);
             }
             await displayMessage("Received cardDAV credentials");
+            await this.writeState();
             if (verbose) {
                 console.debug("queryAccounts after:", this.passwords.map);
             }

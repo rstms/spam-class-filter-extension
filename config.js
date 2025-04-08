@@ -15,7 +15,7 @@ const DEFAULTS = {
     autoDelete: true,
     autoOpen: false,
     filterctlCacheEnabled: true,
-    autoClearConsole: true,
+    autoClearConsole: false,
     minimizeCompose: true,
     preferredTheme: "auto",
     domain: {},
