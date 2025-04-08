@@ -863,9 +863,7 @@ async function onActionButtonClicked(tab, info) {
         if (verbose) {
             console.debug("onActionButtonClicked:", { tab, info });
         }
-        if (accounts !== undefined) {
-            await focusEditorWindow();
-        }
+        await focusEditorWindow();
     } catch (e) {
         console.error(e);
     }
