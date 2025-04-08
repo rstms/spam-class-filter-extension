@@ -12,6 +12,8 @@ async function saveOptions(sender) {
         console.log("opt in clicked:", sender);
         const checked = sender.target.checked;
         await enableButton(checked);
+        await config.local.reset();
+        await config.session.reset();
         await config.local.setBool(config.key.optInApproved, checked);
         await messenger.runtime.reload();
     } catch (e) {
