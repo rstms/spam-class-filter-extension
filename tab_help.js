@@ -36,6 +36,7 @@ export class HelpTab {
                 descriptionLabel.textContent = command.description;
                 console.log("row:", row.innerHTML);
             }
+            this.controls.table.hidden = false;
         } catch (e) {
             console.error(e);
         }

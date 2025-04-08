@@ -1445,9 +1445,13 @@ async function onMessagesDisplayed(tab, displayedMessages) {
         }
         displayedMessagesTab = undefined;
         for (const message of displayedMessages.messages) {
-            let account = await accounts.get(message.folder.accountId);
-            displayedMessagesTab = tab;
-            await updateMessageDisplayAction(account);
+            if (accounts === undefined) {
+                await messenger.menus.removeAll();
+            } else {
+                let account = await accounts.get(message.folder.accountId);
+                displayedMessagesTab = tab;
+                await updateMessageDisplayAction(account);
+            }
             break;
         }
     } catch (e) {

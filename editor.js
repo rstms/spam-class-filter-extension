@@ -820,6 +820,7 @@ async function onLoad() {
         await enableTab("advanced", false);
         await enableTab("help", false);
         await enableAccountControls(false);
+        tab.help.controls.table.hidden = true;
 
         // set advanced tab visible state from the local.storage config
         await setAdvancedTabVisible();
@@ -1110,6 +1111,7 @@ addTabControl(tab.advanced, "output", "advanced-output");
 
 // help tab controls
 addTabControl(tab.help, "helpText", "help-text");
+addTabControl(tab.help, "table", "help-table");
 addTabControl(tab.help, "tableBody", "help-table-body");
 
 // tabs

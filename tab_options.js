@@ -141,7 +141,7 @@ export class OptionsTab {
             const accountDomains = await this.sendMessage({ id: "getDomains" });
             if (differ(this.pendingDomainConfig, accountDomains)) {
                 await this.sendMessage({ id: "setDomains", domains: this.pendingDomainConfig });
-                await this.reloadExtension();
+                await messenger.runtime.reload();
             }
         } catch (e) {
             console.error(e);
@@ -184,21 +184,11 @@ export class OptionsTab {
         }
     }
 
-    async reloadExtension() {
-        try {
-            await config.local.setBool(config.key.reloadAutoOpen, true);
-            await messenger.runtime.reload();
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
     async onResetClick() {
         try {
-            const approved = await config.local.getBool(config.key.optInApproved);
             await config.local.reset();
-            await config.local.setBool(config.key.optInApproved, approved);
-            await this.reloadExtension();
+            await config.session.reset();
+            await messenger.runtime.reload();
         } catch (e) {
             console.error(e);
         }
@@ -206,7 +196,9 @@ export class OptionsTab {
 
     async onClearCacheClick() {
         try {
-            await this.sendMessage({ id: "cacheControl", command: "clear" });
+            await messenger.runtime.sendMessage({ id: "cacheControl", command: "clear" });
+            await config.local.setBool(config.key.reloadAutoOpen, true);
+            await messenger.runtime.reload();
         } catch (e) {
             console.error(e);
         }
