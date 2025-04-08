@@ -15,8 +15,8 @@ import { verbosity } from "./common.js";
 const verbose = verbosity.background;
 
 // state vars
-let accounts = null;
-let filterctl = null;
+let accounts = undefined;
+let filterctl = undefined;
 
 let pendingConnections = new Map();
 const backgroundId = "background-" + generateUUID();
@@ -48,13 +48,12 @@ async function initialize(mode) {
             console.debug("commands:", await messenger.commands.getAll());
         }
 
-        await initAccounts();
-
         if (!approved) {
             await messenger.messageDisplayAction.disable();
             return;
         }
 
+        await initAccounts();
         await initFilterDataController();
         await initMenus();
 
@@ -73,13 +72,11 @@ async function initialize(mode) {
 
 async function initAccounts() {
     try {
-        if (accounts === null) {
-            accounts = new Accounts();
-            let enabled = await accounts.enabled();
-            for (const account of Object.values(enabled)) {
-                await accounts.select(account);
-                break;
-            }
+        accounts = new Accounts();
+        let enabled = await accounts.enabled();
+        for (const account of Object.values(enabled)) {
+            await accounts.select(account);
+            break;
         }
     } catch (e) {
         console.error(e);
@@ -1043,14 +1040,12 @@ async function onMessageDisplayActionClicked(tab, info) {
 
 async function initFilterDataController() {
     try {
-        if (filterctl === null) {
-            let enabled = await accounts.enabled();
-            filterctl = new FilterDataController(enabled, email);
-            await filterctl.readState();
-            let selectedAccount = await accounts.selected();
-            if (selectedAccount !== undefined) {
-                await handleGetPassword({ accountId: selectedAccount.id });
-            }
+        let enabled = await accounts.enabled();
+        filterctl = new FilterDataController(enabled, email);
+        await filterctl.readState();
+        let selectedAccount = await accounts.selected();
+        if (selectedAccount !== undefined) {
+            await handleGetPassword({ accountId: selectedAccount.id });
         }
     } catch (e) {
         console.error(e);
