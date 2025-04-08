@@ -384,7 +384,13 @@ async function onMessage(message, sender) {
                 response = await accounts.select(message.account);
                 break;
             case "getDomains":
-                response = await accounts.domains();
+                // called from tab_options when first activated
+                if (accounts === undefined) {
+                    await initialize("getDomains");
+                }
+                if (accounts !== undefined) {
+                    response = await accounts.domains();
+                }
                 break;
             case "getEnabledDomains":
                 response = await accounts.enabledDomains();
