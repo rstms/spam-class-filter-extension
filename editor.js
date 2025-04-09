@@ -7,7 +7,7 @@ import { OptionsTab } from "./tab_options.js";
 import { AdvancedTab } from "./tab_advanced.js";
 import { HelpTab } from "./tab_help.js";
 import { generateUUID } from "./common.js";
-import { noAccountsEnabled, getAccount, getAccounts, getSelectedAccount } from "./accounts.js";
+import { getAccount, getAccounts, getSelectedAccount } from "./accounts.js";
 
 // FIXME: add refresh command to filterctl to get classes, books,  account data in one filterctl response
 
@@ -67,7 +67,7 @@ async function populateAccounts() {
             console.debug("BEGIN populateAccounts");
         }
 
-        if (await noAccountsEnabled()) {
+        if (Object.keys(await getAccounts()).length < 1) {
             await enableTab("options", true);
             await selectTab("options");
             return;
