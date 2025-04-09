@@ -58,14 +58,13 @@ async function initialize(mode) {
 
         let autoOpen = await config.local.getBool(config.key.autoOpen);
 
-        //if (Object.keys(await getAccounts()).length < 1) {
-        //    autoOpen = true;
-        //} else {
-        //
-        filterctl = new FilterDataController(email);
-        await filterctl.readState();
-        await initMenus();
-        //}
+        if (Object.keys(await getAccounts()).length < 1) {
+            autoOpen = true;
+        } else {
+            filterctl = new FilterDataController(email);
+            await filterctl.readState();
+            await initMenus();
+        }
 
         if (await config.local.getBool(config.key.reloadAutoOpen)) {
             autoOpen = true;
@@ -84,7 +83,7 @@ async function onStartup() {
     try {
         const approved = await isApproved();
         console.warn("onStartup:", { approved });
-        await initialize("startup");
+        //await initialize("startup");
     } catch (e) {
         console.error(e);
     }
@@ -94,7 +93,7 @@ async function onInstalled() {
     try {
         const approved = await isApproved();
         console.warn("onStartup:", { approved });
-        await initialize("installed");
+        //await initialize("installed");
     } catch (e) {
         console.error(e);
     }
@@ -1444,15 +1443,11 @@ async function onMessagesDisplayed(tab, displayedMessages) {
 
 async function onLoad() {
     try {
-        let counter = await config.session.get(config.key.counter);
-        if (counter === undefined) {
-            counter = 0;
-        }
-        console.warn("onLoad", ++counter);
+        console.warn("onLoad");
+        await initialize("onLoad");
         const restartPending = await config.local.getBool(config.key.reloadPending);
         if (restartPending === true) {
             await config.local.remove(config.key.reloadPending);
-            await initialize("reload");
         }
     } catch (e) {
         console.error(e);
