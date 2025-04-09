@@ -14,7 +14,7 @@ import { getAccount, getAccounts, getSelectedAccount } from "./accounts.js";
 // FIXME: implement all element event listeners here and call functions on tab objects
 // FIXME: share controls container between this page and all tab objects
 
-/* globals messenger, window, document, console, MutationObserver, setTimer, clearTimer */
+/* globals messenger, window, document, console, MutationObserver, setInterval, clearInterval */
 const verbose = verbosity.editor;
 
 const disconnectOnBackgroundSuspend = false;
@@ -681,7 +681,7 @@ function backgroundConnection() {
     return new Promise((resolve, reject) => {
         let timer;
         try {
-            timer = setTimer(() => {
+            timer = setInterval(() => {
                 console.log("awaiting connection");
                 if (!backgroundSuspended) {
                     console.log("connected");
@@ -691,7 +691,7 @@ function backgroundConnection() {
         } catch (e) {
             reject(e);
         } finally {
-            clearTimer(timer);
+            clearInterval(timer);
         }
     });
 }
