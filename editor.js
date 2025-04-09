@@ -677,16 +677,27 @@ async function onDisconnect(port) {
     }
 }
 
+async function isConnected() {
+    try {
+        return !backgroundSuspended;
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 function backgroundConnection() {
     return new Promise((resolve, reject) => {
         let timer;
         try {
             timer = setInterval(() => {
-                console.log("awaiting connection");
-                if (!backgroundSuspended) {
-                    console.log("connected");
+                console.log("waiting...");
+                isConnected().then((connected) => {
+                    if (connected) {
+                        console.log("connected");
+                        resolve();
+                    }
                     resolve();
-                }
+                });
             }, 100);
         } catch (e) {
             reject(e);
