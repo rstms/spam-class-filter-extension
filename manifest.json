@@ -2,11 +2,13 @@
   "manifest_version": 3,
   "version": "0.2.3",
   "author": "Matt Krueger <mkrueger@rstms.net>",
+  "homepage_url": "https://github.com/rstms/spam-class-filter-extension",
   "name": "Mail Filter Control",
   "browser_specific_settings": {
     "gecko": {
       "id": "mail-filter-control-a7cb4aeb-d2e8-4381-b738-571518ec3d0f@rstms.net",
-      "strict_min_version": "128.0"
+      "strict_min_version": "128.0",
+      "update_url": "https://github.com/rstms/spam-class-filter-extension/updates.json"
     }
   },
   "options_ui": {
