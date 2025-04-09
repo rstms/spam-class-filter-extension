@@ -89,9 +89,6 @@ class ConfigBase {
     async getAll(useDefaults = true) {
         try {
             await this.lock();
-            if (verbose) {
-                console.debug("getAll:", this.name, useDefaults);
-            }
             let value = await this.storage.get();
             if (this.name == "local" && useDefaults) {
                 for (const [key, defaultValue] of Object.entries(DEFAULTS)) {
@@ -115,9 +112,6 @@ class ConfigBase {
         try {
             validateKey(key);
             await this.lock();
-            if (verbose) {
-                console.debug("get:", this.name, key, useDefaults);
-            }
             const values = await this.storage.get([key]);
             var value = values[key];
             if (this.name === "local" && useDefaults) {
@@ -127,7 +121,7 @@ class ConfigBase {
                 }
             }
             if (verbose) {
-                console.debug("get returning:", this.name, value);
+                console.debug("get returning:", this.name, key, value);
             }
             return value;
         } catch (e) {

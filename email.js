@@ -2,6 +2,7 @@ import { generateUUID, differ, verbosity } from "./common.js";
 import { domainPart } from "./common.js";
 import { AsyncMap } from "./asyncmap.js";
 import { config } from "./config.js";
+import { getAccount } from "./accounts.js";
 
 /* global console, messenger, setTimeout, clearTimeout, setInterval, clearInterval, window */
 
@@ -540,14 +541,14 @@ class EmailController {
         }
     }
 
-    async sendRequest(account, command, body = undefined, timeout = undefined) {
+    async sendRequest(accountId, command, body = undefined, timeout = undefined) {
         try {
             if (verbose) {
-                console.log("email.sendRequest:", account, command, body, timeout);
+                console.log("email.sendRequest:", accountId, command, body, timeout);
             }
             const autoDelete = await config.local.getBool(config.key.autoDelete);
             const minimizeCompose = await config.local.getBool(config.key.minimizeCompose);
-
+            const account = await getAccount(accountId);
             let request = new EmailRequest(this, autoDelete, minimizeCompose);
             var ret = await request.send(account, command, body, timeout);
             if (verbose) {

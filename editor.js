@@ -7,6 +7,7 @@ import { OptionsTab } from "./tab_options.js";
 import { AdvancedTab } from "./tab_advanced.js";
 import { HelpTab } from "./tab_help.js";
 import { generateUUID } from "./common.js";
+import { noAccountsEnabled, getAccount, getAccounts, getSelectedAccount } from "./accounts.js";
 
 // FIXME: add refresh command to filterctl to get classes, books,  account data in one filterctl response
 
@@ -23,20 +24,11 @@ initThemeSwitcher();
 let hasLoaded = false;
 let backgroundSuspended = false;
 let usagePopulated = false;
-let accountsPopulated = false;
 
 let activeTab = "classes";
 
-// buffer programatic updates when controls are unpopulated or disabled
-let bufferedSelectTab = undefined;
-let bufferedSelectAccount = undefined;
-
 // map between select element index and accountId
 let accountIndex = {};
-
-// keep accounts and selectedAccounts state
-let accounts = undefined;
-let selectedAccount = undefined;
 
 // connection state vars
 let port = null;
@@ -69,86 +61,58 @@ let tab = {
 ////////////////////////////////////////////////////////////////////////////////
 
 // called from the background page message handler
-async function populateAccounts(updateAccounts = undefined, updateSelectedAccount = undefined) {
+async function populateAccounts() {
     try {
         if (verbose) {
             console.debug("BEGIN populateAccounts");
         }
 
-        if (updateAccounts === undefined) {
-            updateAccounts = await sendMessage({ id: "getAccounts" });
-        }
-        if (updateAccounts !== undefined && updateSelectedAccount === undefined) {
-            updateSelectedAccount = await sendMessage({ id: "getSelectedAccount" });
-        }
-
-        if (updateAccounts === undefined || updateSelectedAccount === undefined) {
-            // no selected account, just activate options and help
+        if (await noAccountsEnabled()) {
             await enableTab("options", true);
             await selectTab("options");
             return;
         }
 
-        if (accountsPopulated && !differ(updateAccounts, accounts) === false) {
-            console.warn("populateAccounts: accounts unchanged, skipping populate");
-        } else {
-            // disable the select controls while updating
-            await enableAccountControls(false);
+        const accounts = await getAccounts();
+        const selectedAccount = await getSelectedAccount();
 
-            // clear account select contents
-            tab.classes.controls.accountSelect.innerHTML = "";
-            tab.books.controls.accountSelect.innerHTML = "";
-            tab.advanced.controls.selectedAccount.value = "";
+        // disable the select controls while updating
+        await enableAccountControls(false);
 
-            // initialize the select control dropdown lists
-            if (verbose) {
-                console.debug("editor.populateAccounts:", {
-                    updateAccounts: updateAccounts,
-                    updateSelectedAccount: updateSelectedAccount,
-                });
-            }
+        // clear account select contents
+        tab.classes.controls.accountSelect.innerHTML = "";
+        tab.books.controls.accountSelect.innerHTML = "";
+        tab.advanced.controls.selectedAccount.value = "";
 
-            let i = 0;
-            accountIndex = {};
-            for (let [id, account] of Object.entries(updateAccounts)) {
-                if (verbose) {
-                    console.debug({ i: i, id: id, account: account });
-                }
-                accountIndex[account.id] = i;
-                accountIndex[i] = account.id;
-                addAccountSelectRow(tab.classes.controls.accountSelect, id, accountEmailAddress(account));
-                addAccountSelectRow(tab.books.controls.accountSelect, id, accountEmailAddress(account));
-                i++;
-            }
-
-            // set the accounts here and in the tabs that need them
-            accounts = updateAccounts;
-
-            // enable the select controls
-            await enableAccountControls(false);
-
-            // enable the tabs
-            await enableTab("classes", true);
-            await enableTab("books", true);
-            await enableTab("options", true);
-            await enableTab("advanced", true);
-            await enableTab("help", true);
-
-            accountsPopulated = true;
+        // initialize the select control dropdown lists
+        if (verbose) {
+            console.debug("editor.populateAccounts:", { accounts, selectedAccount });
         }
 
-        await selectAccount(updateSelectedAccount.id);
-
-        if (bufferedSelectTab) {
+        let i = 0;
+        accountIndex = {};
+        for (let [id, account] of Object.entries(accounts)) {
             if (verbose) {
-                console.log("applying buffered tab selection:", bufferedSelectTab);
+                console.debug({ i, id, account });
             }
-            await selectTab(bufferedSelectTab);
-            bufferedSelectTab = undefined;
+            accountIndex[id] = i;
+            accountIndex[i] = id;
+            addAccountSelectRow(tab.classes.controls.accountSelect, id, accountEmailAddress(account));
+            addAccountSelectRow(tab.books.controls.accountSelect, id, accountEmailAddress(account));
+            i++;
         }
+
+        await updateAccountControls(selectedAccount.id);
+
+        // enable the tabs
+        await enableTab("classes", true);
+        await enableTab("books", true);
+        await enableTab("options", true);
+        await enableTab("advanced", true);
+        await enableTab("help", true);
 
         if (verbose) {
-            console.debug("END populateAccountSelect", { accounts: accounts, selectedAccount: selectedAccount });
+            console.debug("END populateAccountSelect", { accounts, selectedAccount });
         }
     } catch (e) {
         console.error(e);
@@ -177,7 +141,7 @@ function addAccountSelectRow(control, id, name) {
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-// selectAccount:   set the account elements and selectedAccount variable
+// updateAccountControls:   set the account controls elements state
 //		    to synchronize the selected account when changed
 //
 // callers:
@@ -187,37 +151,31 @@ function addAccountSelectRow(control, id, name) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-// FIXME: this should be called updateSelectedAccountControlState
-async function selectAccount(accountId) {
+async function updateAccountControls(accountId) {
     try {
         if (verbose) {
-            console.debug("selectAccount:", accountId);
+            console.debug("updateAccountControls:", accountId);
         }
-        if (typeof accountId !== "string") {
-            throw new Error("selectAccount: unexpected accountId type:", accountId);
-        }
+        let account = await getAccount(accountId);
         let index = accountIndex[accountId];
-        selectedAccount = accounts[accountId];
-        if (index === undefined || selectedAccount === undefined) {
-            console.error("selectAccount: unknown accountId:", accountId);
+        if (index === undefined) {
+            console.error("updateAccountControls: unknown accountId:", accountId);
             throw new Error("unknown account");
-            //return false;
         }
 
         // classes
         tab.classes.controls.accountSelect.selectedIndex = index;
-        tab.classes.selectedAccount = selectedAccount;
-        await tab.classes.selectAccount(selectedAccount);
+        await tab.classes.selectAccount(accountId);
 
         // books
         tab.books.controls.accountSelect.selectedIndex = index;
-        await tab.books.selectAccount(selectedAccount);
+        await tab.books.selectAccount(accountId);
 
         // advanced
-        await tab.advanced.selectAccount(selectedAccount);
+        await tab.advanced.selectAccount(accountId);
 
         if (verbose) {
-            console.log("account selected:", accountEmailAddress(selectedAccount));
+            console.log("updateAccountControls:", accountEmailAddress(account));
         }
         return true;
     } catch (e) {
@@ -244,9 +202,7 @@ async function onAccountSelectChange(sender) {
         }
         if (sender.target === tab.classes.controls.accountSelect || sender.target === tab.books.controls.accountSelect) {
             const accountId = accountIndex[index];
-            await selectAccount(accountId);
-            // slected account changed by user action, inform the background page
-            await sendMessage({ id: "selectAccount", account: accountId });
+            await updateAccountControls(accountId);
         } else {
             throw new Error("onAccountSelectChange: unexpected event sender:", sender);
         }
@@ -448,7 +404,7 @@ function validateUsageResponse(response) {
 
 async function requestUsage() {
     try {
-        console.assert(selectedAccount !== undefined);
+        const selectedAccount = await getSelectedAccount();
         const message = {
             id: "sendCommand",
             accountId: selectedAccount.id,
@@ -473,67 +429,6 @@ async function requestUsage() {
 //  requests RPC handlers and connection management
 //
 ////////////////////////////////////////////////////////////////////////////////
-
-async function handleUpdateEditorAccounts(message) {
-    try {
-        if (verbose) {
-            console.debug("handleUpdateEditorAccounts:", message);
-        }
-        //FIXME: await populateAccounts(message.accounts, message.selectedAccount);
-        return true;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleUpdateEditorSelectedAccount(message) {
-    try {
-        if (verbose) {
-            console.debug("handleUpdateEditorSelectedAccount:", message);
-        }
-        let warnings = [];
-        let success = false;
-        if (!accountsPopulated) {
-            warnings.push("handleUpdateEditorSelectedAccount: accounts not populated");
-        }
-        if (tab.classes.controls.accountSelect.disabled) {
-            warnings.push("handleUpdateEditorSelectedAccount: classes account controls disabled");
-        }
-        if (tab.books.controls.accountSelect.disabled) {
-            warnings.push("handleUpdateEditorSelectedAccount: books account controls disabled");
-        }
-        if (warnings.length > 0) {
-            console.warn("handleUpdateEditorSelectedAccount: updating buffered message:", {
-                detail: warnings,
-                previousBuffer: bufferedSelectAccount,
-                newBuffer: message.account,
-            });
-            bufferedSelectAccount = message.account;
-        } else {
-            success = await selectAccount(message.account.id);
-        }
-        return success;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleSelectEditorTab(message) {
-    try {
-        if (verbose) {
-            console.debug("handleSelectEditorTab:", message);
-        }
-        let tabName = message.name;
-        let success = await selectTab(tabName);
-        if (success !== true) {
-            bufferedSelectTab = tabName;
-            console.warn("handleSelectEditorTab: requested tab disabled, tab selection change deferred:", message);
-        }
-        return success;
-    } catch (e) {
-        console.error(e);
-    }
-}
 
 // return bool: true if successfully changed
 async function selectTab(name) {
@@ -697,7 +592,8 @@ async function onMessage(message, sender) {
                     await disconnect();
                 }
                 return;
-            case "AddSenderTargetChanged":
+            case "addSenderTargetChanged":
+                await tab.books.handleAddSenderTargetChanged(message);
                 return;
         }
 
@@ -724,6 +620,7 @@ async function onMessage(message, sender) {
         let response = undefined;
 
         switch (message.id) {
+            /*
             case "selectEditorTab":
                 response = await handleSelectEditorTab(message);
                 break;
@@ -735,11 +632,12 @@ async function onMessage(message, sender) {
             case "updateEditorSelectedAccount":
                 response = await handleUpdateEditorSelectedAccount(message);
                 break;
-
+	    */
             default:
                 console.error("unknown message ID:", message);
                 break;
         }
+
         if (response !== undefined) {
             if (typeof response !== "object") {
                 response = { response: response };

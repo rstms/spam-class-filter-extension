@@ -2,6 +2,7 @@
 // tab_options
 //
 
+import { Domains } from "./domains.js";
 import { differ, verbosity } from "./common.js";
 import { config } from "./config.js";
 
@@ -10,17 +11,17 @@ const verbose = verbosity.tab_options;
 
 export class OptionsTab {
     constructor(sendMessage, handlers) {
+        this.domains = new Domains();
         this.controls = {};
-        this.pendingDomainConfig = {};
+        this.pendingDomains = {};
         this.domainCheckbox = {};
         this.sendMessage = sendMessage;
         this.handlers = handlers;
-        this.account = undefined;
     }
 
-    async selectAccount(account) {
+    async selectAccount(accountId) {
         try {
-            this.account = account;
+            this.accountId = accountId;
         } catch (e) {
             console.error(e);
         }
@@ -77,21 +78,16 @@ export class OptionsTab {
 
             this.showDomainsButtons(false);
 
-            // get domains from background page
-            const configDomains = await this.sendMessage({ id: "getDomains" });
-            const enabledDomains = await this.sendMessage({ id: "getEnabledDomains" });
-            console.log({ configDomains: configDomains, enabledDomains: enabledDomains });
-
             var stack = this.controls.domainsStack;
             stack.innerHTML = "";
             this.domainCheckbox = {};
-            this.pendingDomainConfig = {};
+            this.pendingDomains = {};
             var index = 0;
-            for (const domain of Object.keys(configDomains).sort()) {
-                const enabled = enabledDomains[domain] ? true : false;
+            const domains = await this.domains.get({ refresh: true });
+            for (const [domain, enabled] of Object.entries(domains)) {
                 console.log(index, domain, enabled);
                 const created = await this.createDomainRow(index, domain, enabled);
-                this.pendingDomainConfig[domain] = enabled;
+                this.pendingDomains[domain] = enabled;
                 this.domainCheckbox[created.checkbox.id] = {
                     control: created.checkbox,
                     id: created.checkbox.id,
@@ -112,12 +108,12 @@ export class OptionsTab {
 
     async updateDomainsApplyButton() {
         try {
-            const accountDomains = await this.sendMessage({ id: "getDomains" });
-            const dirty = differ(this.pendingDomainConfig, accountDomains);
+            const domains = await this.domains.get({ refresh: true });
+            const dirty = differ(this.pendingDomains, domains);
             console.log("updateDomainsApplyButton:", {
                 dirty: dirty,
-                pending: this.pendingDomainConfig,
-                account: accountDomains,
+                pending: this.pendingDomains,
+                account: domains,
             });
             this.showDomainsButtons(dirty);
         } catch (e) {
@@ -138,9 +134,9 @@ export class OptionsTab {
 
     async onDomainsApplyClick() {
         try {
-            const accountDomains = await this.sendMessage({ id: "getDomains" });
-            if (differ(this.pendingDomainConfig, accountDomains)) {
-                await this.sendMessage({ id: "setDomains", domains: this.pendingDomainConfig });
+            const domains = await this.domains.get({ refresh: true });
+            if (differ(this.pendingDomains, domains)) {
+                await this.domains.setAll(this.pendingDomains);
                 await messenger.runtime.reload();
             }
         } catch (e) {
@@ -153,7 +149,7 @@ export class OptionsTab {
             console.log("onDomainCheckboxChange:", sender);
             const domain = this.domainCheckbox[sender.target.id].domain;
             const enabled = sender.target.checked;
-            this.pendingDomainConfig[domain] = enabled;
+            this.pendingDomains[domain] = enabled;
             await this.updateDomainsApplyButton();
         } catch (e) {
             console.error(e);

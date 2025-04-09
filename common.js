@@ -10,13 +10,13 @@ export const verbosity = {
     config: true,
     editor: true,
     email: false,
-    filterctl: true,
+    filterctl: false,
     ports: false,
     tab_advanced: false,
     tab_books: false,
     tab_classes: false,
-    tab_help: true,
-    tab_options: false,
+    tab_help: false,
+    tab_options: true,
 };
 
 export function generateUUID() {
@@ -110,6 +110,7 @@ export function selectedAccountEmailAddress(accountSelect) {
 
 export function accountEmailAddress(account) {
     try {
+        validateAccount(account);
         return account.identities[0].email;
     } catch (e) {
         console.error(e);
@@ -118,7 +119,7 @@ export function accountEmailAddress(account) {
 
 export function accountDomain(account) {
     try {
-        return domainPart(account.identities[0].email);
+        return domainPart(accountEmailAddress(account));
     } catch (e) {
         console.error(e);
     }
@@ -182,5 +183,29 @@ export async function displayMessage(message) {
         }, MESSAGE_DWELL_TIME);
     } catch (e) {
         console.error(e);
+    }
+}
+
+// weakly validate a potential accountId
+export function isValidAccountId(accountId) {
+    return typeof accountId === "string";
+}
+
+// throw an error if the accountId is bad
+export function validateAccountId(accountId) {
+    if (!isValidAccountId(accountId)) {
+        throw new Error(`invalid accountId: ${accountId}`);
+    }
+}
+
+// return true if the account looks like an account object
+export function isValidAccount(account) {
+    return typeof account === "object" && typeof account.id === "string" && Array.isArray(account.identities);
+}
+
+// throw an error if the account doesn't look like one
+export function validateAccount(account) {
+    if (!isValidAccount(account)) {
+        throw new Error(`invalid account: {$account}`);
     }
 }

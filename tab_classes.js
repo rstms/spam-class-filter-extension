@@ -1,5 +1,6 @@
 import { Classes, Level, classesFactory } from "./filterctl.js";
 import { verbosity } from "./common.js";
+import { getAccount, getAccounts, getSelectedAccount } from "./accounts.js";
 
 /* globals document, console, setTimeout, clearTimeout */
 
@@ -29,9 +30,9 @@ export class ClassesTab {
         this.classes = undefined;
     }
 
-    async selectAccount(account) {
+    async selectAccount(accountId) {
         try {
-            this.account = account;
+            this.account = await getAccount(accountId);
             await this.populate();
         } catch (e) {
             console.error(e);
@@ -69,7 +70,7 @@ export class ClassesTab {
                     }
                     // parse message object into a Classes
                     console.assert(response.accountId === this.account.id, "server response account ID mismatch");
-                    classes = await classesFactory(this.accounts, response.classes, this.account);
+                    classes = await classesFactory(response.classes, response.accountId);
                     if (verbose) {
                         console.debug("ClassesTab.handleResponse:", response.valid, classes.valid, classes, response);
                     }
@@ -97,8 +98,8 @@ export class ClassesTab {
     async getLevels(asClasses = false) {
         try {
             let i = 0;
-            let classes = await classesFactory(this.accounts);
-            classes.setAccount(this.account);
+            let classes = await classesFactory();
+            await classes.setAccountId(this.account.id);
             if (verbose) {
                 console.debug("getLevels: initialized classes:", classes);
             }
@@ -116,7 +117,7 @@ export class ClassesTab {
                 classes.addLevel(name, score);
                 i += 1;
             }
-            let ret = asClasses ? classes : classes.render().Classes;
+            let ret = asClasses ? classes : (await classes.render()).Classes;
             if (verbose) {
                 console.debug("getLevels: returning:", ret);
             }
@@ -397,11 +398,11 @@ export class ClassesTab {
             }
 
             if (this.accounts === undefined) {
-                this.accounts = await this.sendMessage("getAccounts");
+                this.accounts = await getAccounts();
             }
 
             if (this.account === undefined) {
-                this.account = await this.sendMessage("getSelectedAccount");
+                this.account = await getSelectedAccount();
             }
 
             if (this.account === undefined) {
@@ -417,7 +418,7 @@ export class ClassesTab {
             if (verbose) {
                 console.debug("ClassesTab.populate: classes:", classes);
             }
-            let levels = classes.render().Classes;
+            let levels = (await classes.render()).Classes;
             if (verbose) {
                 console.debug("ClassesTab.populate: levels:", levels);
             }
@@ -543,7 +544,7 @@ export class ClassesTab {
             let message = {
                 id: sendToServer ? "sendClasses" : "setClasses",
                 accountId: classes.account.id,
-                classes: classes.render(),
+                classes: await classes.render(),
             };
             await this.setStatusPending("sending classes...");
             if (verbose) {

@@ -4,6 +4,7 @@
 
 import { Books, booksFactory, validateBookName } from "./filterctl.js";
 import { accountEmailAddress, isValidBookName, verbosity } from "./common.js";
+import { getAccount, getAccounts, getSelectedAccount } from "./accounts.js";
 
 /* globals console, document, messenger */
 
@@ -69,12 +70,12 @@ export class BooksTab {
     }
 
     // called when account selection changes
-    async selectAccount(account) {
+    async selectAccount(accountId) {
         try {
             if (verbose) {
-                console.debug("Books.selectAccount:", account);
+                console.debug("Books.selectAccount:", accountId);
             }
-            this.account = account;
+            this.account = await getAccount(accountId);
             await this.populate();
             await this.populateAddSenderTarget();
             await this.populateConnections(this.isConnectionsExpanded());
@@ -125,7 +126,7 @@ export class BooksTab {
                 if (typeof books === "object") {
                     // parse the rendered message data into a Books object
                     console.assert(response.accountId === this.account.id, "server response account ID mismatch");
-                    books = await booksFactory(this.accounts, response.books, this.account);
+                    books = await booksFactory(response.books, response.accountId);
                 }
                 console.assert(books instanceof Books, "books is not an instance of Books");
                 if (!disablePopulate) {
@@ -258,8 +259,8 @@ export class BooksTab {
 
     async initialize() {
         try {
-            this.accounts = await this.sendMessage("getAccounts");
-            this.account = await this.sendMessage("getSelectedAccount");
+            this.accounts = await getAccounts();
+            this.account = await getSelectedAccount();
             let i = 0;
             this.accountIndex = {};
             for (const account of Object.values(this.accounts)) {
@@ -839,6 +840,16 @@ export class BooksTab {
         }
     }
 
+    async handleAddSenderTargetChanged(message) {
+        try {
+            if (message.accountId === this.account.id) {
+                await this.populateAddSenderTarget(message.bookName);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
     // select current book as account 'add sender' target
     async onAddSenderMenuClick(sender) {
         try {
@@ -846,7 +857,7 @@ export class BooksTab {
                 console.debug("onAddSenderMenuClick:", sender, sender.target.textContent);
             }
             const bookName = sender.target.textContent;
-            this.populateAddSenderTarget(bookName);
+            await this.populateAddSenderTarget(bookName);
             await this.sendMessage({
                 id: "setAddSenderTarget",
                 accountId: this.account.id,

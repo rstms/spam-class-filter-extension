@@ -1,4 +1,5 @@
 import { accountEmailAddress, verbosity } from "./common.js";
+import { getAccount } from "./accounts.js";
 
 /* globals document, console, */
 
@@ -6,16 +7,15 @@ const verbose = verbosity.tab_advanced;
 
 export class AdvancedTab {
     constructor(sendMessage) {
-        this.account = undefined;
         this.controls = {};
         this.sendMessage = sendMessage;
         this.commandUsage = {};
     }
 
-    async selectAccount(account) {
+    async selectAccount(accountId) {
         try {
-            this.account = account;
-            this.controls.selectedAccount.value = accountEmailAddress(account);
+            this.account = await getAccount(accountId);
+            this.controls.selectedAccount.value = accountEmailAddress(this.account);
         } catch (e) {
             console.error(e);
         }

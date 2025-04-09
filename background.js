@@ -1,4 +1,6 @@
-import { Accounts } from "./accounts.js";
+console.warn("BEGIN background.js");
+
+import { isAccount, getAccounts, getAccount, getSelectedAccount, noAccountsEnabled } from "./accounts.js";
 import * as ports from "./ports.js";
 import { accountEmailAddress, displayMessage, generateUUID } from "./common.js";
 import { FilterDataController } from "./filterctl.js";
@@ -15,14 +17,14 @@ import { verbosity } from "./common.js";
 const verbose = verbosity.background;
 
 // state vars
-let accounts = undefined;
 let filterctl = undefined;
 
 let pendingConnections = new Map();
 const backgroundId = "background-" + generateUUID();
 
-let displayedMessagesAccount = undefined;
-let displayedMessagesTab = undefined;
+let messageDisplayActionAccountId = undefined;
+let displayedFolderAccountId = undefined;
+let displayedFolderTab = undefined;
 
 let menus = {};
 
@@ -34,11 +36,11 @@ let menus = {};
 
 async function initialize(mode) {
     try {
+        const approved = await isApproved();
+        console.warn("initialize:", { mode, approved });
         if (await config.local.getBool(config.key.autoClearConsole)) {
             console.clear();
         }
-
-        const approved = await isApproved();
 
         const manifest = await messenger.runtime.getManifest();
         console.log(manifest.name + " v" + manifest.version + " (" + mode + ") OptIn:" + String(approved));
@@ -48,20 +50,25 @@ async function initialize(mode) {
             console.debug("commands:", await messenger.commands.getAll());
         }
 
-        await getAccounts();
-
         if (!approved) {
             await messenger.messageDisplayAction.disable();
             return;
         }
 
-        await initFilterDataController();
-        await initMenus();
-
         let autoOpen = await config.local.getBool(config.key.autoOpen);
+
+        if (await noAccountsEnabled()) {
+            autoOpen = true;
+        } else {
+            filterctl = new FilterDataController(email);
+            await filterctl.readState();
+            await initMenus();
+        }
+
         if (await config.local.getBool(config.key.reloadAutoOpen)) {
             autoOpen = true;
         }
+
         await config.local.remove(config.key.reloadAutoOpen);
         if (autoOpen) {
             await focusEditorWindow();
@@ -71,25 +78,11 @@ async function initialize(mode) {
     }
 }
 
-async function getAccounts() {
-    try {
-        if (accounts === undefined) {
-            accounts = new Accounts();
-            let enabled = await accounts.enabled();
-            for (const account of Object.values(enabled)) {
-                await accounts.select(account);
-                break;
-            }
-        }
-        return accounts;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 async function onStartup() {
     try {
-        await initialize("Startup");
+        const approved = await isApproved();
+        console.warn("onStartup:", { approved });
+        await initialize("startup");
     } catch (e) {
         console.error(e);
     }
@@ -97,14 +90,16 @@ async function onStartup() {
 
 async function onInstalled() {
     try {
-        await initialize("Installed");
+        const approved = await isApproved();
+        console.warn("onStartup:", { approved });
+        await initialize("installed");
     } catch (e) {
         console.error(e);
     }
 }
 
 // flags: onPort: true will use the connected port
-async function postEditorMessage(message, flags = {}) {
+async function postEditorMessage(message, flags = { requireSuccess: false }) {
     try {
         var port = await ports.get("editor", ports.NO_WAIT);
         if (port === undefined) {
@@ -128,8 +123,7 @@ async function postEditorMessage(message, flags = {}) {
 async function onSuspend() {
     try {
         console.warn("background suspending");
-        await postEditorMessage("backgroundSuspending", { requireSuccess: false });
-        //await messenger.runtime.sendMessage({ id: "backgroundSuspending", src: backgroundId });
+        await postEditorMessage("backgroundSuspending");
     } catch (e) {
         console.error(e);
     }
@@ -138,8 +132,7 @@ async function onSuspend() {
 async function onSuspendCanceled() {
     try {
         console.warn("background suspend canceled");
-        await postEditorMessage("backgroundSuspendCanceled", { requireSuccess: false });
-        //await messenger.runtime.sendMessage({ id: "backgroundSuspenCanceled", src: backgroundId });
+        await postEditorMessage("backgroundSuspendCanceled");
     } catch (e) {
         console.error(e);
     }
@@ -277,27 +270,25 @@ async function addSenderCommand(index, command, tab) {
         if (verbose) {
             console.debug("addSenderCommand:", index, tab);
         }
-
-        if (displayedMessagesAccount === undefined) {
-            console.warn("onCommand:", command, { displayedMessagesAccount });
-            return;
+        if (tab.id !== displayedFolderTab.id) {
+            console.error("unexpected command tab", { index, command, tab, displayedFolderTab });
+            throw new Error("unexpected command tab");
         }
-        if (displayedMessagesTab === undefined) {
-            console.warn("onCommand:", command, { displayedMessagesTab });
-            return;
+        if (messageDisplayActionAccountId === undefined) {
+            throw new Error("addSenderCommand: message display action is disabled");
         }
         let book;
         if (index === "default") {
-            book = await getAddSenderTarget(displayedMessagesAccount);
+            book = await getAddSenderTarget(messageDisplayActionAccountId);
         } else {
-            const books = await filterctl.getCardDAVBooks(displayedMessagesAccount);
+            const books = await filterctl.getCardDAVBooks(messageDisplayActionAccountId);
             const indexed = books[parseInt(index) - 1];
             if (indexed !== undefined) {
                 book = indexed.name;
             }
         }
         if (book !== undefined) {
-            await addSenderToFilterBook(displayedMessagesAccount, displayedMessagesTab, book);
+            await addSenderToFilterBook(messageDisplayActionAccountId, tab, book);
         }
     } catch (e) {
         console.error(e);
@@ -364,7 +355,7 @@ async function onMessage(message, sender) {
         if (message.id === "ACK") {
             port = pendingConnections.get(message.src);
         } else {
-            port = ports.get(message.src, ports.NO_WAIT);
+            port = await ports.get(message.src, ports.NO_WAIT);
         }
 
         if (port === undefined) {
@@ -379,35 +370,8 @@ async function onMessage(message, sender) {
                 pendingConnections.delete(port.name);
                 response = { background: backgroundId };
                 response[ports.portLabel(port)] = port.name;
-                if (accounts === undefined) {
-                    await initialize("onMessage");
-                }
                 break;
 
-            case "getAccounts":
-                response = await accounts.enabled();
-                break;
-            case "getSelectedAccount":
-                response = await accounts.selected();
-                break;
-            case "selectAccount":
-                response = await accounts.select(message.account);
-                break;
-            case "getDomains":
-                response = await accounts.domains();
-                break;
-            case "getEnabledDomains":
-                response = await accounts.enabledDomains();
-                break;
-            case "setDomains":
-                response = await accounts.setDomains(message.domains);
-                break;
-            case "enableDomain":
-                response = await accounts.enableDomain(message.domain);
-                break;
-            case "disableDomain":
-                response = await accounts.disableDomain(message.domain);
-                break;
             case "getClasses":
                 response = await handleGetClasses(message);
                 break;
@@ -466,10 +430,10 @@ async function onMessage(message, sender) {
                 response = await handleGetPassword(message);
                 break;
             case "setAddSenderTarget":
-                response = await setAddSenderTarget(await messageAccount(message), message.bookName);
+                response = await setAddSenderTarget(message.accountId, message.bookName);
                 break;
             case "getAddSenderTarget":
-                response = await getAddSenderTarget(await messageAccount(message));
+                response = await getAddSenderTarget(message.accountId);
                 break;
             case "findEditorTab":
                 response = await findEditorTab();
@@ -569,30 +533,45 @@ async function initMenus() {
                 await createMenu(mid, config);
             }
         }
-        await updateMessageDisplayAction();
+        await updateMessageDisplayAction(await selectedMessagesAccountId());
         await messenger.menus.refresh();
     } catch (e) {
         console.error(e);
     }
 }
 
-async function updateMessageDisplayAction(account = undefined, book = undefined) {
+async function selectedMessagesAccountId() {
     try {
-        let enabled = false;
-        if (account !== undefined) {
-            enabled = await accounts.isEnabled(account, { throwError: false });
+        const tabs = await messenger.tabs.query({ type: "mail" });
+        for (const tab of tabs) {
+            const selected = await messenger.mailTabs.getSelectedMessages(tab.id);
+            for (const message of selected.messages) {
+                const accountId = message.folder.accountId;
+                if (await isAccount(accountId)) {
+                    return accountId;
+                }
+                break;
+            }
+            break;
         }
-        if (enabled) {
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function updateMessageDisplayAction(accountId = undefined, book = undefined) {
+    try {
+        if (accountId !== undefined && (await isAccount(accountId))) {
             if (book === undefined) {
-                book = await getAddSenderTarget(account);
+                book = await getAddSenderTarget(accountId);
             }
             await messenger.messageDisplayAction.setTitle({ title: "Add to '" + book + "'" });
             await messenger.messageDisplayAction.enable();
-            displayedMessagesAccount = account;
+            messageDisplayActionAccountId = accountId;
         } else {
             await messenger.messageDisplayAction.setTitle({ title: "Add Sender Disabled" });
             await messenger.messageDisplayAction.disable();
-            displayedMessagesAccount = undefined;
+            messageDisplayActionAccountId = undefined;
         }
     } catch (e) {
         console.error(e);
@@ -725,7 +704,7 @@ async function onMenuEvent(menuEvent, mids, info, tab) {
         let refresh = false;
         let detail = await menuEventDetail(info, tab);
         if (menuEvent === "onShown" && detail.setVisibility) {
-            await setMenuVisibility(detail.account, detail.context);
+            await setMenuVisibility(detail.accountId, detail.context);
             refresh = true;
         }
         for (let mid of mids) {
@@ -748,19 +727,19 @@ async function onMenuEvent(menuEvent, mids, info, tab) {
     }
 }
 
-async function setMenuVisibility(account, context) {
+async function setMenuVisibility(accountId, context) {
     try {
         if (verbose) {
-            console.debug("setMenuVisibility:", account, context);
+            console.debug("setMenuVisibility:", accountId, context);
         }
 
-        let book = account === undefined ? undefined : await getAddSenderTarget(account);
+        let book = accountId === undefined ? undefined : await getAddSenderTarget(accountId);
         for (const config of Object.values(menus)) {
             if (config.properties.contexts.includes(context)) {
                 let properties = {};
-                properties.visible = account !== undefined;
-                if (properties.visible && config.account !== undefined) {
-                    properties.visible = account.id === config.account.id;
+                properties.visible = accountId !== undefined;
+                if (properties.visible && config.accountId !== undefined) {
+                    properties.visible = accountId === config.accountId;
                     if (config.properties.type === "radio") {
                         properties.checked = config.properties.title === book;
                     }
@@ -786,17 +765,26 @@ async function menuEventDetail(info, tab) {
             info,
             tab,
             setVisibility: false,
+            hasAccount: false,
         };
+
+        const accounts = await getAccounts();
 
         if (Array.isArray(info.selectedFolders)) {
             console.assert(!Object.hasOwn(info, "displayedFolder"), "conflicting info folders");
             for (const folder of info.selectedFolders) {
-                ret.account = await accounts.get(folder.accountId, { throwError: false });
+                if (Object.hasOwn(accounts, folder.accountId)) {
+                    ret.hasAccount = true;
+                    ret.accountId = folder.accountId;
+                }
                 break;
             }
         } else if (Object.hasOwn(info, "displayedFolder")) {
             console.assert(!Object.hasOwn(info, "selectedFolders"), "conflicting info folders");
-            ret.account = await accounts.get(info.displayedFolder.accountId, { throwError: false });
+            if (Object.hasOwn(accounts, info.displayedFolder.accountId)) {
+                ret.hasAccount = true;
+                ret.accountId = info.displayedFolder.accountId;
+            }
         }
 
         if (Object.hasOwn(info, "contexts")) {
@@ -827,15 +815,15 @@ async function onMenuCreatedAddBooks(created) {
             console.debug("onMenuCreatedAddBooks:", created);
         }
 
-        let enabled = await accounts.enabled();
-        for (const account of Object.values(enabled)) {
-            let email = accountEmailAddress(account);
-            const books = await filterctl.getCardDAVBooks(account);
+        const accounts = await getAccounts();
+        for (const [accountId, account] of Object.entries(accounts)) {
+            let accountEmail = accountEmailAddress(account);
+            const books = await filterctl.getCardDAVBooks(accountId);
             for (const book of books) {
                 let config = Object.assign({}, menuConfig.rmfBook);
                 config.properties = Object.assign({}, menuConfig.rmfBook.properties);
-                let id = `rmfBook-${email}-${book.name}`;
-                config.account = account;
+                let id = `rmfBook-${accountEmail}-${book.name}`;
+                config.accountId = accountId;
                 config.book = book.name;
                 config.properties.title = book.name;
                 config.properties.parentId = created.id;
@@ -854,13 +842,13 @@ async function onMenuShownUpdateAddSenderTitle(target, detail) {
         if (verbose) {
             console.debug("onMenuShownUpdateAddSenderTitle:", { target, detail });
         }
-        if (detail.account === undefined) {
-            await messenger.menus.update(target.id, { visible: false });
-        } else {
-            let book = await getAddSenderTarget(detail.account);
+        if (detail.hasAccount) {
+            let book = await getAddSenderTarget(detail.accountId);
             console.assert(target.properties.title === "Add Sender to '__book__'");
             let title = target.properties.title.replace(/__book__/, book);
             await messenger.menus.update(target.id, { title });
+        } else {
+            await messenger.menus.update(target.id, { visible: false });
         }
         return true;
     } catch (e) {
@@ -883,11 +871,15 @@ async function onActionButtonClicked(tab, info) {
 async function onMenuClickedSelectBook(target, detail) {
     try {
         if (verbose) {
-            console.log("onMenuClickedSelectBook:", target.id, { target, detail, displayedMessagesAccount });
+            console.log("onMenuClickedSelectBook:", target.id, {
+                target,
+                detail,
+                messageDisplayActionAccountId,
+                displayedFolderAccountId,
+            });
         }
-        let account = target.account;
-        let book = target.book;
-        await setAddSenderTarget(account, book);
+        console.assert(target.accountId === messageDisplayActionAccountId);
+        await setAddSenderTarget(target.accountId, target.book);
     } catch (e) {
         console.error(e);
     }
@@ -911,22 +903,21 @@ async function onMenuControlPanelClicked(target, detail) {
 //////////////////////////////////////////////////////
 
 // read add sender target book name from config
-async function getAddSenderTarget(account) {
+async function getAddSenderTarget(accountId) {
     try {
-        if (account === undefined) {
-            throw new Error("undefined account");
-        }
         let bookName = undefined;
-        let targets = await config.local.get(config.key.addSenderTarget);
-        if (targets !== undefined) {
-            bookName = targets[account.id];
-        }
-        if (bookName === undefined) {
-            let books = await filterctl.getCardDAVBooks(account);
-            for (const book of books) {
-                bookName = book.name;
-                await setAddSenderTarget(account, bookName);
-                break;
+        if (await isAccount(accountId)) {
+            let targets = await config.local.get(config.key.addSenderTarget);
+            if (targets !== undefined) {
+                bookName = targets[accountId];
+            }
+            if (bookName === undefined) {
+                let books = await filterctl.getCardDAVBooks(accountId);
+                for (const book of books) {
+                    bookName = book.name;
+                    await setAddSenderTarget(accountId, bookName);
+                    break;
+                }
             }
         }
         return bookName;
@@ -936,28 +927,27 @@ async function getAddSenderTarget(account) {
 }
 
 // write add sender target book name to config
-async function setAddSenderTarget(account, bookName) {
+async function setAddSenderTarget(accountId, bookName) {
     try {
+        // side effect: throw error if invalid id
+        await getAccount(accountId);
         let targets = await config.local.get(config.key.addSenderTarget);
         if (targets === undefined) {
             targets = {};
         }
-        if (bookName !== targets[account.id]) {
-            targets[account.id] = bookName;
+        if (bookName !== targets[accountId]) {
+            targets[accountId] = bookName;
             await config.local.set(config.key.addSenderTarget, targets);
             if (verbose) {
-                console.debug("changed addSenderTarget:", account.id, bookName, targets);
+                console.debug("changed addSenderTarget:", accountId, bookName, targets);
             }
-            await postEditorMessage(
-                {
-                    id: "AddSenderTargetChanged",
-                    account: account,
-                    bookName: bookName,
-                },
-                { requireSuccess: false },
-            );
-            if (displayedMessagesAccount !== undefined && displayedMessagesAccount.id === account.id) {
-                await updateMessageDisplayAction(account, bookName);
+            await postEditorMessage({
+                id: "addSenderTargetChanged",
+                accountId: accountId,
+                bookName: bookName,
+            });
+            if (messageDisplayActionAccountId !== undefined && messageDisplayActionAccountId === accountId) {
+                await updateMessageDisplayAction(accountId, bookName);
             }
         }
     } catch (e) {
@@ -976,47 +966,49 @@ async function onMenuAddSenderClicked(target, detail) {
         if (verbose) {
             console.debug("onMenuAddSenderToFilterBook:", target.id, { target, detail });
         }
-        const book = await getAddSenderTarget(detail.account);
-        await addSenderToFilterBook(detail.account, detail.tab, book);
+        const book = await getAddSenderTarget(detail.accountId);
+        await addSenderToFilterBook(detail.accountId, detail.tab, book);
     } catch (e) {
         console.error(e);
     }
 }
 
 // perform 'addSender' function on selected messages in tab with specified target book
-async function addSenderToFilterBook(account, tab, book) {
+async function addSenderToFilterBook(accountId, tab, book) {
     try {
         if (verbose) {
-            console.debug("addSenderToFilterBook:", account, tab, book);
+            console.debug("addSenderToFilterBook:", accountId, tab, book);
         }
-        const messageList = await messenger.messageDisplay.getDisplayedMessages(tab.id);
+        const messageList = await messenger.mailTabs.getSelectedMessages(tab.id);
         if (verbose) {
             console.debug("messageList:", messageList);
         }
         let sendersAdded = [];
         for (const message of messageList.messages) {
-            const account = await accounts.get(message.folder.accountId);
-            console.assert(account.id === account.id);
+            if (accountId !== message.folder.accountId) {
+                console.error("message folder account mismatch:", { accountId, tab, book, message });
+                throw new Error("message folder account mismatch");
+            }
             const fullMessage = await messenger.messages.getFull(message.id);
             const headers = fullMessage.headers;
             if (verbose) {
-                console.debug({ account: account, book: book, author: message.author, message: message, headers: headers });
+                console.debug({ author: message.author, accountId, book, message, headers });
             }
             var sender = String(message.author)
                 .replace(/^[^<]*</g, "")
                 .replace(/>.*$/g, "");
             if (!sendersAdded.includes(sender)) {
                 await displayMessage(`Adding '${sender}' to '${book}'...`);
-                console.log("AddSender request:", sender, book, account);
+                console.log("AddSender request:", sender, book, accountId);
                 filterctl
-                    .addSenderToFilterBook(account, sender, book)
+                    .addSenderToFilterBook(accountId, sender, book)
                     .then((response) => {
                         displayMessage(`Added '${sender}' to '${book}'`).then(() => {
-                            console.log("AddSender completed:", sender, book, account, response);
+                            console.log("AddSender completed:", sender, book, accountId, response);
                         });
                     })
                     .catch((e) => {
-                        console.error("AddSender failed:", sender, book, account, e);
+                        console.error("AddSender failed:", sender, book, accountId, e);
                     });
                 sendersAdded.push(sender);
             }
@@ -1031,10 +1023,31 @@ async function onMessageDisplayActionClicked(tab, info) {
         if (verbose) {
             console.debug("message display action clicked, relaying to menu clicked handler", tab, info);
         }
-        console.assert(displayedMessagesAccount !== undefined);
-        console.assert(displayedMessagesTab.id === tab.id);
-        let book = await getAddSenderTarget(displayedMessagesAccount);
-        await addSenderToFilterBook(displayedMessagesAccount, tab, book);
+
+        const messages = await messenger.mailTabs.getSelectedMessages(tab.id);
+        let messageAccountIds = {};
+        let accountId;
+        for (const message of messages.messages) {
+            accountId = message.folder.accountId;
+            messageAccountIds[message.folder.accountId] = true;
+        }
+
+        if (Object.keys(messageAccountIds).length !== 1) {
+            console.error({ messageAccountIds, messages });
+            throw new Error("unexpected multiple accountIds in selected messages");
+        }
+
+        if (!(await isAccount(accountId))) {
+            throw new Error("message display action clicked on inactive account");
+        }
+
+        if (accountId !== messageDisplayActionAccountId) {
+            console.error({ accountId, messageDisplayActionAccountId });
+            throw new Error("unexpected message display action message account");
+        }
+
+        let book = await getAddSenderTarget(accountId);
+        await addSenderToFilterBook(accountId, messages, book);
     } catch (e) {
         console.error(e);
     }
@@ -1045,20 +1058,6 @@ async function onMessageDisplayActionClicked(tab, info) {
 //  Filter Data Controller
 //
 ///////////////////////////////////////////////////////////////////////////////
-
-async function initFilterDataController() {
-    try {
-        let enabled = await accounts.enabled();
-        filterctl = new FilterDataController(enabled, email);
-        await filterctl.readState();
-        let selectedAccount = await accounts.selected();
-        if (selectedAccount !== undefined) {
-            await handleGetPassword({ accountId: selectedAccount.id });
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
 
 async function handleCacheControl(message) {
     try {
@@ -1082,8 +1081,7 @@ async function handleCacheControl(message) {
 
 async function handleGetCardDAVBooks(message) {
     try {
-        const account = await accounts.get(message.accountId);
-        let books = await filterctl.getCardDAVBooks(account);
+        let books = await filterctl.getCardDAVBooks(message.accountId);
         let result = books;
         if (message.names === true) {
             result = [];
@@ -1099,9 +1097,8 @@ async function handleGetCardDAVBooks(message) {
 
 async function handleGetBooks(message) {
     try {
-        const account = await accounts.get(message.accountId);
         const force = message.force ? true : false;
-        const books = await filterctl.getBooks(account, force);
+        const books = await filterctl.getBooks(message.accountId, force);
         return books;
     } catch (e) {
         console.error(e);
@@ -1110,8 +1107,7 @@ async function handleGetBooks(message) {
 
 async function handleSetBooks(message) {
     try {
-        const account = await accounts.get(message.accountId);
-        const result = await filterctl.setBooks(account, message.books);
+        const result = await filterctl.setBooks(message.accountId, message.books);
         await filterctl.writeState();
         return result;
     } catch (e) {
@@ -1121,9 +1117,8 @@ async function handleSetBooks(message) {
 
 async function handleSendBooks(message) {
     try {
-        const account = await accounts.get(message.accountId);
         const force = message.force ? true : false;
-        let result = await filterctl.sendBooks(account, force);
+        let result = await filterctl.sendBooks(message.accountId, force);
         await filterctl.writeState();
         return result;
     } catch (e) {
@@ -1145,8 +1140,9 @@ async function handleSendAllBooks(message) {
 async function handleRefreshBooks() {
     try {
         let force = true;
-        for (const account of Object.values(accounts.enabled())) {
-            await filterctl.getBooks(account, force);
+        const accounts = await getAccounts();
+        for (const accountId of Object.keys(accounts)) {
+            await filterctl.getBooks(accountId, force);
         }
         await filterctl.writeState();
     } catch (e) {
@@ -1157,8 +1153,9 @@ async function handleRefreshBooks() {
 async function handleRefreshAllBooks() {
     try {
         let force = true;
-        for (const account of Object.values(accounts.enabled())) {
-            await filterctl.getBooks(account, force);
+        const accounts = await getAccounts();
+        for (const accountId of Object.keys(accounts)) {
+            await filterctl.getBooks(accountId, force);
         }
         await filterctl.writeState();
     } catch (e) {
@@ -1168,8 +1165,7 @@ async function handleRefreshAllBooks() {
 
 async function handleSetDefaultBooks(message) {
     try {
-        const account = await accounts.get(message.accountId);
-        const result = await filterctl.setDefaultBooks(account);
+        const result = await filterctl.setDefaultBooks(message.accountId);
         await filterctl.writeState();
         return result;
     } catch (e) {
@@ -1183,37 +1179,10 @@ async function handleSetDefaultBooks(message) {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-async function messageAccount(message) {
-    try {
-        let accountId = message.accountId;
-        if (typeof accountId === "string") {
-            let account = await accounts.get(message.accountId);
-            if (account !== undefined) {
-                return account;
-            }
-        }
-        console.error("invalid accountId in message:", message);
-        throw new Error("invalid accountId in message");
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-/*
-async function handleSelectAccount(message) {
-    try {
-        return accounts.select(message.account);
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
 async function handleGetClasses(message) {
     try {
-        const account = await accounts.get(message.accountId);
         const force = message.force ? true : false;
-        const classes = await filterctl.getClasses(account, force);
+        const classes = await filterctl.getClasses(message.accountId, force);
         return classes;
     } catch (e) {
         console.error(e);
@@ -1225,8 +1194,7 @@ async function handleSetClasses(message) {
         if (verbose) {
             console.debug("handleSetClasses:", message);
         }
-        const account = await accounts.get(message.accountId);
-        const result = await filterctl.setClasses(account, message.classes);
+        const result = await filterctl.setClasses(message.accountId, message.classes);
         await filterctl.writeState();
         return result;
     } catch (e) {
@@ -1236,9 +1204,8 @@ async function handleSetClasses(message) {
 
 async function handleSendClasses(message) {
     try {
-        const account = await accounts.get(message.accountId);
         const force = message.force ? true : false;
-        let result = await filterctl.sendClassses(account, force);
+        let result = await filterctl.sendClassses(message.accountId, force);
         if (verbose) {
             console.debug("sendClasses result:", result);
         }
@@ -1265,9 +1232,8 @@ async function handleSendAllClasses(message) {
 
 async function handleRefreshClasses(message) {
     try {
-        const account = await accounts.get(message.accountId);
         const force = true;
-        const result = await filterctl.getClasses(account, force);
+        const result = await filterctl.getClasses(message.accountId, force);
         return result;
     } catch (e) {
         console.error(e);
@@ -1286,8 +1252,7 @@ async function handleRefreshAllClasses() {
 
 async function handleSetDefaultClasses(message) {
     try {
-        const account = await accounts.get(message.accountId);
-        const result = await filterctl.setClassesDefaults(account);
+        const result = await filterctl.setClassesDefaults(message.accountId);
         await filterctl.writeState();
         return result;
     } catch (e) {
@@ -1297,8 +1262,7 @@ async function handleSetDefaultClasses(message) {
 
 async function handleGetPassword(message) {
     try {
-        const account = await accounts.get(message.accountId);
-        const password = await filterctl.getPassword(account);
+        const password = await filterctl.getPassword(message.accountId);
         return password;
     } catch (e) {
         console.error(e);
@@ -1334,55 +1298,21 @@ async function handleResetConfigToDefaults(message) {
 
 async function handleSendCommand(message) {
     try {
-        let account = undefined;
-        if (message.accountId !== undefined) {
-            account = await accounts.get(message.accountId);
+        let account;
+        if (Object.hasOwn(message, "accountId")) {
+            account = await getAccount(message.accountId);
         } else {
-            account = await accounts.selected();
+            account = await getSelectedAccount();
         }
         var command = message.command.trim();
         if (message.argument) {
             command += " " + message.argument.trim();
         }
-        return await email.sendRequest(account, command, message.body, message.timeout);
+        return await email.sendRequest(account.id, command, message.body, message.timeout);
     } catch (e) {
         console.error(e);
     }
 }
-
-/*
-async function handleGetDomains() {
-    try {
-        return await accounts.domains();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleGetEnabledDomains() {
-    try {
-        return await accounts.enabledDomains();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleSetDomains(message) {
-    try {
-        return await accounts.setDomains(message.domains);
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function handleSetDomainEnabled(message) {
-    try {
-        return await accounts.setDomainEnabled(message.domain, message.enabled);
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -1450,22 +1380,70 @@ async function onTabRemoved(tabId, removeInfo) {
 }
 */
 
+async function onDisplayedFolderChanged(tab, displayedFolder) {
+    try {
+        if (verbose) {
+            console.log("onDisplayedFolderChanged:", tab, displayedFolder);
+        }
+        let displayedFolderAccountId = displayedFolder.accountId;
+        if (!(await isAccount(displayedFolderAccountId))) {
+            displayedFolderAccountId = undefined;
+        }
+        displayedFolderTab = tab;
+        await updateMessageDisplayAction(displayedFolderAccountId);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onSelectedMessagesChanged(tab, selectedMessages) {
+    try {
+        if (verbose) {
+            console.log("onSelectedMessagesChanged:", tab, selectedMessages);
+        }
+        for (const message of selectedMessages.messages) {
+            let accountId = message.folder.accountId;
+            if (await isAccount(accountId)) {
+                await updateMessageDisplayAction(accountId);
+            } else {
+                await updateMessageDisplayAction();
+            }
+            return;
+        }
+        await updateMessageDisplayAction();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+/*
 async function onMessagesDisplayed(tab, displayedMessages) {
     try {
         if (verbose) {
             console.log("onMessagesDisplayed:", tab, displayedMessages);
         }
+	// FIXME
         displayedMessagesTab = undefined;
         for (const message of displayedMessages.messages) {
             if (accounts === undefined) {
                 await messenger.menus.removeAll();
             } else {
-                let account = await accounts.get(message.folder.accountId);
+                let account = await getAccount(message.folder.accountId);
                 displayedMessagesTab = tab;
                 await updateMessageDisplayAction(account);
             }
             break;
         }
+    } catch (e) {
+        console.error(e);
+    }
+}
+*/
+
+async function onLoad() {
+    try {
+        let approved = await isApproved();
+        console.warn("onLoad:", { approved });
     } catch (e) {
         console.error(e);
     }
@@ -1477,11 +1455,13 @@ async function onMessagesDisplayed(tab, displayedMessages) {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-// API event handlers
 messenger.runtime.onInstalled.addListener(onInstalled);
 messenger.runtime.onStartup.addListener(onStartup);
 messenger.runtime.onSuspend.addListener(onSuspend);
 messenger.runtime.onSuspendCanceled.addListener(onSuspendCanceled);
+
+messenger.runtime.onConnect.addListener(onConnect);
+messenger.runtime.onMessage.addListener(onMessage);
 
 messenger.menus.onClicked.addListener(onMenuClicked);
 messenger.menus.onShown.addListener(onMenuShown);
@@ -1493,16 +1473,15 @@ messenger.menus.onShown.addListener(onMenuShown);
 //messenger.tabs.onUpdated.addListener(onTabUpdated);
 //messenger.tabs.onRemoved.addListener(onTabRemoved);
 
-messenger.messageDisplay.onMessagesDisplayed.addListener(onMessagesDisplayed);
-
-messenger.runtime.onConnect.addListener(onConnect);
-messenger.runtime.onMessage.addListener(onMessage);
+//messenger.messageDisplay.onMessagesDisplayed.addListener(onMessagesDisplayed);
+messenger.mailTabs.onDisplayedFolderChanged.addListener(onDisplayedFolderChanged);
+messenger.mailTabs.onSelectedMessagesChanged.addListener(onSelectedMessagesChanged);
 
 messenger.commands.onCommand.addListener(onCommand);
 
 messenger.messageDisplayAction.onClicked.addListener(onMessageDisplayActionClicked);
 messenger.action.onClicked.addListener(onActionButtonClicked);
 
-console.warn("background page loaded");
+window.addEventListener("load", onLoad);
 
-window.addEventListener("load", reconnectEditorTab);
+console.warn("END background.js");
