@@ -58,13 +58,14 @@ async function initialize(mode) {
 
         let autoOpen = await config.local.getBool(config.key.autoOpen);
 
-        if (Object.keys(await getAccounts()).length < 1) {
-            autoOpen = true;
-        } else {
-            filterctl = new FilterDataController(email);
-            await filterctl.readState();
-            await initMenus();
-        }
+        //if (Object.keys(await getAccounts()).length < 1) {
+        //    autoOpen = true;
+        //} else {
+        //
+        filterctl = new FilterDataController(email);
+        await filterctl.readState();
+        await initMenus();
+        //}
 
         if (await config.local.getBool(config.key.reloadAutoOpen)) {
             autoOpen = true;
@@ -1443,6 +1444,11 @@ async function onMessagesDisplayed(tab, displayedMessages) {
 
 async function onLoad() {
     try {
+        let counter = await config.session.get(config.key.counter);
+        if (counter === undefined) {
+            counter = 0;
+        }
+        console.warn("onLoad", ++counter);
         const restartPending = await config.local.getBool(config.key.reloadPending);
         if (restartPending === true) {
             await config.local.remove(config.key.reloadPending);

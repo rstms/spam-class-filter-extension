@@ -251,5 +251,6 @@ export const config = {
         reloadAutoOpen: "reloadAutoOpen",
         reloadPending: "reloadPending",
         usageResponse: "usageResponse",
+        counter: "counter",
     },
 };
