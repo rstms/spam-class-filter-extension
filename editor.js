@@ -14,7 +14,7 @@ import { getAccount, getAccounts, getSelectedAccount } from "./accounts.js";
 // FIXME: implement all element event listeners here and call functions on tab objects
 // FIXME: share controls container between this page and all tab objects
 
-/* globals messenger, window, document, console, MutationObserver */
+/* globals messenger, window, document, console, MutationObserver, setTimer, clearTimer */
 const verbose = verbosity.editor;
 
 const disconnectOnBackgroundSuspend = false;
@@ -677,12 +677,34 @@ async function onDisconnect(port) {
     }
 }
 
+function backgroundConnection() {
+    return new Promise((resolve, reject) => {
+        let timer;
+        try {
+            timer = setTimer(() => {
+                console.log("awaiting connection");
+                if (!backgroundSuspended) {
+                    console.log("connected");
+                    resolve();
+                }
+            }, 100);
+        } catch (e) {
+            reject(e);
+        } finally {
+            clearTimer(timer);
+        }
+    });
+}
+
 async function sendMessage(message) {
     try {
         console.log("sendMessage:", { backgroundSuspended });
         if (backgroundSuspended) {
+            console.log("sendMessage: connecting");
             await connect();
+            await backgroundConnection();
         }
+
         if (port === null || backgroundCID === null) {
             console.error("SendMessage: port not connected:", port, editorCID, backgroundCID, message);
             throw new Error("SendMessage: port not connected");
