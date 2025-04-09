@@ -249,6 +249,7 @@ export const config = {
         domain: "domain",
         selectedAccount: "selectedAccount",
         reloadAutoOpen: "reloadAutoOpen",
+        reloadPending: "reloadPending",
         usageResponse: "usageResponse",
     },
 };

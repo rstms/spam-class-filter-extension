@@ -1,6 +1,6 @@
 console.warn("BEGIN background.js");
 
-import { isAccount, getAccounts, getAccount, getSelectedAccount, noAccountsEnabled } from "./accounts.js";
+import { isAccount, getAccounts, getAccount, getSelectedAccount } from "./accounts.js";
 import * as ports from "./ports.js";
 import { accountEmailAddress, displayMessage, generateUUID } from "./common.js";
 import { FilterDataController } from "./filterctl.js";
@@ -57,7 +57,7 @@ async function initialize(mode) {
 
         let autoOpen = await config.local.getBool(config.key.autoOpen);
 
-        if (await noAccountsEnabled()) {
+        if (Object.keys(await getAccounts()).length < 1) {
             autoOpen = true;
         } else {
             filterctl = new FilterDataController(email);
@@ -1442,8 +1442,11 @@ async function onMessagesDisplayed(tab, displayedMessages) {
 
 async function onLoad() {
     try {
-        let approved = await isApproved();
-        console.warn("onLoad:", { approved });
+        const restartPending = await config.local.getBool(config.key.reloadPending);
+        if (restartPending === true) {
+            await config.local.remove(config.key.reloadPending);
+            await initialize("reload");
+        }
     } catch (e) {
         console.error(e);
     }

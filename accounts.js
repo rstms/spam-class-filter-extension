@@ -58,15 +58,6 @@ export async function getAccount(accountId) {
     }
 }
 
-export async function noAccountsEnabled() {
-    try {
-        const accounts = await getAccounts();
-        return Object.keys(accounts).length === 0;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 export async function getSelectedAccount() {
     try {
         const accounts = await getAccounts();
