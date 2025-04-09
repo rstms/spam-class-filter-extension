@@ -543,7 +543,7 @@ export class ClassesTab {
             }
             let message = {
                 id: sendToServer ? "sendClasses" : "setClasses",
-                accountId: classes.account.id,
+                accountId: classes.accountId,
                 classes: await classes.render(),
             };
             await this.setStatusPending("sending classes...");
