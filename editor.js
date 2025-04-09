@@ -672,6 +672,7 @@ async function onDisconnect(port) {
 
 async function sendMessage(message) {
     try {
+        console.log("sendMessage:", { backgroundSuspended });
         if (port === null || backgroundCID === null) {
             console.error("SendMessage: port not connected:", port, editorCID, backgroundCID, message);
             throw new Error("SendMessage: port not connected");
