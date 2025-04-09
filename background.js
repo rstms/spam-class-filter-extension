@@ -51,6 +51,7 @@ async function initialize(mode) {
         }
 
         if (!approved) {
+            await messenger.menus.removeAll();
             await messenger.messageDisplayAction.disable();
             return;
         }
