@@ -24,6 +24,7 @@ initThemeSwitcher();
 let hasLoaded = false;
 let backgroundSuspended = false;
 let usagePopulated = false;
+let accountsPopulated = false;
 
 let activeTab = "classes";
 
@@ -65,6 +66,10 @@ async function populateAccounts() {
     try {
         if (verbose) {
             console.debug("BEGIN populateAccounts");
+        }
+
+        if (accountsPopulated) {
+            return;
         }
 
         if (Object.keys(await getAccounts()).length < 1) {
@@ -110,6 +115,8 @@ async function populateAccounts() {
         await enableTab("options", true);
         await enableTab("advanced", true);
         await enableTab("help", true);
+
+        accountsPopulated = true;
 
         if (verbose) {
             console.debug("END populateAccountSelect", { accounts, selectedAccount });
@@ -673,6 +680,9 @@ async function onDisconnect(port) {
 async function sendMessage(message) {
     try {
         console.log("sendMessage:", { backgroundSuspended });
+        if (backgroundSuspended) {
+            await connect();
+        }
         if (port === null || backgroundCID === null) {
             console.error("SendMessage: port not connected:", port, editorCID, backgroundCID, message);
             throw new Error("SendMessage: port not connected");
