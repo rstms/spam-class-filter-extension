@@ -307,33 +307,6 @@ async function onPortMessage(message, sender) {
     }
 }
 
-async function addSenderCommand(index, command, tab) {
-    try {
-        if (verbose) {
-            console.debug("addSenderCommand:", index, tab);
-        }
-        if (messageDisplayActionAccountId === undefined) {
-            throw new Error("addSenderCommand: message display action is disabled");
-        }
-        let book;
-        if (index === "default") {
-            book = await getAddSenderTarget(messageDisplayActionAccountId);
-        } else {
-            const filterctl = await getFilterDataController();
-            const books = await filterctl.getCardDAVBooks(messageDisplayActionAccountId);
-            const indexed = books[parseInt(index) - 1];
-            if (indexed !== undefined) {
-                book = indexed.name;
-            }
-        }
-        if (book !== undefined) {
-            await addSenderToFilterBook(messageDisplayActionAccountId, tab, book);
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-
 async function onCommand(command, tab) {
     try {
         if (verbose) {
@@ -345,7 +318,7 @@ async function onCommand(command, tab) {
         let prefix = "mailfilter-add-sender-";
         if (command.substr(0, prefix.length) === prefix) {
             let suffix = command.substr(prefix.length);
-            return await addSenderCommand(suffix, command, tab);
+            return await addSenderAction(tab, suffix);
         }
         switch (command) {
             default:
@@ -1073,7 +1046,7 @@ async function addSenderToFilterBook(accountId, tab, book) {
         console.error(e);
     }
 }
-async function messageDisplayActionMessagesAccountId(tab, info, messages) {
+async function messageDisplayActionMessagesAccountId(messages) {
     try {
         let messageAccountIds = new Set();
         let accountId;
@@ -1104,18 +1077,38 @@ async function messageDisplayActionMessagesAccountId(tab, info, messages) {
     }
 }
 
+async function addSenderAction(tab, bookIndex = "default") {
+    try {
+        const selectedMessages = await messenger.mailTabs.getSelectedMessages(tab.id);
+        const messages = selectedMessages.messages;
+        const accountId = await messageDisplayActionMessagesAccountId(messages);
+        if (accountId !== undefined) {
+            let book;
+            if (bookIndex === "default") {
+                book = await getAddSenderTarget(messageDisplayActionAccountId);
+            } else {
+                const filterctl = await getFilterDataController();
+                const books = await filterctl.getCardDAVBooks(messageDisplayActionAccountId);
+                const indexed = books[parseInt(bookIndex) - 1];
+                if (indexed !== undefined) {
+                    book = indexed.name;
+                }
+            }
+            if (book !== undefined) {
+                await addSenderToFilterBook(accountId, messages, book);
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function onMessageDisplayActionClicked(tab, info) {
     try {
         if (verbose) {
             console.debug("onMessageDisplayActionClicked:", tab, info);
         }
-        const selectedMessages = await messenger.mailTabs.getSelectedMessages(tab.id);
-        const messages = selectedMessages.messages;
-        const accountId = await messageDisplayActionMessagesAccountId(tab, info, messages);
-        if (accountId !== undefined) {
-            let book = await getAddSenderTarget(accountId);
-            await addSenderToFilterBook(accountId, messages, book);
-        }
+        await addSenderAction(tab, "default");
     } catch (e) {
         console.error(e);
     }
