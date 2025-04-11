@@ -1440,7 +1440,7 @@ async function onLoad() {
         approved = await isApproved();
         let initialized = await messenger.storage.session.get(["initialized"]);
         console.warn("onLoad:", { approved, initialized });
-        await initMenus();
+        //await initMenus();
         //await initialize("onLoad");
     } catch (e) {
         console.error(e);
