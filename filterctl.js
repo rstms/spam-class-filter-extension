@@ -1145,13 +1145,13 @@ export class FilterDataController {
 
     async getBooks(accountId, force = false) {
         try {
-	    await this.lock();
+            await this.lock();
             return await this.get(BOOKS, accountId, force);
         } catch (e) {
             console.error(e);
         } finally {
-	    this.unlock();
-	}
+            this.unlock();
+        }
     }
 
     //
@@ -1294,7 +1294,7 @@ export class FilterDataController {
 
     async setBooks(accountId, books) {
         try {
-	    await this.lock();
+            await this.lock();
             if (verbose) {
                 console.debug("setBooks:", accountId, books);
             }
@@ -1306,8 +1306,8 @@ export class FilterDataController {
         } catch (e) {
             console.error(e);
         } finally {
-	    this.unlock();
-	}
+            this.unlock();
+        }
     }
 
     async setClasses(accountId, classes) {
@@ -1352,7 +1352,7 @@ export class FilterDataController {
 
     async sendBooks(accountId, force = false) {
         try {
-	    await this.lock();
+            await this.lock();
             if (verbose) {
                 console.debug("sendBooks:", accountId, force);
             }
@@ -1364,8 +1364,8 @@ export class FilterDataController {
         } catch (e) {
             console.error(e);
         } finally {
-	    this.unlock();
-	}
+            this.unlock();
+        }
     }
 
     async setDefaults(type, accountId) {
@@ -1396,13 +1396,13 @@ export class FilterDataController {
 
     async setBooksDefaults(accountId) {
         try {
-	    await this.lock();
+            await this.lock();
             return await this.setDefaults(BOOKS, accountId);
         } catch (e) {
             console.error(e);
         } finally {
-	    this.unlock();
-	}
+            this.unlock();
+        }
     }
 
     async setClassesDefaults(accountId) {
