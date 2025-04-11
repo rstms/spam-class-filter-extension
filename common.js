@@ -10,7 +10,7 @@ export const verbosity = {
     config: false,
     editor: false,
     email: false,
-    filterctl: false,
+    filterctl: true,
     ports: false,
     tab_advanced: false,
     tab_books: false,
