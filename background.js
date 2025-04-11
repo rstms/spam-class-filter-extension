@@ -115,11 +115,10 @@ async function initialize(mode) {
     }
 }
 
-async function getFilterDataController(flags = { force: false, readState: true, purgePending: false, persistent: true }) {
+async function getFilterDataController(flags = { force: false, readState: true, purgePending: false}) {
     try {
         if (filterDataController === null || flags.force) {
             filterDataController = new FilterDataController(email);
-            await filterDataController.setStatePersistence(flags.enablePersistence);
             if (flags.readState) {
                 await filterDataController.readState();
             }

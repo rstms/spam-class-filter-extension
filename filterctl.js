@@ -809,7 +809,8 @@ export class FilterDataController {
 
     async getStorage() {
         try {
-            return (await this.getStatePersistence()) ? config.local : config.session;
+            const cacheEnabled = await this.getStatePersistence();
+            return cacheEnabled ? config.local : config.session;
         } catch (e) {
             console.error(e);
         }
