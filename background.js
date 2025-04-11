@@ -77,8 +77,9 @@ async function initialize(mode) {
             console.clear();
         }
 
-        await messenger.storage.session.set({ initialize: timestamp() });
-        console.warn("initialize:", { mode, approved });
+        await messenger.storage.session.set({ initialized: timestamp() });
+        let initialized = await messenger.storage.get(["initialized"]);
+        console.warn("initialize:", { mode, approved, initialized });
 
         const manifest = await messenger.runtime.getManifest();
         console.log(`${manifest.name} v${manifest.version} (${mode}) Approved=${approved}`);
