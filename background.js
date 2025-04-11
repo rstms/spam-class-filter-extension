@@ -2,7 +2,7 @@ console.warn("BEGIN background.js");
 
 import { isAccount, getAccounts, getAccount, getSelectedAccount } from "./accounts.js";
 import * as ports from "./ports.js";
-import { accountEmailAddress, displayMessage } from "./common.js";
+import { accountEmailAddress, displayMessage, timestamp } from "./common.js";
 import { FilterDataController } from "./filterctl.js";
 import { email } from "./email.js";
 import { config } from "./config.js";
@@ -77,6 +77,7 @@ async function initialize(mode) {
             console.clear();
         }
 
+        await messenger.storage.session.set({ initialize: timestamp() });
         console.warn("initialize:", { mode, approved });
 
         const manifest = await messenger.runtime.getManifest();
@@ -1435,7 +1436,8 @@ async function onLoad() {
     try {
         loaded = true;
         approved = await isApproved();
-        console.warn("onLoad:", { approved });
+        let initialized = await messenger.storage.session.get(["initialized"]);
+        console.warn("onLoad:", { approved, initialized });
         await initMenus();
         //await initialize("onLoad");
     } catch (e) {

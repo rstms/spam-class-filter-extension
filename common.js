@@ -209,3 +209,7 @@ export function validateAccount(account) {
         throw new Error(`invalid account: {$account}`);
     }
 }
+
+export function timestamp() {
+    return new Date().toISOString();
+}
