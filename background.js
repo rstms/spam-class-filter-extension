@@ -2,7 +2,7 @@ console.warn("BEGIN background.js");
 
 import { isAccount, getAccounts, getAccount, getSelectedAccount } from "./accounts.js";
 import * as ports from "./ports.js";
-import { accountEmailAddress, displayMessage, generateUUID } from "./common.js";
+import { accountEmailAddress, displayMessage } from "./common.js";
 import { FilterDataController } from "./filterctl.js";
 import { email } from "./email.js";
 import { config } from "./config.js";
@@ -17,14 +17,19 @@ import { verbosity } from "./common.js";
 const verbose = verbosity.background;
 
 // state vars
-let filterctl = undefined;
+let loaded = false;
+let filterDataController = null;
+let initialized = false;
+let approved = false;
 
 let pendingConnections = new Map();
-const backgroundId = "background-" + generateUUID();
+const backgroundId = "background-page";
 
+// updated when messageDisplayAction button is updated
 let messageDisplayActionAccountId = undefined;
+
+// updated when onDisplayedFolderChanged events received
 let displayedFolderAccountId = undefined;
-let displayedFolderTab = undefined;
 
 let menus = {};
 
@@ -34,46 +39,93 @@ let menus = {};
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+/*
+class InitState {
+    constructor() {
+        this.complete = false;
+        this.resolve = null;
+    }
+
+    setCompleted() {
+        console.log("InitState: setCompleted");
+        this.complete = true;
+        if (this.resolve !== null) {
+            console.log("InitState: resolving:", true);
+            this.resolve(true);
+        }
+    }
+
+    isCompleted() {
+        return new Promise((resolve) => {
+            if (this.complete) {
+                console.log("InitState: returning true without wait");
+                resolve(true);
+            } else {
+                console.log("InitState: returning promise");
+                this.resolve = resolve;
+            }
+        });
+    }
+}
+
+let initState = new InitState();
+*/
+
 async function initialize(mode) {
     try {
-        const approved = await isApproved();
-        console.warn("initialize:", { mode, approved });
         if (await config.local.getBool(config.key.autoClearConsole)) {
             console.clear();
         }
 
+        console.warn("initialize:", { mode, approved });
+
         const manifest = await messenger.runtime.getManifest();
-        console.log(manifest.name + " v" + manifest.version + " (" + mode + ") OptIn:" + String(approved));
+        console.log(`${manifest.name} v${manifest.version} (${mode}) Approved=${approved}`);
 
         if (verbose) {
-            console.debug("configuration:", await config.local.getAll());
-            console.debug("commands:", await messenger.commands.getAll());
+            console.debug({
+                config: await config.local.getAll(),
+                commands: await messenger.commands.getAll(),
+            });
         }
 
+        console.assert(loaded, "initialize called before onLoad");
+
         if (!approved) {
-            await messenger.menus.removeAll();
-            await messenger.messageDisplayAction.disable();
+            await messenger.runtime.openOptionsPage();
             return;
         }
 
+        await getFilterDataController({ purgePending: true });
+
+        initialized = true;
+
         let autoOpen = await config.local.getBool(config.key.autoOpen);
-
-        if (Object.keys(await getAccounts()).length < 1) {
-            autoOpen = true;
-        } else {
-            filterctl = new FilterDataController(email);
-            await filterctl.readState();
-            await initMenus();
+        if (await config.local.getBool(config.key.reloadPending)) {
+            await config.local.remove(config.key.reloadPending);
+            //autoOpen = true;
         }
-
-        if (await config.local.getBool(config.key.reloadAutoOpen)) {
-            autoOpen = true;
-        }
-
-        await config.local.remove(config.key.reloadAutoOpen);
         if (autoOpen) {
             await focusEditorWindow();
         }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function getFilterDataController(flags = { force: false, readState: true, purgePending: false, persistent: true }) {
+    try {
+        if (filterDataController === null || flags.force) {
+            filterDataController = new FilterDataController(email);
+            await filterDataController.setStatePersistence(flags.enablePersistence);
+            if (flags.readState) {
+                await filterDataController.readState();
+            }
+        }
+        if (flags.purgePending) {
+            await filterDataController.purgePending();
+        }
+        return filterDataController;
     } catch (e) {
         console.error(e);
     }
@@ -83,7 +135,7 @@ async function onStartup() {
     try {
         const approved = await isApproved();
         console.warn("onStartup:", { approved });
-        //await initialize("startup");
+        await initialize("startup");
     } catch (e) {
         console.error(e);
     }
@@ -92,14 +144,13 @@ async function onStartup() {
 async function onInstalled() {
     try {
         const approved = await isApproved();
-        console.warn("onStartup:", { approved });
-        //await initialize("installed");
+        console.warn("onInstalled:", { approved });
+        await initialize("installed");
     } catch (e) {
         console.error(e);
     }
 }
 
-// flags: onPort: true will use the connected port
 async function postEditorMessage(message, flags = { requireSuccess: false }) {
     try {
         var port = await ports.get("editor", ports.NO_WAIT);
@@ -154,21 +205,7 @@ async function findEditorTab() {
     }
 }
 
-/*
-async function isEditorConnected() {
-    try {
-        var port = await ports.get("editor", ports.NO_WAIT);
-        if (verbose) {
-            console.debug("isEditorConnected: port:", port);
-        }
-        return port ? true : false;
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
-async function reconnectEditorTab() {
+async function reconnectEditor(flags = { activate: false }) {
     try {
         if (verbose) {
             console.debug("reconnectEditor");
@@ -178,21 +215,24 @@ async function reconnectEditorTab() {
         if (verbose) {
             console.debug("editor tab:", editorTab);
         }
+
         var port = await ports.get("editor", ports.NO_WAIT);
         if (verbose) {
             console.debug("editor port:", port);
         }
 
         if (editorTab) {
-            await messenger.tabs.update(editorTab.id, { active: true });
-            if (!port) {
+            if (flags.activate) {
+                await messenger.tabs.update(editorTab.id, { active: true });
+            }
+            if (port === undefined) {
                 // editor is open but port is null; assume we're coming back from being suspended
                 if (verbose) {
                     console.debug("sending activated notification");
                 }
-                await messenger.runtime.sendMessage({ id: "backgroundActivated", src: backgroundId });
+                let response = await messenger.runtime.sendMessage({ id: "backgroundActivated", src: backgroundId });
                 if (verbose) {
-                    console.debug("activated notificaton sent");
+                    console.debug("activated notification response:", response);
                 }
             }
             return true;
@@ -217,7 +257,7 @@ async function focusEditorWindow() {
             return;
         }
 
-        if (!(await reconnectEditorTab())) {
+        if (!(await reconnectEditor({ activate: true }))) {
             await messenger.tabs.create({ url: "./editor.html" });
         }
     } catch (e) {
@@ -271,10 +311,6 @@ async function addSenderCommand(index, command, tab) {
         if (verbose) {
             console.debug("addSenderCommand:", index, tab);
         }
-        if (tab.id !== displayedFolderTab.id) {
-            console.error("unexpected command tab", { index, command, tab, displayedFolderTab });
-            throw new Error("unexpected command tab");
-        }
         if (messageDisplayActionAccountId === undefined) {
             throw new Error("addSenderCommand: message display action is disabled");
         }
@@ -282,6 +318,7 @@ async function addSenderCommand(index, command, tab) {
         if (index === "default") {
             book = await getAddSenderTarget(messageDisplayActionAccountId);
         } else {
+            const filterctl = await getFilterDataController();
             const books = await filterctl.getCardDAVBooks(messageDisplayActionAccountId);
             const indexed = books[parseInt(index) - 1];
             if (indexed !== undefined) {
@@ -310,8 +347,6 @@ async function onCommand(command, tab) {
             return await addSenderCommand(suffix, command, tab);
         }
         switch (command) {
-            case "mailfilter-control-panel":
-                return await focusEditorWindow();
             default:
                 console.error("unknown command:", command);
                 throw new Error("unknown command");
@@ -329,6 +364,7 @@ async function onMessage(message, sender) {
         }
 
         let response = undefined;
+        let port = undefined;
 
         // process messages not requiring connection
         switch (message.id) {
@@ -336,9 +372,22 @@ async function onMessage(message, sender) {
                 await focusEditorWindow();
                 return;
 
-            case "optInApproved":
-                await initialize("optInApproved");
-                return;
+            case "ACK":
+                if (message.id === "ACK") {
+                    port = pendingConnections.get(message.src);
+                } else {
+                    port = await ports.get(message.src, ports.NO_WAIT);
+                }
+                console.log("background accepted connection:", port.name);
+                ports.add(port);
+                pendingConnections.delete(port.name);
+                response = { background: backgroundId };
+                response[ports.portLabel(port)] = port.name;
+                return response;
+
+            case "isInitialized":
+                return initialized;
+            //await initState.isCompleted();
         }
 
         if (message.src === undefined || message.dst === undefined) {
@@ -346,33 +395,21 @@ async function onMessage(message, sender) {
             return false;
         }
 
+        /*
         if (message.dst !== backgroundId) {
             console.error("unexpected dst ID, discarding:", message);
             return false;
         }
+	*/
 
-        let port = undefined;
-
-        if (message.id === "ACK") {
-            port = pendingConnections.get(message.src);
-        } else {
-            port = await ports.get(message.src, ports.NO_WAIT);
-        }
-
+        /*
         if (port === undefined) {
             console.error("unexpected src ID, discarding:", message);
             return false;
         }
+	*/
 
         switch (message.id) {
-            case "ACK":
-                console.log("background accepted connection:", port.name);
-                ports.add(port);
-                pendingConnections.delete(port.name);
-                response = { background: backgroundId };
-                response[ports.portLabel(port)] = port.name;
-                break;
-
             case "getClasses":
                 response = await handleGetClasses(message);
                 break;
@@ -527,20 +564,27 @@ let menuConfig = {
 // reset menu configuration from menu config data structure
 async function initMenus() {
     try {
-        await messenger.menus.removeAll();
         menus = {};
-        for (let [mid, config] of Object.entries(menuConfig)) {
-            if (config.noInit !== true) {
-                await createMenu(mid, config);
+        await messenger.menus.removeAll();
+        if (approved) {
+            for (let [mid, config] of Object.entries(menuConfig)) {
+                if (config.noInit !== true) {
+                    await createMenu(mid, config);
+                }
             }
         }
-        await updateMessageDisplayAction(await selectedMessagesAccountId());
         await messenger.menus.refresh();
+
+        // FIXME: maybe we don't need to update the messaage display action here
+        // because it will be done on onDisplayedFolderChanged and/or onSelectedMessagesChanged
+        const accountId = await selectedMessagesAccountId();
+        await updateMessageDisplayAction(accountId);
     } catch (e) {
         console.error(e);
     }
 }
 
+// return the accountId of the currently selected messages
 async function selectedMessagesAccountId() {
     try {
         const tabs = await messenger.tabs.query({ type: "mail" });
@@ -562,17 +606,23 @@ async function selectedMessagesAccountId() {
 
 async function updateMessageDisplayAction(accountId = undefined, book = undefined) {
     try {
-        if (accountId !== undefined && (await isAccount(accountId))) {
+        // if accountd specified, ensure it is valid
+        if (accountId !== undefined) {
+            if (!(await isAccount(accountId))) {
+                accountId = undefined;
+                book = undefined;
+            }
+        }
+        messageDisplayActionAccountId = accountId;
+        if (approved && accountId !== undefined) {
             if (book === undefined) {
                 book = await getAddSenderTarget(accountId);
             }
             await messenger.messageDisplayAction.setTitle({ title: "Add to '" + book + "'" });
             await messenger.messageDisplayAction.enable();
-            messageDisplayActionAccountId = accountId;
         } else {
             await messenger.messageDisplayAction.setTitle({ title: "Add Sender Disabled" });
             await messenger.messageDisplayAction.disable();
-            messageDisplayActionAccountId = undefined;
         }
     } catch (e) {
         console.error(e);
@@ -658,9 +708,9 @@ async function checkApproved() {
 async function onMenuClicked(info, tab) {
     try {
         if (verbose) {
-            console.debug("onMenuClicked:", { info, tab });
+            console.debug("onMenuClicked:", { info, tab, approved, loaded });
         }
-        if (!(await isApproved())) {
+        if (!approved) {
             return;
         }
         if (!Object.hasOwn(info, "menuItemId")) {
@@ -680,9 +730,9 @@ async function onMenuClicked(info, tab) {
 async function onMenuShown(info, tab) {
     try {
         if (verbose) {
-            console.debug("onMenuShown:", { info, tab });
+            console.debug("onMenuShown:", { info, tab, approved, loaded });
         }
-        if (!(await isApproved())) {
+        if (!approved) {
             return;
         }
         if (!Object.hasOwn(info, "menuIds")) {
@@ -817,6 +867,7 @@ async function onMenuCreatedAddBooks(created) {
         }
 
         const accounts = await getAccounts();
+        const filterctl = await getFilterDataController();
         for (const [accountId, account] of Object.entries(accounts)) {
             let accountEmail = accountEmailAddress(account);
             const books = await filterctl.getCardDAVBooks(accountId);
@@ -913,6 +964,7 @@ async function getAddSenderTarget(accountId) {
                 bookName = targets[accountId];
             }
             if (bookName === undefined) {
+                const filterctl = await getFilterDataController();
                 let books = await filterctl.getCardDAVBooks(accountId);
                 for (const book of books) {
                     bookName = book.name;
@@ -985,6 +1037,7 @@ async function addSenderToFilterBook(accountId, tab, book) {
             console.debug("messageList:", messageList);
         }
         let sendersAdded = [];
+        const filterctl = await getFilterDataController();
         for (const message of messageList.messages) {
             if (accountId !== message.folder.accountId) {
                 console.error("message folder account mismatch:", { accountId, tab, book, message });
@@ -1018,37 +1071,49 @@ async function addSenderToFilterBook(accountId, tab, book) {
         console.error(e);
     }
 }
-
-async function onMessageDisplayActionClicked(tab, info) {
+async function messageDisplayActionMessagesAccountId(tab, info, messages) {
     try {
-        if (verbose) {
-            console.debug("message display action clicked, relaying to menu clicked handler", tab, info);
-        }
-
-        const messages = await messenger.mailTabs.getSelectedMessages(tab.id);
-        let messageAccountIds = {};
+        let messageAccountIds = new Set();
         let accountId;
-        for (const message of messages.messages) {
+        for (const message of messages) {
             accountId = message.folder.accountId;
-            messageAccountIds[message.folder.accountId] = true;
+            messageAccountIds.add(accountId);
         }
 
-        if (Object.keys(messageAccountIds).length !== 1) {
+        // ensure all selected messages have the same accountId
+        if (messageAccountIds.size !== 1) {
             console.error({ messageAccountIds, messages });
             throw new Error("unexpected multiple accountIds in selected messages");
         }
 
+        // ensure the accountId is a valid enabled account
         if (!(await isAccount(accountId))) {
             throw new Error("message display action clicked on inactive account");
         }
 
+        // sanity check that accountId matches messageDispayActionId
         if (accountId !== messageDisplayActionAccountId) {
             console.error({ accountId, messageDisplayActionAccountId });
             throw new Error("unexpected message display action message account");
         }
+        return accountId;
+    } catch (e) {
+        console.error(e);
+    }
+}
 
-        let book = await getAddSenderTarget(accountId);
-        await addSenderToFilterBook(accountId, messages, book);
+async function onMessageDisplayActionClicked(tab, info) {
+    try {
+        if (verbose) {
+            console.debug("onMessageDisplayActionClicked:", tab, info);
+        }
+        const selectedMessages = await messenger.mailTabs.getSelectedMessages(tab.id);
+        const messages = selectedMessages.messages;
+        const accountId = await messageDisplayActionMessagesAccountId(tab, info, messages);
+        if (accountId !== undefined) {
+            let book = await getAddSenderTarget(accountId);
+            await addSenderToFilterBook(accountId, messages, book);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -1064,13 +1129,13 @@ async function handleCacheControl(message) {
     try {
         switch (message.command) {
             case "clear":
-                await filterctl.resetState();
+                await getFilterDataController({ force: true, resetState: true });
                 return "cleared";
             case "enable":
-                await filterctl.setStatePersistence(true);
+                await getFilterDataController({ force: true, enablePersistence: true });
                 return "enabled";
             case "disable":
-                await filterctl.setStatePersistence(false);
+                await getFilterDataController({ force: true, enablePersistence: false });
                 return "disabled";
             default:
                 throw new Error("unknown cacheControl command: " + message.command);
@@ -1082,6 +1147,7 @@ async function handleCacheControl(message) {
 
 async function handleGetCardDAVBooks(message) {
     try {
+        const filterctl = await getFilterDataController();
         let books = await filterctl.getCardDAVBooks(message.accountId);
         let result = books;
         if (message.names === true) {
@@ -1098,6 +1164,7 @@ async function handleGetCardDAVBooks(message) {
 
 async function handleGetBooks(message) {
     try {
+        const filterctl = await getFilterDataController();
         const force = message.force ? true : false;
         const books = await filterctl.getBooks(message.accountId, force);
         return books;
@@ -1108,6 +1175,7 @@ async function handleGetBooks(message) {
 
 async function handleSetBooks(message) {
     try {
+        const filterctl = await getFilterDataController();
         const result = await filterctl.setBooks(message.accountId, message.books);
         await filterctl.writeState();
         return result;
@@ -1118,6 +1186,7 @@ async function handleSetBooks(message) {
 
 async function handleSendBooks(message) {
     try {
+        const filterctl = await getFilterDataController();
         const force = message.force ? true : false;
         let result = await filterctl.sendBooks(message.accountId, force);
         await filterctl.writeState();
@@ -1129,6 +1198,7 @@ async function handleSendBooks(message) {
 
 async function handleSendAllBooks(message) {
     try {
+        const filterctl = await getFilterDataController();
         const force = message.force ? true : false;
         const result = await filterctl.sendAllBooks(force);
         await filterctl.writeState();
@@ -1140,6 +1210,7 @@ async function handleSendAllBooks(message) {
 
 async function handleRefreshBooks() {
     try {
+        const filterctl = await getFilterDataController();
         let force = true;
         const accounts = await getAccounts();
         for (const accountId of Object.keys(accounts)) {
@@ -1153,6 +1224,7 @@ async function handleRefreshBooks() {
 
 async function handleRefreshAllBooks() {
     try {
+        const filterctl = await getFilterDataController();
         let force = true;
         const accounts = await getAccounts();
         for (const accountId of Object.keys(accounts)) {
@@ -1166,6 +1238,7 @@ async function handleRefreshAllBooks() {
 
 async function handleSetDefaultBooks(message) {
     try {
+        const filterctl = await getFilterDataController();
         const result = await filterctl.setDefaultBooks(message.accountId);
         await filterctl.writeState();
         return result;
@@ -1182,6 +1255,7 @@ async function handleSetDefaultBooks(message) {
 
 async function handleGetClasses(message) {
     try {
+        const filterctl = await getFilterDataController();
         const force = message.force ? true : false;
         const classes = await filterctl.getClasses(message.accountId, force);
         return classes;
@@ -1195,6 +1269,7 @@ async function handleSetClasses(message) {
         if (verbose) {
             console.debug("handleSetClasses:", message);
         }
+        const filterctl = await getFilterDataController();
         const result = await filterctl.setClasses(message.accountId, message.classes);
         await filterctl.writeState();
         return result;
@@ -1205,6 +1280,7 @@ async function handleSetClasses(message) {
 
 async function handleSendClasses(message) {
     try {
+        const filterctl = await getFilterDataController();
         const force = message.force ? true : false;
         let result = await filterctl.sendClassses(message.accountId, force);
         if (verbose) {
@@ -1219,6 +1295,7 @@ async function handleSendClasses(message) {
 
 async function handleSendAllClasses(message) {
     try {
+        const filterctl = await getFilterDataController();
         const force = message.force ? true : false;
         const result = await filterctl.sendAllClasses(force);
         if (verbose) {
@@ -1233,6 +1310,7 @@ async function handleSendAllClasses(message) {
 
 async function handleRefreshClasses(message) {
     try {
+        const filterctl = await getFilterDataController();
         const force = true;
         const result = await filterctl.getClasses(message.accountId, force);
         return result;
@@ -1243,6 +1321,7 @@ async function handleRefreshClasses(message) {
 
 async function handleRefreshAllClasses() {
     try {
+        const filterctl = await getFilterDataController();
         const result = await filterctl.refreshAllClasses();
         await filterctl.writeState();
         return result;
@@ -1253,6 +1332,7 @@ async function handleRefreshAllClasses() {
 
 async function handleSetDefaultClasses(message) {
     try {
+        const filterctl = await getFilterDataController();
         const result = await filterctl.setClassesDefaults(message.accountId);
         await filterctl.writeState();
         return result;
@@ -1263,6 +1343,7 @@ async function handleSetDefaultClasses(message) {
 
 async function handleGetPassword(message) {
     try {
+        const filterctl = await getFilterDataController();
         const password = await filterctl.getPassword(message.accountId);
         return password;
     } catch (e) {
@@ -1315,83 +1396,16 @@ async function handleSendCommand(message) {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-//
-//  DOM and API event handlers
-//
-///////////////////////////////////////////////////////////////////////////////
-
-/*
-async function onWindowCreated(info) {
-    try {
-        if (verbose) {
-            console.log("onWindowCreated:", info);
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
-/*
-async function onTabCreated(tab) {
-    try {
-        if (verbose) {
-            console.log("onTabCreated:", tab);
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
-/*
-async function onTabActivated(tab) {
-    try {
-        if (verbose) {
-            console.log("onTabActivated:", tab);
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
-/*
-async function onTabUpdated(tabId, changeInfo, tab) {
-    try {
-        if (verbose) {
-            console.log("onTabUpdated:", tab.type, tab.status, tab.url, changeInfo.status, { changeInfo, tab });
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
-/*
-async function onTabRemoved(tabId, removeInfo) {
-    try {
-        if (verbose) {
-            console.log("onTabRemoved:", { tabId: tabId, removeInfo: removeInfo });
-        }
-    } catch (e) {
-        console.error(e);
-    }
-}
-*/
-
 async function onDisplayedFolderChanged(tab, displayedFolder) {
     try {
         if (verbose) {
             console.log("onDisplayedFolderChanged:", tab, displayedFolder);
         }
-        let displayedFolderAccountId = displayedFolder.accountId;
-        if (!(await isAccount(displayedFolderAccountId))) {
-            displayedFolderAccountId = undefined;
+        let accountId = displayedFolder.accountId;
+        if (!(await isAccount(accountId))) {
+            accountId = undefined;
         }
-        displayedFolderTab = tab;
-        await updateMessageDisplayAction(displayedFolderAccountId);
+        await updateMessageDisplayAction(accountId);
     } catch (e) {
         console.error(e);
     }
@@ -1417,38 +1431,21 @@ async function onSelectedMessagesChanged(tab, selectedMessages) {
     }
 }
 
-/*
-async function onMessagesDisplayed(tab, displayedMessages) {
+async function onLoad() {
     try {
-        if (verbose) {
-            console.log("onMessagesDisplayed:", tab, displayedMessages);
-        }
-	// FIXME
-        displayedMessagesTab = undefined;
-        for (const message of displayedMessages.messages) {
-            if (accounts === undefined) {
-                await messenger.menus.removeAll();
-            } else {
-                let account = await getAccount(message.folder.accountId);
-                displayedMessagesTab = tab;
-                await updateMessageDisplayAction(account);
-            }
-            break;
-        }
+        loaded = true;
+        approved = await isApproved();
+        console.warn("onLoad:", { approved });
+        await initMenus();
+        //await initialize("onLoad");
     } catch (e) {
         console.error(e);
     }
 }
-*/
 
-async function onLoad() {
+async function onUpdateAvailable(details) {
     try {
-        console.warn("onLoad");
-        await initialize("onLoad");
-        const restartPending = await config.local.getBool(config.key.reloadPending);
-        if (restartPending === true) {
-            await config.local.remove(config.key.reloadPending);
-        }
+        console.log("onUpdateAvailable:", details);
     } catch (e) {
         console.error(e);
     }
@@ -1464,6 +1461,7 @@ messenger.runtime.onInstalled.addListener(onInstalled);
 messenger.runtime.onStartup.addListener(onStartup);
 messenger.runtime.onSuspend.addListener(onSuspend);
 messenger.runtime.onSuspendCanceled.addListener(onSuspendCanceled);
+messenger.runtime.onUpdateAvailable.addListener(onUpdateAvailable);
 
 messenger.runtime.onConnect.addListener(onConnect);
 messenger.runtime.onMessage.addListener(onMessage);

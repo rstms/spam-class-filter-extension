@@ -1134,18 +1134,24 @@ export class FilterDataController {
 
     async getClasses(accountId, force = false) {
         try {
+            await this.lock();
             return await this.get(CLASSES, accountId, force);
         } catch (e) {
             console.error(e);
+        } finally {
+            this.unlock();
         }
     }
 
     async getBooks(accountId, force = false) {
         try {
+	    await this.lock();
             return await this.get(BOOKS, accountId, force);
         } catch (e) {
             console.error(e);
-        }
+        } finally {
+	    this.unlock();
+	}
     }
 
     //
@@ -1288,6 +1294,7 @@ export class FilterDataController {
 
     async setBooks(accountId, books) {
         try {
+	    await this.lock();
             if (verbose) {
                 console.debug("setBooks:", accountId, books);
             }
@@ -1298,11 +1305,14 @@ export class FilterDataController {
             return await this.set(BOOKS, accountId, books);
         } catch (e) {
             console.error(e);
-        }
+        } finally {
+	    this.unlock();
+	}
     }
 
     async setClasses(accountId, classes) {
         try {
+            await this.lock();
             if (verbose) {
                 console.debug("setClasses:", accountId, classes);
             }
@@ -1317,11 +1327,14 @@ export class FilterDataController {
             return result;
         } catch (e) {
             console.error(e);
+        } finally {
+            this.unlock();
         }
     }
 
     async sendClasses(accountId, force = false) {
         try {
+            await this.lock();
             if (verbose) {
                 console.debug("sendClasses:", accountId, force);
             }
@@ -1332,11 +1345,14 @@ export class FilterDataController {
             return result;
         } catch (e) {
             console.error(e);
+        } finally {
+            this.unlock();
         }
     }
 
     async sendBooks(accountId, force = false) {
         try {
+	    await this.lock();
             if (verbose) {
                 console.debug("sendBooks:", accountId, force);
             }
@@ -1347,7 +1363,9 @@ export class FilterDataController {
             return result;
         } catch (e) {
             console.error(e);
-        }
+        } finally {
+	    this.unlock();
+	}
     }
 
     async setDefaults(type, accountId) {
@@ -1378,17 +1396,23 @@ export class FilterDataController {
 
     async setBooksDefaults(accountId) {
         try {
+	    await this.lock();
             return await this.setDefaults(BOOKS, accountId);
         } catch (e) {
             console.error(e);
-        }
+        } finally {
+	    this.unlock();
+	}
     }
 
     async setClassesDefaults(accountId) {
         try {
+            await this.lock();
             return await this.setDefaults(CLASSES, accountId);
         } catch (e) {
             console.error(e);
+        } finally {
+            this.unlock();
         }
     }
 
@@ -1556,8 +1580,6 @@ export class FilterDataController {
             if (verbose) {
                 console.log("getPassword:", accountId);
             }
-            //await this.lock();
-            await getAccount(accountId);
             let password = this.passwords.get(accountId);
             if (password !== undefined) {
                 if (verbose) {
@@ -1567,26 +1589,23 @@ export class FilterDataController {
             }
             await this.queryAccount(accountId);
             password = this.passwords.get(accountId);
-            if (password !== undefined) {
-                return password;
+            if (password === undefined) {
+                throw new Error("password query failed");
             }
-            throw new Error("password query failed");
+            return password;
         } catch (e) {
             console.error(e);
         }
-        //} finally {
-        //    this.unlock();
-        //}
     }
 
-    // called while locked
     async queryAccount(accountId) {
         try {
             if (verbose) {
-                console.debug("queryAccounts before:", this.passwords.map);
+                console.debug("queryAccount before:", this.passwords.map);
             }
             await displayMessage("Requesting cardDAV credentials...");
-            const account = await getAccount(accountId);
+            let account = await getAccount(accountId);
+            console.assert(account.id === accountId);
             let username = accountEmailAddress(account);
             let response = await this.email.sendRequest(accountId, "passwd");
             if (verbose) {
@@ -1598,9 +1617,18 @@ export class FilterDataController {
             await displayMessage("Received cardDAV credentials");
             await this.writeState();
             if (verbose) {
-                console.debug("queryAccounts after:", this.passwords.map);
+                console.debug("queryAccount after:", this.passwords.map);
             }
             return;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async purgePending() {
+        try {
+            this.datasets[BOOKS].dirty = {};
+            this.datasets[CLASSES].dirty = {};
         } catch (e) {
             console.error(e);
         }
@@ -1634,7 +1662,6 @@ export class FilterDataController {
 
     async getCardDAVBooks(accountId, force = false) {
         try {
-            await getAccount(accountId);
             const account = await getAccount(accountId);
             let username = accountEmailAddress(account);
             let books;

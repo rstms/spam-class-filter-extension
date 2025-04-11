@@ -5,10 +5,10 @@ const MESSAGE_DWELL_TIME = 5 * 1024;
 let displayTimer = null;
 
 export const verbosity = {
-    accounts: true,
+    accounts: false,
     background: true,
-    config: true,
-    editor: true,
+    config: false,
+    editor: false,
     email: false,
     filterctl: false,
     ports: false,
@@ -16,7 +16,7 @@ export const verbosity = {
     tab_books: false,
     tab_classes: false,
     tab_help: false,
-    tab_options: true,
+    tab_options: false,
 };
 
 export function generateUUID() {

@@ -14,10 +14,10 @@ import { getAccount, getAccounts, getSelectedAccount } from "./accounts.js";
 // FIXME: implement all element event listeners here and call functions on tab objects
 // FIXME: share controls container between this page and all tab objects
 
-/* globals messenger, window, document, console, MutationObserver, setInterval, clearInterval */
+/* globals messenger, window, document, console, MutationObserver */
 const verbose = verbosity.editor;
 
-const disconnectOnBackgroundSuspend = false;
+//const disconnectOnBackgroundSuspend = false;
 
 initThemeSwitcher();
 
@@ -498,21 +498,20 @@ async function disableEditorControl(id, disable) {
 
 async function connect() {
     try {
+        console.log("connect:", { port, backgroundCID, backgroundSuspended });
         if (port === null) {
             if (verbose) {
                 console.debug("editor: requesting background page...");
             }
             const background = await messenger.runtime.getBackgroundPage();
-            backgroundSuspended = false;
             if (verbose) {
                 console.debug("background: page:", { url: background, suspended: backgroundSuspended });
             }
 
-            backgroundCID = null;
             if (verbose) {
                 console.log("editor connecting to background as:", editorCID);
             }
-            port = await messenger.runtime.connect(undefined, { name: editorCID });
+            port = await messenger.runtime.connect({ name: editorCID });
             port.onMessage.addListener(onPortMessage);
             port.onDisconnect.addListener(onDisconnect);
             if (verbose) {
@@ -528,16 +527,9 @@ async function disconnect() {
     try {
         if (port !== null) {
             if (verbose) {
-                console.debug("editor disconnecting:", {
-                    port: port,
-                    editor: editorCID,
-                    background: backgroundCID,
-                });
+                console.debug("disconnecting");
             }
             await port.disconnect();
-            // FIXME: maybe let the onDisconnect clear these?
-            port = null;
-            backgroundCID = null;
         }
     } catch (e) {
         console.error(e);
@@ -585,19 +577,16 @@ async function onMessage(message, sender) {
         // process messages allowed without connection
         switch (message.id) {
             case "backgroundActivated":
-                console.assert(backgroundSuspended === false);
                 backgroundSuspended = false;
-                await connect();
+                console.log(message.id, { backgroundSuspended });
                 return;
             case "backgroundSuspendCanceled":
-                if (backgroundSuspended) {
-                    await connect();
-                }
+                backgroundSuspended = false;
+                console.log(message.id, { backgroundSuspended });
                 return;
             case "backgroundSuspending":
-                if (disconnectOnBackgroundSuspend) {
-                    await disconnect();
-                }
+                backgroundSuspended = true;
+                console.log(message.id, { backgroundSuspended });
                 return;
             case "addSenderTargetChanged":
                 await tab.books.handleAddSenderTargetChanged(message);
@@ -627,19 +616,6 @@ async function onMessage(message, sender) {
         let response = undefined;
 
         switch (message.id) {
-            /*
-            case "selectEditorTab":
-                response = await handleSelectEditorTab(message);
-                break;
-
-            case "updateEditorAccounts":
-                response = handleUpdateEditorAccounts(message);
-                break;
-
-            case "updateEditorSelectedAccount":
-                response = await handleUpdateEditorSelectedAccount(message);
-                break;
-	    */
             default:
                 console.error("unknown message ID:", message);
                 break;
@@ -661,65 +637,47 @@ async function onMessage(message, sender) {
 
 async function onDisconnect(port) {
     try {
-        if (verbose) {
-            console.log("editor: onDisconnect:", {
-                port: port,
-                editor: editorCID,
-                background: backgroundCID,
-                backgroundSuspended: backgroundSuspended,
-            });
-        }
         port = null;
         backgroundCID = null;
-        backgroundSuspended = true;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function isConnected() {
-    try {
-        return !backgroundSuspended;
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function backgroundConnection() {
-    return new Promise((resolve, reject) => {
-        let timer;
-        try {
-            timer = setInterval(() => {
-                console.log("waiting...");
-                isConnected().then((connected) => {
-                    if (connected) {
-                        console.log("connected");
-                        resolve();
-                    }
-                    resolve();
-                });
-            }, 100);
-        } catch (e) {
-            reject(e);
-        } finally {
-            clearInterval(timer);
+        if (verbose) {
+            console.log("onDisconnect:", { port, backgroundCID, backgroundSuspended });
         }
-    });
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 async function sendMessage(message) {
     try {
-        console.log("sendMessage:", { backgroundSuspended });
+        if (verbose) {
+            console.log("sendMessage:", { port, backgroundCID, backgroundSuspended });
+        }
+
+        /*
         if (backgroundSuspended) {
-            console.log("sendMessage: connecting");
+            console.debug("suspended; awaiting background initialization");
+            let initialized = await messenger.runtime.sendMessage({ id: "isInitialized", src: editorCID, dst: backgroundCID });
+            console.debug("isInitialized returned:", initialized);
+            if (initialized) {
+                backgroundSuspended = false;
+            }
+        }
+	*/
+
+        /*
+	if (port === null || backgroundCID === null) {
+            console.log("reconnecting");
             await connect();
-            await backgroundConnection();
+            await connected();
+            console.log("reconnected");
         }
 
         if (port === null || backgroundCID === null) {
-            console.error("SendMessage: port not connected:", port, editorCID, backgroundCID, message);
+            console.error("SendMessage: port not connected:", port, backgroundCID, backgroundSuspended, message);
             throw new Error("SendMessage: port not connected");
         }
+	*/
+
         if (typeof message === "string") {
             message = { id: message };
         }
@@ -941,9 +899,6 @@ async function onBooksConnectionChanged(sender) {
 addTabControl(tab.classes, "accountSelect", "classes-account-select", "change", onAccountSelectChange);
 addTabControl(tab.classes, "statusMessage", "classes-status-message-span");
 addTabControl(tab.classes, "statusLabel", "classes-status-label-span");
-addTabControl(tab.classes, "classTable", "class-table", "change", (sender) => {
-    tab.classes.onTableChange(sender);
-});
 addTabControl(tab.classes, "tableBody", "level-table-body");
 addTabControl(tab.classes, "tableGridRow", "table-grid-row");
 addTabControl(tab.classes, "tableGridColumn", "table-grid-column");

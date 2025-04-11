@@ -195,7 +195,6 @@ export class OptionsTab {
     async onClearCacheClick() {
         try {
             await messenger.runtime.sendMessage({ id: "cacheControl", command: "clear" });
-            await config.local.setBool(config.key.reloadAutoOpen, true);
             await config.local.setBool(config.key.reloadPending, true);
             await messenger.runtime.reload();
         } catch (e) {

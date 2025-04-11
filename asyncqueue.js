@@ -34,55 +34,88 @@ export class AsyncQueue {
     }
 
     async push(item) {
-        await this.lock();
-        this.queue.push(QueueItem(item));
-        this.unlock();
+        try {
+            await this.lock();
+            this.queue.push(new QueueItem(item));
+        } finally {
+            this.unlock();
+        }
     }
 
     async put(item) {
         return await this.push(item);
     }
 
-    async get() {
-        await this.lock();
-        var item = this.queue.shift();
-        this.unlock();
-        if (item) {
-            item = item.item;
+    async shift() {
+        try {
+            await this.lock();
+            var item = this.queue.shift();
+            if (item) {
+                item = item.item;
+            }
+            return item;
+        } finally {
+            this.unlock();
         }
-        return item;
+    }
+
+    async get() {
+        return await this.shift();
     }
 
     async pop() {
-        await this.lock();
-        var item = this.queue.pop();
-        this.unlock();
-        if (item) {
-            item = item.item;
+        try {
+            await this.lock();
+            var item = this.queue.pop();
+            if (item) {
+                item = item.item;
+            }
+            return item;
+        } finally {
+            this.unlock();
         }
-        return item;
     }
 
     async size() {
-        await this.lock();
-        const length = this.queue.length;
-        this.unlock();
-        return length;
+        try {
+            await this.lock();
+            const length = this.queue.length;
+            return length;
+        } finally {
+            this.unlock();
+        }
+    }
+
+    async popAll() {
+        try {
+            await this.lock();
+            let ret = [];
+            for (const item of this.queue) {
+                ret.push(item.item);
+            }
+            this.queue = [];
+            return ret;
+        } finally {
+            this.unlock();
+        }
     }
 
     async expire(timeout) {
-        await this.lock();
-        var active = [];
-        var expired = [];
-        for (let i = 0; i < this.queue.length; i++) {
-            if (this.queue[i].age() > timeout) {
-                expired.push(this.queue[i].item);
-            } else {
-                active.push(this.queue[i]);
+        try {
+            await this.lock();
+            var active = [];
+            var expired = [];
+            for (let i = 0; i < this.queue.length; i++) {
+                if (this.queue[i].age() > timeout) {
+                    expired.push(this.queue[i].item);
+                } else {
+                    active.push(this.queue[i]);
+                }
             }
+            this.queue = active;
+            return expired;
+        } finally {
+            this.unlock();
         }
-        this.queue = active;
-        this.unlock();
-        return expired;
     }
 }

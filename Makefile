@@ -81,6 +81,7 @@ release: all
 	rm -f release.zip
 	zip release.zip -r $(package_files)
 	( rm -rf testo && mkdir testo && cd testo && unzip ../release.zip ); find testo
+	rm -rf testo
 	mv release.zip dist/$(release_file)
 	@$(if $(update),gh release delete -y v$(version),)
 	gh release create v$(version) --notes "v$(version)"

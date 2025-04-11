@@ -842,6 +842,9 @@ export class BooksTab {
 
     async handleAddSenderTargetChanged(message) {
         try {
+            if (!this.initialized) {
+                await this.initialize();
+            }
             if (message.accountId === this.account.id) {
                 await this.populateAddSenderTarget(message.bookName);
             }

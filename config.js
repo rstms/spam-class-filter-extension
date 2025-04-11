@@ -248,7 +248,6 @@ export const config = {
         autoClearConsole: "autoClearConsole",
         domain: "domain",
         selectedAccount: "selectedAccount",
-        reloadAutoOpen: "reloadAutoOpen",
         reloadPending: "reloadPending",
         usageResponse: "usageResponse",
         counter: "counter",

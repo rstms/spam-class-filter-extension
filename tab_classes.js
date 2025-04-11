@@ -28,6 +28,8 @@ export class ClassesTab {
         this.handlers = handlers;
         this.account = undefined;
         this.classes = undefined;
+        this.sliderMoveBuffer = null;
+        this.sliderDrag = false;
     }
 
     async selectAccount(accountId) {
@@ -39,14 +41,14 @@ export class ClassesTab {
         }
     }
 
-    async getClasses(disablePopulate = false, disableUpdateStatus = false) {
+    async getClasses(flags = { disablePopulate: false, disableUpdateStatus: false }) {
         try {
             if (verbose) {
-                console.debug("ClassesTab.getClasses:", disablePopulate, disableUpdateStatus, this);
+                console.debug("ClassesTab.getClasses:", flags, this);
             }
             await this.setStatusPending("Requesting classes...");
             let response = await this.sendMessage({ id: "getClasses", accountId: this.account.id });
-            let classes = await this.handleResponse(response, disablePopulate, disableUpdateStatus);
+            let classes = await this.handleResponse(response, flags);
             if (verbose) {
                 console.debug("getClasses returning:", classes);
             }
@@ -56,10 +58,10 @@ export class ClassesTab {
         }
     }
 
-    async handleResponse(response, disablePopulate = false, disableUpdateStatus = false) {
+    async handleResponse(response, flags = { disablePopulate: false, disableUpdateStatus: false }) {
         try {
             if (verbose) {
-                console.log("handleResponse:", response);
+                console.debug("handleResponse:", response);
             }
 
             let classes = response.classes;
@@ -78,12 +80,12 @@ export class ClassesTab {
                 response.classes = classes;
                 console.assert(classes instanceof Classes, "classes is not an instance of Classes");
 
-                if (!disablePopulate) {
+                if (!flags.disablePopulate) {
                     await this.populate(classes);
                 }
             }
 
-            if (!disableUpdateStatus) {
+            if (!flags.disableUpdateStatus) {
                 await this.updateStatus(response);
             }
             if (verbose) {
@@ -95,7 +97,7 @@ export class ClassesTab {
         }
     }
 
-    async getLevels(asClasses = false) {
+    async getLevels() {
         try {
             let i = 0;
             let classes = await classesFactory();
@@ -117,22 +119,11 @@ export class ClassesTab {
                 classes.addLevel(name, score);
                 i += 1;
             }
-            let ret = asClasses ? classes : (await classes.render()).Classes;
-            if (verbose) {
-                console.debug("getLevels: returning:", ret);
-            }
-            return ret;
-        } catch (e) {
-            console.error(e);
-        }
-    }
 
-    async onTableChange(event) {
-        try {
             if (verbose) {
-                console.log("table change:", event);
+                console.debug("getLevels: returning:", classes);
             }
-            await this.updateClasses();
+            return classes;
         } catch (e) {
             console.error(e);
         }
@@ -141,11 +132,10 @@ export class ClassesTab {
     async onCellDelete(event) {
         try {
             if (verbose) {
-                console.log("cell delete");
+                console.debug("cell delete");
             }
             const row = parseInt(event.srcElement.getAttribute("data-row"));
-            let asClasses = true;
-            var classes = await this.getLevels(asClasses);
+            var classes = await this.getLevels();
             classes.levels.splice(row, 1);
             await this.updateClasses(classes);
         } catch (e) {
@@ -164,41 +154,97 @@ export class ClassesTab {
     async onSliderMoved(event) {
         try {
             if (verbose) {
-                console.log("slider moved");
+                console.debug("slider moved:", event);
             }
-            let asClasses = true;
-            var classes = await this.getLevels(asClasses);
+            switch (event.type) {
+                case "mousedown":
+                    this.sliderDrag = true;
+                    this.sliderMoveBuffer = null;
+                    return;
+                case "mouseup":
+                    if (this.sliderDrag && this.sliderMoveBuffer !== null) {
+                        await this.processSliderMove(this.sliderMoveBuffer);
+                    }
+                    this.sliderDrag = false;
+                    this.sliderMoveBuffer = null;
+                    return;
+                case "mouseleave":
+                    if (this.sliderDrag && this.sliderMoveBuffer !== null) {
+                        await this.processSliderMove(this.sliderMoveBuffer);
+                    }
+                    this.sliderDrag = false;
+                    this.sliderMoveBuffer = null;
+                    return;
+                case "input":
+                    break;
+                default:
+                    console.error("unexpected event:", event);
+                    throw new Error("unexpected event");
+            }
             const row = parseInt(event.srcElement.getAttribute("data-row"));
+            const score = document.getElementById(`level-score-${row}`);
+            const slider = event.srcElement;
+            const value = slider.value;
+            const update = {
+                row,
+                slider,
+                score,
+                value,
+                levels: [],
+                accountId: this.account.id,
+            };
+            const classes = await this.getLevels();
+            for (const level of classes.levels) {
+                update.levels.push({ name: level.name, score: level.score });
+            }
+
+            if (this.sliderDrag) {
+                score.value = this.round(value);
+                this.sliderMoveBuffer = update;
+                return;
+            }
+            await this.processSliderMove(update);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async processSliderMove(update) {
+        try {
+            if (verbose) {
+                console.debug("onSliderMoved:", update);
+            }
 
             // get the element value rounded to tenths
-            let sliderValue = this.round(event.srcElement.value);
+            let value = this.round(update.value);
 
             // limit slider to stay below the next level
-            if (row < classes.levels.length - 1) {
-                let nextLevelValue = this.round(classes.levels[row + 1].score);
-                if (sliderValue >= nextLevelValue) {
-                    sliderValue = nextLevelValue - 0.1;
+            if (update.row < update.levels.length - 1) {
+                let nextLevelValue = this.round(update.levels[update.row + 1].score);
+                if (value >= nextLevelValue) {
+                    value = nextLevelValue - 0.1;
                 }
             }
 
             // limit slider to stay above the previous level
-            if (row > 0) {
-                let lastLevelValue = this.round(classes.levels[row - 1].score);
-                if (sliderValue <= lastLevelValue) {
-                    sliderValue = lastLevelValue + 0.1;
+            if (update.row > 0) {
+                let lastLevelValue = this.round(update.levels[update.row - 1].score);
+                if (value <= lastLevelValue) {
+                    value = lastLevelValue + 0.1;
                 }
             }
 
             // round the slider to tenths after the calculations
-            sliderValue = this.round(sliderValue);
-
-            event.srcElement.value = sliderValue;
-
-            let score = document.getElementById(`level-score-${row}`);
-            //score.value = event.srcElement.value;
-            score.value = sliderValue;
-
-            await this.updateClasses();
+            value = this.round(value);
+            update.levels[update.row].score = value;
+            let classes = await classesFactory();
+            await classes.setAccountId(update.accountId);
+            for (const level of update.levels) {
+                classes.addLevel(level.name, level.score);
+            }
+            update.slider.value = value;
+            update.score.value = value;
+            await this.updateClasses(classes);
         } catch (e) {
             console.error(e);
         }
@@ -207,7 +253,7 @@ export class ClassesTab {
     async onScoreChanged(event) {
         try {
             if (verbose) {
-                console.log("score changed");
+                console.debug("score changed");
             }
             const row = parseInt(event.srcElement.getAttribute("data-row"));
             const slider = document.getElementById(`level-slider-${row}`);
@@ -221,7 +267,7 @@ export class ClassesTab {
     async onNameChanged() {
         try {
             if (verbose) {
-                console.log("name changed");
+                console.debug("name changed");
             }
             await this.updateClasses();
         } catch (e) {
@@ -254,10 +300,9 @@ export class ClassesTab {
         try {
             const row = parseInt(event.srcElement.getAttribute("data-row"));
             if (verbose) {
-                console.log("cellInsert:", event, row);
+                console.debug("cellInsert:", event, row);
             }
-            let asClasses = true;
-            let classes = await this.getLevels(asClasses);
+            let classes = await this.getLevels();
             let newScore = parseFloat(classes.levels[row].score);
             let nextScore = parseFloat(classes.levels[row + 1].score);
             if (nextScore === 999) {
@@ -329,7 +374,7 @@ export class ClassesTab {
             for (const key of Object.keys(cells)) {
                 const el = document.getElementById(cells[key].id);
                 if (verbose) {
-                    console.log("cell:", key, el);
+                    console.debug("cell:", key, el);
                 }
                 cells[key].attributes = {};
                 cells[key].classes = [];
@@ -353,7 +398,7 @@ export class ClassesTab {
             //cells["level-slider"].classes.push("flex-fill");
             this.cellTemplate = cells;
             if (verbose) {
-                console.log("cellTemplate:", this.cellTemplate);
+                console.debug("cellTemplate:", this.cellTemplate);
             }
         } catch (e) {
             console.error(e);
@@ -394,7 +439,7 @@ export class ClassesTab {
     async populate(classes = undefined) {
         try {
             if (verbose) {
-                console.log("BEGIN populateRows");
+                console.debug("BEGIN populateRows");
             }
 
             if (this.accounts === undefined) {
@@ -411,7 +456,7 @@ export class ClassesTab {
 
             if (classes == undefined) {
                 // disablePopulate to prevent infinite loop
-                classes = await this.getClasses(true);
+                classes = await this.getClasses({ disablePopulate: true });
             }
             this.classes = classes;
 
@@ -429,7 +474,7 @@ export class ClassesTab {
 
             if (!this.cellTemplate) {
                 if (dumpHTML) {
-                    console.log(this.controls.tableBody.innerHTML);
+                    console.debug(this.controls.tableBody.innerHTML);
                 }
                 await this.initCellTemplate();
             }
@@ -466,6 +511,9 @@ export class ClassesTab {
                         nameControl.addEventListener("keypress", this.handlers.InputKeypress);
                         nameControl.addEventListener("change", this.handlers.NameChanged);
                         sliderControl.addEventListener("input", this.handlers.SliderMoved);
+                        sliderControl.addEventListener("mousedown", this.handlers.SliderMoved);
+                        sliderControl.addEventListener("mouseup", this.handlers.SliderMoved);
+                        sliderControl.addEventListener("mouseleave", this.handlers.SliderMoved);
                         scoreControl.addEventListener("change", this.handlers.ScoreChanged);
                         scoreControl.addEventListener("keypress", this.handlers.InputKeypress);
                     }
@@ -510,7 +558,7 @@ export class ClassesTab {
             }
 
             // check that editedLevels returns the same data we set
-            const controlLevels = await this.getLevels(true);
+            const controlLevels = await this.getLevels();
             await classes.validate();
             await controlLevels.validate();
             let mismatch = classes.diff(controlLevels);
@@ -525,7 +573,7 @@ export class ClassesTab {
             await this.enableControls(controlLevels.valid ? true : false);
 
             if (verbose) {
-                console.log("END populateRows");
+                console.debug("END populateRows");
             }
         } catch (e) {
             console.error(e);
@@ -538,8 +586,7 @@ export class ClassesTab {
                 console.debug("updateClasses: classes", classes);
             }
             if (classes === undefined) {
-                let asClasses = true;
-                classes = await this.getLevels(asClasses);
+                classes = await this.getLevels();
             }
             let message = {
                 id: sendToServer ? "sendClasses" : "setClasses",
