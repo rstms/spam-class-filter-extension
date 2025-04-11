@@ -730,8 +730,9 @@ async function onMenuClicked(info, tab) {
 
 async function onMenuShown(info, tab) {
     try {
+        let initialized = await messenger.storage.session.get(["initialized"]);
         if (verbose) {
-            console.debug("onMenuShown:", { info, tab, approved, loaded });
+            console.debug("onMenuShown:", { info, tab, approved, loaded, initialized });
         }
         if (!approved) {
             return;
