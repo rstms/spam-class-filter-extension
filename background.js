@@ -105,7 +105,7 @@ async function initialize(mode) {
         let autoOpen = await config.local.getBool(config.key.autoOpen);
         if (await config.local.getBool(config.key.reloadPending)) {
             await config.local.remove(config.key.reloadPending);
-            //autoOpen = true;
+            autoOpen = true;
         }
         if (autoOpen) {
             await focusEditorWindow();
@@ -115,7 +115,7 @@ async function initialize(mode) {
     }
 }
 
-async function getFilterDataController(flags = { force: false, readState: true, purgePending: false}) {
+async function getFilterDataController(flags = { force: false, readState: true, purgePending: false }) {
     try {
         if (filterDataController === null || flags.force) {
             filterDataController = new FilterDataController(email);
