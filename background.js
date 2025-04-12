@@ -318,7 +318,10 @@ async function onCommand(command, tab) {
         let prefix = "mailfilter-add-sender-";
         if (command.substr(0, prefix.length) === prefix) {
             let suffix = command.substr(prefix.length);
-            return await addSenderAction(tab, suffix);
+            const tabs = await messenger.tabs.query({ type: "mail" });
+            console.assert(tabs.length === 1, "unexpected mail tab query result");
+            console.assert(tabs[0].id === tab.id, "command tab is not mail tab");
+            return await addSenderAction(tabs[0], suffix);
         }
         switch (command) {
             default:
@@ -1046,6 +1049,8 @@ async function addSenderToFilterBook(accountId, tab, book) {
         console.error(e);
     }
 }
+
+/*
 async function messageDisplayActionMessagesAccountId(messages) {
     try {
         let messageAccountIds = new Set();
@@ -1074,12 +1079,11 @@ async function messageDisplayActionMessagesAccountId(messages) {
         console.error(e);
     }
 }
+*/
 
 async function addSenderAction(tab, bookIndex = "default") {
     try {
-        const selectedMessages = await messenger.mailTabs.getSelectedMessages(tab.id);
-        const messages = selectedMessages.messages;
-        const accountId = await messageDisplayActionMessagesAccountId(messages);
+        const accountId = await selectedMessagesAccountId();
         if (accountId !== undefined) {
             let book;
             if (bookIndex === "default") {
@@ -1093,7 +1097,7 @@ async function addSenderAction(tab, bookIndex = "default") {
                 }
             }
             if (book !== undefined) {
-                await addSenderToFilterBook(accountId, messages, book);
+                await addSenderToFilterBook(accountId, tab, book);
             }
         }
     } catch (e) {
