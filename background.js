@@ -1067,10 +1067,8 @@ async function messageDisplayActionMessagesAccountId(messages) {
         }
 
         // sanity check that accountId matches messageDispayActionId
-        if (accountId !== messageDisplayActionAccountId) {
-            console.error({ accountId, messageDisplayActionAccountId });
-            throw new Error("unexpected message display action message account");
-        }
+        console.assert(accountId === messageDisplayActionAccountId, "unexpected message display action message account");
+
         return accountId;
     } catch (e) {
         console.error(e);
@@ -1085,10 +1083,10 @@ async function addSenderAction(tab, bookIndex = "default") {
         if (accountId !== undefined) {
             let book;
             if (bookIndex === "default") {
-                book = await getAddSenderTarget(messageDisplayActionAccountId);
+                book = await getAddSenderTarget(accountId);
             } else {
                 const filterctl = await getFilterDataController();
-                const books = await filterctl.getCardDAVBooks(messageDisplayActionAccountId);
+                const books = await filterctl.getCardDAVBooks(accountId);
                 const indexed = books[parseInt(bookIndex) - 1];
                 if (indexed !== undefined) {
                     book = indexed.name;
