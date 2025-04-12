@@ -16,7 +16,7 @@ async function saveOptions(sender) {
         await config.session.reset();
         await config.local.setBool(config.key.optInApproved, checked);
         await config.local.setBool(config.key.reloadAutoOptions, true);
-        messenger.runtime.reload();
+        await messenger.runtime.reload();
     } catch (e) {
         console.error(e);
     }
