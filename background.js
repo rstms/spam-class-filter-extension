@@ -2,7 +2,7 @@ console.warn("BEGIN background.js");
 
 import { isAccount, getAccounts, getAccount, getSelectedAccount } from "./accounts.js";
 import * as ports from "./ports.js";
-import { accountEmailAddress, displayMessage, timestamp } from "./common.js";
+import { accountEmailAddress, displayMessage } from "./common.js";
 import { FilterDataController } from "./filterctl.js";
 import { email } from "./email.js";
 import { config } from "./config.js";
@@ -77,9 +77,7 @@ async function initialize(mode) {
             console.clear();
         }
 
-        await messenger.storage.session.set({ initialized: timestamp() });
-        let initialized = await messenger.storage.session.get(["initialized"]);
-        console.warn("initialize:", { mode, approved, initialized });
+        console.warn("initialize:", { mode, approved });
 
         const manifest = await messenger.runtime.getManifest();
         console.log(`${manifest.name} v${manifest.version} (${mode}) Approved=${approved}`);
@@ -101,15 +99,6 @@ async function initialize(mode) {
         await getFilterDataController({ purgePending: true });
 
         initialized = true;
-
-        let autoOpen = await config.local.getBool(config.key.autoOpen);
-        if (await config.local.getBool(config.key.reloadPending)) {
-            await config.local.remove(config.key.reloadPending);
-            autoOpen = true;
-        }
-        if (autoOpen) {
-            await focusEditorWindow();
-        }
     } catch (e) {
         console.error(e);
     }
@@ -1432,13 +1421,20 @@ async function onLoad() {
     try {
         loaded = true;
         approved = await isApproved();
-        let initialized = await messenger.storage.session.get(["initialized"]);
-        console.warn("onLoad:", { approved, initialized });
+        console.warn("onLoad:", { approved });
         await initMenus();
         if (await config.local.getBool(config.key.reloadAutoOptions)) {
             await config.local.remove(config.key.reloadAutoOptions);
             await messenger.runtime.openOptionsPage();
             return;
+        }
+        let autoOpen = await config.local.getBool(config.key.autoOpen);
+        if (await config.local.getBool(config.key.reloadPending)) {
+            await config.local.remove(config.key.reloadPending);
+            autoOpen = true;
+        }
+        if (autoOpen) {
+            await focusEditorWindow();
         }
     } catch (e) {
         console.error(e);
