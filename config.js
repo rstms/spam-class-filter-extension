@@ -250,6 +250,7 @@ export const config = {
         selectedAccount: "selectedAccount",
         reloadPending: "reloadPending",
         usageResponse: "usageResponse",
+        reloadAutoOptions: "reloadAutoOptions",
         counter: "counter",
     },
 };

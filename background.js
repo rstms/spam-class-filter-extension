@@ -107,6 +107,11 @@ async function initialize(mode) {
             await config.local.remove(config.key.reloadPending);
             autoOpen = true;
         }
+        if (await config.local.getBool(config.key.reloadAutoOptions)) {
+            await config.local.remove(config.key.reloadAutoOptions);
+            await messenger.runtime.openOptionsPage();
+            return;
+        }
         if (autoOpen) {
             await focusEditorWindow();
         }
