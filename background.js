@@ -107,11 +107,6 @@ async function initialize(mode) {
             await config.local.remove(config.key.reloadPending);
             autoOpen = true;
         }
-        if (await config.local.getBool(config.key.reloadAutoOptions)) {
-            await config.local.remove(config.key.reloadAutoOptions);
-            await messenger.runtime.openOptionsPage();
-            return;
-        }
         if (autoOpen) {
             await focusEditorWindow();
         }
@@ -1436,7 +1431,11 @@ async function onLoad() {
         let initialized = await messenger.storage.session.get(["initialized"]);
         console.warn("onLoad:", { approved, initialized });
         await initMenus();
-        //await initialize("onLoad");
+        if (await config.local.getBool(config.key.reloadAutoOptions)) {
+            await config.local.remove(config.key.reloadAutoOptions);
+            await messenger.runtime.openOptionsPage();
+            return;
+        }
     } catch (e) {
         console.error(e);
     }
