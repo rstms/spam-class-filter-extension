@@ -29,25 +29,25 @@ export class Domains {
             this.domains = await config.local.get(config.key.domain);
             if (typeof this.domains !== "object" || Object.keys(this.domains).length < 1) {
                 this.domains = {};
-
-                // ensure domains has a value for all accounts
-                for (const account of Object.values(this.accounts)) {
-                    let domain = this.accountDomains[account.id];
-                    if (!Object.hasOwn(this.domains, domain)) {
-                        this.domains[domain] = false;
-                    }
-                }
-
-                // remove any domains not in accountDomains
-                let domainList = Object.keys(this.domains);
-                for (const domain of domainList) {
-                    if (!Object.values(this.accountDomains).includes(domain)) {
-                        delete this.domains[domain];
-                    }
-                }
-
-                await this.write();
             }
+
+            // ensure domains has a value for all accounts
+            for (const account of Object.values(this.accounts)) {
+                let domain = this.accountDomains[account.id];
+                if (!Object.hasOwn(this.domains, domain)) {
+                    this.domains[domain] = false;
+                }
+            }
+
+            // remove any domains not in accountDomains
+            let domainList = Object.keys(this.domains);
+            for (const domain of domainList) {
+                if (!Object.values(this.accountDomains).includes(domain)) {
+                    delete this.domains[domain];
+                }
+            }
+
+            await this.write();
         } catch (e) {
             console.error(e);
         }
