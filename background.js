@@ -525,6 +525,22 @@ let menuConfig = {
         onClicked: onMenuAddSenderClicked,
         onShown: onMenuShownUpdateAddSenderTitle,
     },
+
+    rmfRescanMessages: {
+        properties: {
+            title: "Rescan Messages",
+            contexts: ["message_list"],
+        },
+        onClicked: onMenuRescanMessagesClicked,
+    },
+
+    rmfRescanFolder: {
+        properties: {
+            title: "Rescan Folder",
+            contexts: ["folder_pane"],
+        },
+        onClicked: onMenuRescanFolderClicked,
+    },
 };
 
 // reset menu configuration from menu config data structure
@@ -910,6 +926,38 @@ async function onMenuControlPanelClicked(target, detail) {
             console.debug("onMenuControlPanel clicked:", target.id, { target, detail });
         }
         await focusEditorWindow();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onMenuRescanFolderClicked(target, detail) {
+    try {
+        if (verbose) {
+            console.log("onMenuRescanFolderClicked:", target.id, {
+                target,
+                detail,
+                messageDisplayActionAccountId,
+                displayedFolderAccountId,
+            });
+        }
+        console.assert(target.accountId === messageDisplayActionAccountId);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function onMenuRescanMessagesClicked(target, detail) {
+    try {
+        if (verbose) {
+            console.log("onMenuRescanMessagesClicked:", target.id, {
+                target,
+                detail,
+                messageDisplayActionAccountId,
+                displayedFolderAccountId,
+            });
+        }
+        console.assert(target.accountId === messageDisplayActionAccountId);
     } catch (e) {
         console.error(e);
     }
