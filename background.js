@@ -528,7 +528,7 @@ let menuConfig = {
 
     rmfRescanMessages: {
         properties: {
-            title: "Rescan Messages",
+            title: "Rescan Selected Messages",
             contexts: ["message_list"],
         },
         onClicked: onMenuRescanMessagesClicked,
@@ -536,7 +536,7 @@ let menuConfig = {
 
     rmfRescanFolder: {
         properties: {
-            title: "Rescan Folder",
+            title: "Rescan All Messages",
             contexts: ["folder_pane"],
         },
         onClicked: onMenuRescanFolderClicked,
@@ -941,7 +941,11 @@ async function onMenuRescanFolderClicked(target, detail) {
                 displayedFolderAccountId,
             });
         }
-        console.assert(target.accountId === messageDisplayActionAccountId);
+        for (const folder of detail.info.selectedFolders) {
+            let account = await getAccount(folder.accountId);
+            let path = folder.path;
+            await requestRescan(account, path, [], `Rescanning all messages in folder '${folder.path}'...`);
+        }
     } catch (e) {
         console.error(e);
     }
@@ -957,7 +961,43 @@ async function onMenuRescanMessagesClicked(target, detail) {
                 displayedFolderAccountId,
             });
         }
-        console.assert(target.accountId === messageDisplayActionAccountId);
+        let account = await getAccount(detail.info.displayedFolder.accountId);
+        let path = detail.info.displayedFolder.path;
+        let messageIds = [];
+        for (const message of detail.info.selectedMessages.messages) {
+            messageIds.push(message.headerMessageId);
+            console.assert(message.folder.path === path, "message path mismatch");
+        }
+        if (messageIds.length > 0) {
+            let displayMessage = "Rescanning message...";
+            if (messageIds.length > 1) {
+                displayMessage = `Rescanning ${messageIds.length} Messages in folder '${path}'...`;
+            }
+            await requestRescan(account, path, messageIds, displayMessage);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function requestRescan(account, path, messageIds, message) {
+    try {
+        let request = {
+            Username: accountEmailAddress(account),
+            Folder: path,
+            MessageIds: messageIds,
+        };
+        await displayMessage(message);
+        console.log(message, request);
+        email
+            .sendRequest(account.id, "rescan", request)
+            .then((response) => {
+                console.log("Rescan response:", response);
+                displayMessage("Rescan complete");
+            })
+            .catch((e) => {
+                console.error("Rescan failed:", e);
+            });
     } catch (e) {
         console.error(e);
     }
