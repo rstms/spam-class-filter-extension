@@ -1,8 +1,8 @@
 {
     "addons": {
       "mail-filter-control-a7cb4aeb-d2e8-4381-b738-571518ec3d0f@rstms.net": {
-	"version": "0.3.1",
-	"update_link": "https://github.com/rstms/spam-class-filter-extension/releases/download/v0.3.1/spam-class-extension-0.3.1.xpi"
+	"version": "0.3.2",
+	"update_link": "https://github.com/rstms/spam-class-filter-extension/releases/download/v0.3.2/spam-class-extension-0.3.2.xpi"
       }
     }
 }
